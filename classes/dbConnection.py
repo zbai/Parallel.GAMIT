@@ -13,7 +13,6 @@ import platform
 import ConfigParser
 import inspect
 import re
-from datetime import datetime
 from decimal import Decimal
 
 
