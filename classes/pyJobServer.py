@@ -369,7 +369,7 @@ class JobServer:
         else:
             # if no parallel was invoked, execute the procedure manually
             if self.callback is not None:
-                job = dispy.DispyJob(args, ())
+                job = dispy.DispyJob(args, (), ())
                 try:
                     job.result = self.function(*args)
                     if self.progress_bar is not None:

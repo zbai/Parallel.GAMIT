@@ -278,6 +278,13 @@ def verify_rinex_multiday(cnn, rinexinfo, Config):
 
 
 def process_crinex_file(crinez, filename, data_rejected, data_retry):
+    '''
+    :param crinez:
+    :param filename:
+    :param data_rejected:
+    :param data_retry:
+    :return:
+    '''
 
     # create a uuid temporary folder in case we cannot read the year and doy from the file (and gets rejected)
     reject_folder = os.path.join(data_rejected, str(uuid.uuid4()))
@@ -638,6 +645,9 @@ def remove_empty_folders(folder):
 
 
 def print_archive_service_summary():
+    '''
+    :return:
+    '''
 
     global cnn
 
@@ -660,6 +670,9 @@ def print_archive_service_summary():
 
 
 def main():
+    '''
+    :return:
+    '''
 
     # put connection and config in global variable to use inside callback_handle
     global cnn
