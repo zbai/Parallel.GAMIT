@@ -97,3 +97,6 @@ classes/error*
 # config files in Parallel.GAMIT folder
 parallel_gamit/gnss_data.cfg
 parallel_gamit/link_tables.sh
+dependancies/
+data/
+.idea/
