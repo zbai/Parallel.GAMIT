@@ -100,3 +100,4 @@ parallel_gamit/link_tables.sh
 dependancies/
 data/
 .idea/
+configuration_files/production

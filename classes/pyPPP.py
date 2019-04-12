@@ -276,6 +276,7 @@ class RunPPP(PPPSpatialCheck):
                  os.path.join(self.rootdir, 'gpsppp.svb_gnss_yrly'))
         copyfile(os.path.join(self.ppp_path, 'gpsppp.flt'), os.path.join(self.rootdir, 'gpsppp.flt'))
         copyfile(os.path.join(self.ppp_path, 'gpsppp.stc'), os.path.join(self.rootdir, 'gpsppp.stc'))
+        copyfile(os.path.join(self.ppp_path, 'gpsppp.trf'), os.path.join(self.rootdir, 'gpsppp.trf'))
         copyfile(os.path.join(self.atx), os.path.join(self.rootdir, os.path.basename(self.atx)))
 
         return
@@ -350,10 +351,10 @@ class RunPPP(PPPSpatialCheck):
                          "commands.cmd\n"
                          "0 0\n"
                          "0 0\n"
-                         "orbits/%s\n"
-                         "orbits/%s\n"
-                         "orbits/%s\n"
-                         "orbits/%s\n"
+                         "%s\n"
+                         "%s\n"
+                         "%s\n"
+                         "%s\n"
                          % (self.rinex.rinex,
                             self.orbits1.sp3_filename,
                             self.clocks1.clk_filename,
@@ -370,13 +371,13 @@ class RunPPP(PPPSpatialCheck):
 
         options = self.options
 
-        orbits1 = pySp3.GetSp3Orbits(options['sp3'], self.rinex.date, type, os.path.join(self.rootdir, 'orbits'), True)
+        orbits1 = pySp3.GetSp3Orbits(options['sp3'], self.rinex.date, type, self.rootdir, True)
         orbits2 = pySp3.GetSp3Orbits(options['sp3'], self.rinex.date + 1, type, 
-                                     os.path.join(self.rootdir, 'orbits'), True)
+                                     self.rootdir, True)
 
-        clocks1 = pyClk.GetClkFile(options['sp3'], self.rinex.date, type, os.path.join(self.rootdir, 'orbits'), True)
+        clocks1 = pyClk.GetClkFile(options['sp3'], self.rinex.date, type, self.rootdir, True)
         clocks2 = pyClk.GetClkFile(options['sp3'], self.rinex.date + 1, type,
-                                   os.path.join(self.rootdir, 'orbits'), True)
+                                   self.rootdir, True)
 
         try:
             eop_file = pyEOP.GetEOP(options['sp3'], self.rinex.date, type, self.rootdir)

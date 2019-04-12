@@ -458,7 +458,7 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry):
 
                         # add the file to the locks table so that it doesn't get processed over and over
                         # this will be removed by user so that the file gets reprocessed once all the metadata is ready
-                        cnn.insert('locks', filename=os.path.relpath(crinez, Config.repository_data_in))
+                        cnn.insert('locks', {'filename':os.path.relpath(crinez, Config.repository_data_in),'StationCode':StationCode})
 
                         return None, [StationCode, (ppp.x, ppp.y, ppp.z), coeff, (ppp.lat[0], ppp.lon[0],
                                                                                   ppp.h[0]), crinez]
@@ -669,7 +669,7 @@ def print_archive_service_summary():
     print ' -- warnings: %i' % warn[0][0]
 
 
-def main():
+if __name__ == '__main__':
     '''
     :return:
     '''
@@ -685,7 +685,7 @@ def main():
                         help="Delete any network starting with '?' from the stations table and purge the contents of "
                              "the locks table, deleting the associated files from data_in.")
 
-    parser.add_argument('-np', '--noparallel', action='store_true', help="Execute command without parallelization.")
+    parser.add_argument('-np', '--noparallel', action='store_true', help="Execute command without parallel.")
 
     args = parser.parse_args()
 
@@ -827,8 +827,3 @@ def main():
 
     # iterate to delete empty folders
     remove_empty_folders(data_in)
-
-
-if __name__ == '__main__':
-
-    main()
