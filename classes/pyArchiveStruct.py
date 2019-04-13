@@ -409,9 +409,14 @@ class RinexStruct():
 
                 if with_filename:
                     # database stores rinex, we want crinez
-                    return "/".join(keys) + "/" + \
+                    retval="/".join(keys) + "/" + \
                            field['Filename'].replace(field['Filename'].split('.')[-1],
                                                      field['Filename'].split('.')[-1].replace('o', 'd.Z'))
+                    if retval[0] == os.path.sep:
+                        return retval[1:]
+                    else:
+                        return retval
+
                 else:
                     return "/".join(keys)
             else:
