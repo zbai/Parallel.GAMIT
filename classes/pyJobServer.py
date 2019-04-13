@@ -372,6 +372,8 @@ class JobServer:
                 job = dispy.DispyJob(args, (), ())
                 try:
                     job.result = self.function(*args)
+                    # TODO: Get the error to go into the events database.
+                    # TODO: The rinex isn't being copied into the production folder so PPP is falling over.
                     if self.progress_bar is not None:
                         self.progress_bar.update()
                 except Exception as e:

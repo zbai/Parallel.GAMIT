@@ -6,11 +6,12 @@ Author: Demian D. Gomez
 Main routines to load the RINEX files to the database, load station information, run PPP on the archive files and obtain
 the OTL coefficients
 
-usage: pyScanArchive.py [-h] [-rinex] [-otl]
+usage: pyScanArchive.py all|net.stnm [all|net.stnm ...]
+                        [-h] [-rinex] [-otl]
                         [-stninfo [argument [argument ...]]]
                         [-ppp [argument [argument ...]]]
                         [-rehash [argument [argument ...]]] [-np]
-                        all|net.stnm [all|net.stnm ...]
+
 
 Archive operations Main Program
 
