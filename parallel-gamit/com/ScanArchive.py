@@ -1218,7 +1218,7 @@ def get_rinex_file(cnn, stnlist, date, Archive_path):
             tqdm.write(" -- %s not found for %s.%s" % (date.yyyyddd(), NetworkCode, StationCode))
 
 
-def main():
+if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Archive operations Main Program')
 
@@ -1390,6 +1390,3 @@ def main():
     JobServer.close_cluster()
 
 
-if __name__ == '__main__':
-
-    main()

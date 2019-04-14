@@ -102,3 +102,4 @@ data/
 .idea/
 classes/.idea/
 configuration_files/production
+venv3/
