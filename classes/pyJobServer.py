@@ -40,8 +40,8 @@ def test_node(check_gamit_tables=None, software_sync=()):
 
     # BEFORE ANYTHING! check the python version
     version = sys.version_info
-    if version.major > 2 or version.minor < 7 or (version.micro < 13 and version.minor <= 7):
-        return ' -- %s: Incorrect Python version: %i.%i.%i. Recommended version > 2.7.13' \
+    if version.major < 3:
+        return ' -- %s: Incorrect Python version: %i.%i.%i. Recommended version > 3' \
                % (platform.node(), version.major, version.minor, version.micro)
 
     # start importing the modeles needed
@@ -81,12 +81,12 @@ def test_node(check_gamit_tables=None, software_sync=()):
                     s = source_dest.split(',')[0].strip()
                     d = source_dest.split(',')[1].strip()
 
-                    print '    -- Synchronizing %s -> %s' % (s, d)
+                    print('    -- Synchronizing %s -> %s' % (s, d))
 
                     updated = sync(s, d, 'sync', purge=True, create=True)
 
                     for f in updated:
-                        print '    -- Updated %s' % f
+                        print('    -- Updated %s' % f)
 
     except Exception:
         return ' -- %s: Problem found while synchronizing software:\n%s ' % (platform.node(), traceback.format_exc())
@@ -245,7 +245,7 @@ def setup(modules):
         module_obj = __import__(module)
         # create a global object containing our module
         globals()[module] = module_obj
-        print ' >> Importing module %s' % module
+        print(' >> Importing module %s' % module)
 
     return 0
 
@@ -255,7 +255,7 @@ class JobServer:
     def check_cluster(self, status, node, job):
 
         if status == dispy.DispyNode.Initialized:
-            print ' -- Checking node %s (%i CPUs)...' % (node.name, node.avail_cpus)
+            print(' -- Checking node %s (%i CPUs)...' % (node.name, node.avail_cpus))
             # test node to make sure everything works
             self.cluster.send_file('gnss_data.cfg', node)
 
@@ -292,7 +292,7 @@ class JobServer:
         self.function = None
         self.modules = []
 
-        print " ==== Starting JobServer(dispy) ===="
+        print(" ==== Starting JobServer(dispy) ====")
 
         # check that the run_parallel option is activated
         if self.run_parallel:
@@ -304,7 +304,7 @@ class JobServer:
                 if Config.options['node_list'].strip() == '':
                     servers = ['*']
                 else:
-                    servers = filter(None, list(Config.options['node_list'].split(',')))
+                    servers = [_f for _f in list(Config.options['node_list'].split(',')) if _f]
 
             # initialize the cluster
             self.cluster = dispy.JobCluster(test_node, servers, recover_file='pg.dat', pulse_interval=60,
@@ -319,22 +319,22 @@ class JobServer:
 
             for r in self.result:
                 if 'Test passed!' not in r:
-                    print r
+                    print(r)
                     stop = True
 
             if stop:
-                print ' >> Errors were encountered during initialization. Check messages.'
+                print(' >> Errors were encountered during initialization. Check messages.')
                 # terminate execution if problems were found
                 self.cluster.close()
                 exit()
 
             self.cluster.close()
         else:
-            print ' >> Parallel processing deactivated by user'
+            print(' >> Parallel processing deactivated by user')
             r = test_node(check_gamit_tables)
             if 'Test passed!' not in r:
-                print r
-                print ' >> Errors were encountered during initialization. Check messages.'
+                print(r)
+                print(' >> Errors were encountered during initialization. Check messages.')
                 exit()
 
     def create_cluster(self, function, deps=(), callback=None, progress_bar=None, verbose=False, modules=()):
@@ -373,7 +373,6 @@ class JobServer:
                 try:
                     job.result = self.function(*args)
                     # TODO: Get the error to go into the events database.
-                    # TODO: The rinex isn't being copied into the production folder so PPP is falling over.
                     if self.progress_bar is not None:
                         self.progress_bar.update()
                 except Exception as e:

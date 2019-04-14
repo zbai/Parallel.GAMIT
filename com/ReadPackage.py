@@ -42,11 +42,11 @@ def main():
 
 def print_insert_sql(station):
 
-    print 'INSERT INTO stations ("NetworkCode", "StationCode", "auto_x", "auto_y", "auto_z", ' \
+    print('INSERT INTO stations ("NetworkCode", "StationCode", "auto_x", "auto_y", "auto_z", ' \
           '"Harpos_coeff_otl", lat, lon, height) VALUES ' \
           '(\'???\', \'%s\', %.4f, %.4f, %.4f, \'%s\', %.8f, %.8f, %.3f)' \
           % (station['StationCode'], station['x'], station['y'], station['z'], station['otl'], station['lat'],
-             station['lon'], station['height'])
+             station['lon'], station['height']))
 
 
 def print_station_info(NetworkCode, StationCode, stninfo):
@@ -54,7 +54,7 @@ def print_station_info(NetworkCode, StationCode, stninfo):
     for record in stninfo:
         import_record = pyStationInfo.StationInfoRecord(NetworkCode, StationCode, record)
 
-        print import_record
+        print(import_record)
 
 
 def extract_json(zipfile):

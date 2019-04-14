@@ -39,7 +39,7 @@ class Event(dict):
 
         # initialize the dictionary based on the input
         for key in kwargs:
-            if key not in self.keys():
+            if key not in list(self.keys()):
                 raise Exception('Provided key not in list of valid fields.')
 
             arg = kwargs[key]

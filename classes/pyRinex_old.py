@@ -154,9 +154,9 @@ class ReadRinex(RinexRecord):
 
         for line in header:
 
-            if any(key in line for key in interval_record.keys()):
+            if any(key in line for key in list(interval_record.keys())):
                 # get the first occurrence only!
-                record = [key for key in interval_record.keys() if key in line][0]
+                record = [key for key in list(interval_record.keys()) if key in line][0]
 
                 # get the data section by spliting the line using the record text
                 data = line.split(record)[0]
@@ -241,9 +241,9 @@ class ReadRinex(RinexRecord):
         #print ''.join(header)
         for line in header:
 
-            if any(key in line for key in required_records.keys()):
+            if any(key in line for key in list(required_records.keys())):
                 # get the first occurrence only!
-                record = [key for key in required_records.keys() if key in line][0]
+                record = [key for key in list(required_records.keys()) if key in line][0]
 
                 # mark the record as found
                 required_records[record][1] = True
@@ -314,9 +314,9 @@ class ReadRinex(RinexRecord):
             raise pyRinexExceptionBadFile('Unfixable RINEX header: could not find RINEX VERSION / TYPE')
 
         # now check that all the records where included! there's missing ones, then force them
-        if not all([item[1] for item in required_records.values()]):
+        if not all([item[1] for item in list(required_records.values())]):
             # get the keys of the missing records
-            missing_records = {item[0]:item[1] for item in required_records.items() if item[1][1] == False}
+            missing_records = {item[0]:item[1] for item in list(required_records.items()) if item[1][1] == False}
 
             for record in missing_records:
                 if '# / TYPES OF OBSERV' in record:

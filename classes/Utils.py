@@ -106,7 +106,7 @@ def _increment_filename(filename):
     #  2) a "counter" - the integer which is incremented
     #  3) an "extension" - the file extension
 
-    sessions = [0,1,2,3,4,5,6,7,8,9] + [chr(x) for x in xrange(ord('a'), ord('z')+1)]
+    sessions = [0,1,2,3,4,5,6,7,8,9] + [chr(x) for x in range(ord('a'), ord('z')+1)]
 
     path = os.path.dirname(filename)
     filename = os.path.basename(filename)
@@ -322,7 +322,7 @@ def parseIntSet(nputstr=""):
                 invalid.append(i)
     # Report invalid tokens before returning valid selection
     if len(invalid) > 0:
-        print "Invalid set: " + str(invalid)
+        print(("Invalid set: " + str(invalid)))
         sys.exit(2)
     return selection
 
@@ -408,7 +408,7 @@ def determine_frame(frames, date):
 def print_columns(l):
 
     for a, b, c, d, e, f, g, h in zip(l[::8], l[1::8], l[2::8], l[3::8], l[4::8], l[5::8], l[6::8], l[7::8]):
-        print('    {:<10}{:<10}{:<10}{:<10}{:<10}{:<10}{:<10}{:<}'.format(a, b, c, d, e, f, g, h))
+        print(('    {:<10}{:<10}{:<10}{:<10}{:<10}{:<10}{:<10}{:<}'.format(a, b, c, d, e, f, g, h)))
 
     if len(l) % 8 != 0:
         sys.stdout.write('    ')
@@ -424,7 +424,7 @@ def get_resource_delimiter():
 def process_stnlist(cnn, stnlist_in, print_summary=True):
 
     if len(stnlist_in) == 1 and os.path.isfile(stnlist_in[0]):
-        print ' >> Station list read from file: ' + stnlist_in[0]
+        print((' >> Station list read from file: ' + stnlist_in[0]))
         stnlist_in = [line.strip() for line in open(stnlist_in[0], 'r')]
 
     stnlist = []
@@ -474,7 +474,7 @@ def process_stnlist(cnn, stnlist_in, print_summary=True):
             stnlist = [stnl for stnl in stnlist if stnl['StationCode'] != stn.lower()]
 
     if print_summary:
-        print ' >> Selected station list:'
+        print(' >> Selected station list:')
         print_columns([item['NetworkCode'] + '.' + item['StationCode'] for item in stnlist])
 
     return stnlist
@@ -548,7 +548,7 @@ def parseIntSet(nputstr=""):
                 invalid.append(i)
     # Report invalid tokens before returning valid selection
     if len(invalid) > 0:
-        print "Invalid set: " + str(invalid)
+        print(("Invalid set: " + str(invalid)))
         sys.exit(2)
     return selection
 
@@ -652,4 +652,4 @@ def fix_gps_week(file_path):
 if __name__ == '__main__':
     
     file = '/some/path/g0107321.snx.gz';
-    print file, fix_gps_week(file)
+    print((file, fix_gps_week(file)))

@@ -55,7 +55,7 @@ def process_sinex(cnn, project, dates, sinex):
     snx = snxParse.snxFileParser(sinex)
     snx.parse()
 
-    stnlist = ('\'' + '\',\''.join(snx.stationDict.keys()) + '\'').lower()
+    stnlist = ('\'' + '\',\''.join(list(snx.stationDict.keys())) + '\'').lower()
 
     # insert the statistical data
 
@@ -72,7 +72,7 @@ def process_sinex(cnn, project, dates, sinex):
 
     zd = zd[0][0]
 
-    print ' >> Adding NUMBER OF UNKNOWNS: %i (previous value: %i)' % (zd, snx.unknowns)
+    print(' >> Adding NUMBER OF UNKNOWNS: %i (previous value: %i)' % (zd, snx.unknowns))
 
     replace_in_sinex(sinex, snx.observations, snx.unknowns, snx.unknowns + zg + zd)
 
@@ -83,7 +83,7 @@ def process_sinex(cnn, project, dates, sinex):
 
     stations = rs.dictresult()
 
-    print ' >> Adding DOMES'
+    print(' >> Adding DOMES')
     # add domes
     add_domes(sinex, stations)
 

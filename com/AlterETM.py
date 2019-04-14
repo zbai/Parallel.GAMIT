@@ -68,8 +68,8 @@ def print_params(cnn, stnlist):
                                      % (station['NetworkCode'], station['StationCode']), as_dict=True)
 
             for p in params:
-                print ' %s.%s %-5s %-5s %2i' \
-                      % (station['NetworkCode'], station['StationCode'], p['soln'], p['object'], p['terms'])
+                print(' %s.%s %-5s %-5s %2i' \
+                      % (station['NetworkCode'], station['StationCode'], p['soln'], p['object'], p['terms']))
 
 
 def insert_modify_param(parser, cnn, stnlist, args):
@@ -150,29 +150,29 @@ def insert_modify_param(parser, cnn, stnlist, args):
             tpar.soln = soln
 
             ppar = copy.deepcopy(dict(tpar))
-            ppar = {k: v for k, v in ppar.items()
+            ppar = {k: v for k, v in list(ppar.items())
                     if v not in (None, []) and k not in ('action', 'relaxation', 'jump_type', 'terms', 'frequencies')}
 
             # check if solution exists for this station
             try:
-                epar = cnn.get('etm_params', ppar, ppar.keys())
+                epar = cnn.get('etm_params', ppar, list(ppar.keys()))
 
-                print ' >> Found a set of matching parameters for station %s.%s (%s)' \
-                      % (station['NetworkCode'], station['StationCode'], soln)
+                print(' >> Found a set of matching parameters for station %s.%s (%s)' \
+                      % (station['NetworkCode'], station['StationCode'], soln))
 
-                print ' -- Deleting %s.%s (%s)' % (station['NetworkCode'], station['StationCode'], soln)
+                print(' -- Deleting %s.%s (%s)' % (station['NetworkCode'], station['StationCode'], soln))
                 cnn.delete('etm_params', epar)
 
             except pg.DatabaseError:
-                print ' >> No set of parameters found for station %s.%s (%s)' \
-                      % (station['NetworkCode'], station['StationCode'], soln)
+                print(' >> No set of parameters found for station %s.%s (%s)' \
+                      % (station['NetworkCode'], station['StationCode'], soln))
 
             cnn.insert('etm_params', tpar)
             # insert replaces the uid field
             del tpar.uid
 
-            print ' -- Inserting %s for %s.%s (%s)' \
-                  % (tpar.object, station['NetworkCode'], station['StationCode'], soln)
+            print(' -- Inserting %s for %s.%s (%s)' \
+                  % (tpar.object, station['NetworkCode'], station['StationCode'], soln))
 
 
 if __name__ == '__main__':

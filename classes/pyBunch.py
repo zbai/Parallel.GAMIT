@@ -202,7 +202,7 @@ class Bunch(dict):
 
             (*) Invertible so long as collection contents are each repr-invertible.
         """
-        keys = list(self.iterkeys())
+        keys = list(self.keys())
         keys.sort()
         args = ', '.join(['%s=%r' % (key, self[key]) for key in keys])
         return '%s(%s)' % (self.__class__.__name__, args)
@@ -247,7 +247,7 @@ def bunchify(x):
         nb. As dicts are not hashable, they cannot be nested in sets/frozensets.
     """
     if isinstance(x, dict):
-        return Bunch((k, bunchify(v)) for k, v in x.iteritems())
+        return Bunch((k, bunchify(v)) for k, v in x.items())
     elif isinstance(x, (list, tuple)):
         return type(x)(bunchify(v) for v in x)
     else:
@@ -273,7 +273,7 @@ def unbunchify(x):
         nb. As dicts are not hashable, they cannot be nested in sets/frozensets.
     """
     if isinstance(x, dict):
-        return dict((k, unbunchify(v)) for k, v in x.iteritems())
+        return dict((k, unbunchify(v)) for k, v in x.items())
     elif isinstance(x, (list, tuple)):
         return type(x)(unbunchify(v) for v in x)
     else:

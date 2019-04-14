@@ -52,7 +52,7 @@ def main():
     cnn = dbConnection.Cnn('gnss_data.cfg')
 
     if len(args.stnlist) == 1 and os.path.isfile(args.stnlist[0]):
-        print ' >> Station list read from ' + args.stnlist[0]
+        print(' >> Station list read from ' + args.stnlist[0])
         stnlist = [line.strip() for line in open(args.stnlist[0], 'r')]
         stnlist = [{'NetworkCode': item.split('.')[0], 'StationCode': item.split('.')[1]} for item in stnlist]
     else:
@@ -111,13 +111,13 @@ def main():
                             lres = np.sqrt(np.sum(np.square(etm.R), axis=0))
                             slres = lres[np.argsort(-lres)]
 
-                            print ' >> Two largest residuals:'
+                            print(' >> Two largest residuals:')
                             for i in [0, 1]:
-                                print(' %s %6.3f %6.3f %6.3f'
+                                print((' %s %6.3f %6.3f %6.3f'
                                       % (pyDate.Date(mjd=etm.soln.mjd[lres == slres[i]]).yyyyddd(),
                                          etm.R[0, lres == slres[i]],
                                          etm.R[1, lres == slres[i]],
-                                         etm.R[2, lres == slres[i]]))
+                                         etm.R[2, lres == slres[i]])))
 
                     elif args.gamit[1] == 'gamit':
                         etm = pyETM.GamitETM(cnn, stn['NetworkCode'], stn['StationCode'], False,
@@ -142,14 +142,14 @@ def main():
                         else:
                             json.dump(etm.todictionary(False), f, indent=4, sort_keys=False)
 
-                print 'Successfully plotted ' + stn['NetworkCode'] + '.' + stn['StationCode']
+                print('Successfully plotted ' + stn['NetworkCode'] + '.' + stn['StationCode'])
 
             except pyETM.pyETMException as e:
-                print str(e)
+                print(str(e))
 
             except Exception:
-                print 'Error during processing of ' + stn['NetworkCode'] + '.' + stn['StationCode']
-                print traceback.format_exc()
+                print('Error during processing of ' + stn['NetworkCode'] + '.' + stn['StationCode'])
+                print(traceback.format_exc())
                 pass
 
 

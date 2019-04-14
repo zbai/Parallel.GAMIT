@@ -166,9 +166,9 @@ def CheckRinexIntegrity(stnlist, start_date, end_date, JobServer):
     for rinex in rinex_css:
         if rinex[1]:
             for diff in rinex[1]:
-                print('File ' + diff + ' was not found in the archive. See events for details.')
+                print(('File ' + diff + ' was not found in the archive. See events for details.'))
         elif rinex[0]:
-            print('Error encountered: ' + rinex[0])
+            print(('Error encountered: ' + rinex[0]))
 
 
 def StnInfoRinexIntegrity(cnn, stnlist, start_date, end_date, JobServer):
@@ -561,7 +561,7 @@ def RenameStation(cnn, NetworkCode, StationCode, DestNetworkCode, DestStationCod
 
         if rs.ntuples() == 0:
             # ask the user if he/she want to create it?
-            print 'The requested destiny station does not exist. Please create it and try again'
+            print('The requested destiny station does not exist. Please create it and try again')
         else:
 
             # select the original rinex files names
@@ -575,8 +575,8 @@ def RenameStation(cnn, NetworkCode, StationCode, DestNetworkCode, DestStationCod
 
             original_rs = rs.dictresult()
 
-            print " >> Beginning transfer of %i rinex files from %s.%s to %s.%s" \
-                  % (len(original_rs), NetworkCode, StationCode, DestNetworkCode, DestStationCode)
+            print(" >> Beginning transfer of %i rinex files from %s.%s to %s.%s" \
+                  % (len(original_rs), NetworkCode, StationCode, DestNetworkCode, DestStationCode))
 
             for src_rinex in tqdm(original_rs):
                 # rename files
@@ -645,12 +645,12 @@ def VisualizeGaps(cnn, stnlist, start_date, end_date):
 
     for Stn in stnlist:
 
-        print ' >> Calculating gaps for %s.%s' % (Stn['NetworkCode'], Stn['StationCode'])
+        print(' >> Calculating gaps for %s.%s' % (Stn['NetworkCode'], Stn['StationCode']))
 
         missing_doys, possible_doys = GetGaps(cnn, Stn['NetworkCode'], Stn['StationCode'], start_date, end_date)
 
         if len(possible_doys) == 0:
-            print ' -- %s.%s has no data' % (Stn['NetworkCode'], Stn['StationCode'])
+            print(' -- %s.%s has no data' % (Stn['NetworkCode'], Stn['StationCode']))
             continue
 
         sys.stdout.write(' -- %s.%s: (First and last observation in timespan: %i %03i - %i %03i)\n'
@@ -673,13 +673,13 @@ def VisualizeGaps(cnn, stnlist, start_date, end_date):
             for i, doy in enumerate(zip(p_doys[0:-1:2], p_doys[1::2])):
 
                 if doy[0] not in missing_dates and doy[1] not in missing_dates:
-                    sys.stdout.write(unichr(0x2588))
+                    sys.stdout.write(chr(0x2588))
 
                 elif doy[0] not in missing_dates and doy[1] in missing_dates:
-                    sys.stdout.write(unichr(0x258C))
+                    sys.stdout.write(chr(0x258C))
 
                 elif doy[0] in missing_dates and doy[1] not in missing_dates:
-                    sys.stdout.write(unichr(0x2590))
+                    sys.stdout.write(chr(0x2590))
 
                 elif doy[0] in missing_dates and doy[1] in missing_dates:
                     sys.stdout.write(' ')
@@ -691,7 +691,7 @@ def VisualizeGaps(cnn, stnlist, start_date, end_date):
             if len(p_doys) % 2 != 0:
                 # last one missing
                 if p_doys[-1] not in missing_dates:
-                    sys.stdout.write(unichr(0x258C))
+                    sys.stdout.write(chr(0x258C))
                 elif p_doys[-1] in missing_dates:
                     sys.stdout.write(' ')
 
@@ -702,7 +702,7 @@ def VisualizeGaps(cnn, stnlist, start_date, end_date):
             else:
                 sys.stdout.write('<%03i\n' % (p_doys[-1]))
 
-        print ''
+        print('')
         sys.stdout.flush()
 
 

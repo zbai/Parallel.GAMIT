@@ -25,7 +25,7 @@ from shutil import rmtree
 from shutil import copy
 import pyRinex
 import glob
-import urllib
+import urllib.request, urllib.parse, urllib.error
 
 def replace_vars(filename, date):
 
@@ -58,13 +58,13 @@ def main():
         Config = pyOptions.ReadOptions('gnss_data.cfg')
 
         if len(args.stnlist) == 1 and os.path.isfile(args.stnlist[0]):
-            print ' >> Station list read from ' + args.stnlist[0]
+            print(' >> Station list read from ' + args.stnlist[0])
             stnlist = [line.strip() for line in open(args.stnlist[0], 'r')]
             stnlist = [{'NetworkCode': item.split('.')[0], 'StationCode': item.split('.')[1]} for item in stnlist]
         else:
             stnlist = Utils.process_stnlist(cnn, args.stnlist)
 
-        print ' >> Selected station list:'
+        print(' >> Selected station list:')
         print_columns([item['NetworkCode'] + '.' + item['StationCode'] for item in stnlist])
 
         dates = []
@@ -297,7 +297,7 @@ def download_http(fqdn, folder, destiny, filename):
             os.makedirs(destiny)
             tqdm.write('   -- Creating dir ' + destiny)
 
-        rinex = urllib.URLopener()
+        rinex = urllib.request.URLopener()
         tqdm.write('   -- %s%s ' % (fqdn, os.path.join(folder, filename)))
         rinex.retrieve("http://%s%s" % (fqdn, os.path.join(folder, filename)), os.path.join(destiny, filename))
 

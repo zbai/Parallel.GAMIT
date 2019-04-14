@@ -125,7 +125,7 @@ archive = pyArchiveStruct.RinexStruct(cnn)
 
 for table in ['rinex']:
 
-    print " >> Processing " + table
+    print(" >> Processing " + table)
 
     tbl = cnn.query('SELECT * FROM ' + table + ' WHERE "Completion" is null')
 
@@ -161,5 +161,5 @@ for table in ['rinex']:
     output_handle(callback)
 
 
-print '\n'
+print('\n')
 JobServer.job_server.print_stats()

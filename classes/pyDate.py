@@ -284,7 +284,7 @@ class Date(object):
 
                 self.from_stninfo = True
 
-                if isinstance(arg, str) or isinstance(arg, unicode):
+                if isinstance(arg, str) or isinstance(arg, str):
                     self.year, self.doy, self.hour, self.minute, self.second = parse_stninfo(arg)
                 elif isinstance(arg, datetime):
                     self.day = arg.day

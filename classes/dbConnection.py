@@ -10,7 +10,7 @@ It also handles the error, info and warning messages
 import pg
 import pgdb
 import platform
-import ConfigParser
+import configparser
 import inspect
 import re
 from decimal import Decimal
@@ -47,11 +47,11 @@ class Cnn(pg.DB):
         self.active_transaction = False
         self.options = options
         # parse session config file
-        config = ConfigParser.ConfigParser()
+        config = configparser.ConfigParser()
         config.readfp(open(configfile))
 
         # get the database config
-        for iconfig, val in dict(config.items('postgres')).iteritems():
+        for iconfig, val in dict(config.items('postgres')).items():
             options[iconfig] = val
 
         # open connection to server
@@ -124,6 +124,7 @@ class Cnn(pg.DB):
     def insert(self, table, row=None, **kw):
 
         try:
+            # TODO: Hash is out of range to put into the table ppp_soln, value is 3571402544.
             pg.DB.insert(self, table, row, **kw)
         except Exception as e:
             raise dbErrInsert(e)

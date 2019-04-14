@@ -16,13 +16,13 @@ TIMEFMT2 = '%Y-%m-%d %H:%M:%S.%f'
 def getNewEvent(event, maxmags):
     ibigmag = -1
     bigmag = 0
-    for key in event.keys():
+    for key in list(event.keys()):
         if re.search('mag[0-9]*-type', key):
-            ibigmag = event.keys().index(key)
+            ibigmag = list(event.keys()).index(key)
             bigmag = int(re.findall('\d+', key)[0])
     # we can only get away with this because this is an ordereddict
-    keys = event.keys()
-    values = event.values()
+    keys = list(event.keys())
+    values = list(event.values())
     idx = ibigmag + 1
     for i in range(bigmag + 1, maxmags + 1):
         magkey = 'mag%i' % i
@@ -36,7 +36,7 @@ def getNewEvent(event, maxmags):
         values.insert(idx + 2, ('NA', '%s'))
         idx += 3
 
-    newevent = OrderedDict(zip(keys, values))
+    newevent = OrderedDict(list(zip(keys, values)))
     return newevent
 
 class AddEarthquakes():
@@ -65,7 +65,7 @@ class AddEarthquakes():
         eventlist = []
         maxmags = 0
 
-        print('Breaking request into %i segments.\n' % len(segments))
+        print(('Breaking request into %i segments.\n' % len(segments)))
 
         for stime, etime in segments:
             # sys.stderr.write('%s - Getting data for %s => %s\n' % (comcat.ShakeDateTime.now(),stime,etime))

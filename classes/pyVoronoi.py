@@ -47,7 +47,7 @@ def test_polygon_for_self_intersection(array_ordered_Voronoi_polygon_vertices_2D
             raise IntersectionError("Voronoi polygon line intersection !")
 
     # go through and test all possible non-consecutive edge combinations for intersection
-    list_vertex_indices_in_edges = [ [vertex_index, vertex_index + 1] for vertex_index in xrange(total_vertices)]
+    list_vertex_indices_in_edges = [ [vertex_index, vertex_index + 1] for vertex_index in range(total_vertices)]
     # for the edge starting from the last point in the Voronoi polygon the index of the final point should be switched to the starting index -- to close the polygon
     filtered_list_vertex_indices_in_edges = []
     for list_vertex_indices_in_edge in list_vertex_indices_in_edges:
@@ -237,9 +237,9 @@ def calculate_and_sum_up_inner_sphere_surface_angles_Voronoi_polygon(array_order
         #print 'Vincenty edge lengths a,b,c:', a,b,c
         pre_acos_term = (math.cos(b) - math.cos(a)*math.cos(c)) / (math.sin(a)*math.sin(c))
         if abs(pre_acos_term) > 1.0:
-            print 'angle calc vertex coords (giving acos violation):', [convert_cartesian_array_to_spherical_array(vertex) for vertex in [current_vertex,previous_vertex,next_vertex]]
-            print 'Vincenty edge lengths (giving acos violation) a,b,c:', a,b,c
-            print 'pre_acos_term:', pre_acos_term
+            print('angle calc vertex coords (giving acos violation):', [convert_cartesian_array_to_spherical_array(vertex) for vertex in [current_vertex,previous_vertex,next_vertex]])
+            print('Vincenty edge lengths (giving acos violation) a,b,c:', a,b,c)
+            print('pre_acos_term:', pre_acos_term)
             #break
         current_vertex_inner_angle_on_sphere_surface = math.acos(pre_acos_term)
 

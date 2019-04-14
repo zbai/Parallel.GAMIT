@@ -681,7 +681,7 @@ def scan_rinex(cnn, JobServer, pyArchive, archive_path, master_list, ignore):
 
     master_list = [item['NetworkCode'] + '.' + item['StationCode'] for item in master_list]
 
-    print " >> Analyzing the archive's structure..."
+    print(" >> Analyzing the archive's structure...")
     pbar = tqdm(ncols=80, unit='crz')
 
     depfuncs = (verify_rinex_date_multiday,)
@@ -719,8 +719,8 @@ def scan_rinex(cnn, JobServer, pyArchive, archive_path, master_list, ignore):
 
 def process_otl(cnn, JobServer, master_list):
 
-    print ""
-    print " >> Calculating coordinates and OTL for new stations..."
+    print("")
+    print(" >> Calculating coordinates and OTL for new stations...")
 
     master_list = [item['NetworkCode'] + '.' + item['StationCode'] for item in master_list]
 
@@ -752,11 +752,11 @@ def process_otl(cnn, JobServer, master_list):
 
 def scan_station_info(JobServer, pyArchive, archive_path, master_list):
 
-    print " >> Searching for station info files in the archive..."
+    print(" >> Searching for station info files in the archive...")
 
     stninfo, path2stninfo = pyArchive.scan_archive_struct_stninfo(archive_path)
 
-    print "   >> Processing Station Info files..."
+    print("   >> Processing Station Info files...")
 
     master_list = [item['NetworkCode'] + '.' + item['StationCode'] for item in master_list]
 
@@ -787,7 +787,7 @@ def scan_station_info(JobServer, pyArchive, archive_path, master_list):
 def scan_station_info_man(cnn, pyArchive, stn_info_path, stations, stn_info_net, stdin=None):
     # input "stations" has a list in net.stnm format
 
-    print " >> Manual scan of station info files in " + stn_info_path
+    print((" >> Manual scan of station info files in " + stn_info_path))
 
     NetworkCode = stn_info_net
 
@@ -813,7 +813,7 @@ def scan_station_info_man(cnn, pyArchive, stn_info_path, stations, stn_info_net,
         else:
             _, path2stninfo = pyArchive.scan_archive_struct_stninfo(stn_info_path)
 
-        print "   >> Found %i station information files." % (len(path2stninfo))
+        print(("   >> Found %i station information files." % (len(path2stninfo))))
 
         for stninfopath in path2stninfo:
 
@@ -837,7 +837,7 @@ def scan_station_info_man(cnn, pyArchive, stn_info_path, stations, stn_info_net,
 
 def hash_check(cnn, master_list, sdate, edate, rehash=False, h_tolerant=0):
 
-    print " >> Running hash check to the PPP solutions..."
+    print(" >> Running hash check to the PPP solutions...")
 
     master_list = [item['NetworkCode'] + '.' + item['StationCode'] for item in master_list]
 
@@ -853,9 +853,9 @@ def hash_check(cnn, master_list, sdate, edate, rehash=False, h_tolerant=0):
 
     # check the hash values if specified
     if not rehash:
-        print ' -- Checking hash values.'
+        print(' -- Checking hash values.')
     else:
-        print ' -- Rehashing all records. This may take a while...'
+        print(' -- Rehashing all records. This may take a while...')
 
     for soln in tqdm(tbl, ncols=80):
         # load station info object
@@ -898,14 +898,14 @@ def hash_check(cnn, master_list, sdate, edate, rehash=False, h_tolerant=0):
             raise
 
     if not rehash:
-        print ' -- Done checking hash values.'
+        print(' -- Done checking hash values.')
     else:
-        print ' -- Done rehashing PPP records.'
+        print(' -- Done rehashing PPP records.')
 
 
 def process_ppp(cnn, Config, pyArchive, archive_path, JobServer, master_list, sdate, edate, h_tolerance):
 
-    print " >> Running PPP on the RINEX files in the archive..."
+    print(" >> Running PPP on the RINEX files in the archive...")
 
     master_list = [item['NetworkCode'] + '.' + item['StationCode'] for item in master_list]
 
@@ -965,16 +965,16 @@ def print_scan_archive_summary(cnn):
     warn = cnn.query_float('SELECT count(*) as cc FROM events WHERE "EventDate" >= \'%s\' AND "EventType" = \'warn\''
                            % exec_date[0][0])
 
-    print ' >> Summary of events for this run:'
-    print ' -- info    : %i' % info[0][0]
-    print ' -- errors  : %i' % erro[0][0]
-    print ' -- warnings: %i' % warn[0][0]
+    print(' >> Summary of events for this run:')
+    print((' -- info    : %i' % info[0][0]))
+    print((' -- errors  : %i' % erro[0][0]))
+    print((' -- warnings: %i' % warn[0][0]))
 
 
 def export_station(cnn, stnlist, pyArchive, archive_path, dataless):
 
     # loop collecting the necessary information
-    print " >> Collecting the information for each station in the list..."
+    print(" >> Collecting the information for each station in the list...")
 
     pbar1 = tqdm(total=len(stnlist), ncols=160, position=0)
 
@@ -1060,7 +1060,7 @@ def export_station(cnn, stnlist, pyArchive, archive_path, dataless):
         shutil.rmtree(dest)
 
     pbar1.close()
-    print ""
+    print("")
 
 
 def import_station(cnn, args):
@@ -1070,7 +1070,7 @@ def import_station(cnn, args):
 
     archive = pyArchiveStruct.RinexStruct(cnn)
 
-    print " >> Processing input files..."
+    print(" >> Processing input files...")
 
     for ff in tqdm(files):
 
@@ -1196,7 +1196,7 @@ def get_rinex_file(cnn, stnlist, date, Archive_path):
 
     archive = pyArchiveStruct.RinexStruct(cnn)
 
-    print " >> Getting stations from db..."
+    print(" >> Getting stations from db...")
 
     for stn in tqdm(stnlist, ncols=80):
 

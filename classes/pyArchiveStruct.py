@@ -241,7 +241,7 @@ class RinexStruct():
         :return: a dictionary will the records matching the provided parameters
         """
 
-        if any(param in ['Interval', 'Completion', 'Filename'] for param in kwargs.keys()):
+        if any(param in ['Interval', 'Completion', 'Filename'] for param in list(kwargs.keys())):
             table = 'rinex'
         else:
             table = 'rinex_proc'
@@ -253,7 +253,7 @@ class RinexStruct():
         # parse args
         for key in kwargs:
 
-            if key not in [field for field in fields.keys()]:
+            if key not in [field for field in list(fields.keys())]:
                 raise ValueError('Parameter ' + key + ' is not a field in table ' + table)
 
             if key is not 'ObservationFYear':
@@ -490,7 +490,7 @@ class RinexStruct():
                 keys['day'] = date.day
                 keys['month'] = date.month
 
-                return True, {key: keys[key] for key in keys.keys() if key in key_filter}
+                return True, {key: keys[key] for key in list(keys.keys()) if key in key_filter}
             else:
                 return False, {}
 

@@ -289,14 +289,14 @@ def save_changes(menu):
     global StnInfo
 
     # check if there are any changes
-    if len(menu.edited_fields.keys()) > 0:
+    if len(list(menu.edited_fields.keys())) > 0:
 
         record = dict()
         record['NetworkCode'] = stn['NetworkCode']
         record['StationCode'] = stn['StationCode']
 
         for item in menu.items[0:-1]:
-            if item['field'] in menu.edited_fields.keys():
+            if item['field'] in list(menu.edited_fields.keys()):
                 record[item['field']] = menu.edited_fields[item['field']]
             else:
                 record[item['field']] = item['value']
@@ -376,7 +376,7 @@ def selection_main_menu(menu):
 
         new_record = []
 
-        for field, value in record.iteritems():
+        for field, value in record.items():
             new_record.append({'field': field, 'value': str(value)})
 
         # new_record = sorted(new_record, key=lambda k: k['field'])
@@ -432,12 +432,12 @@ def get_fields(position):
     record2['AntennaSerial'] = ''
     record2['Comments'] = ''
 
-    for key in record2.keys():
+    for key in list(record2.keys()):
         record2[key] = record[key]
 
     record = record2
 
-    for field, value in record.iteritems():
+    for field, value in record.items():
         if field not in ['NetworkCode', 'StationCode']:
             if type(value) is str:
                 out.append({'field': field, 'value': value})
@@ -489,10 +489,10 @@ if __name__ == '__main__':
             'SELECT * FROM stations WHERE "StationCode" = \'%s\' ORDER BY "NetworkCode", "StationCode"' % stn)
 
     if rs.ntuples() == 0:
-        print 'ERROR: Station code not found!'
+        print('ERROR: Station code not found!')
         exit()
     elif rs.ntuples() > 1:
-        print 'ERROR: More than one station found! Use net.stnm instead of stnm'
+        print('ERROR: More than one station found! Use net.stnm instead of stnm')
         exit()
     else:
         stn = rs.dictresult()[0]

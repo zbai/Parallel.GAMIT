@@ -99,7 +99,7 @@ def main():
         try:
             with pyRinex.ReadRinex('???', stnm, rinex, allow_multiday=args.no_split) as rinexinfo:
                 if rinexinfo.multiday and not args.no_split:
-                    print 'Provided RINEX file is a multiday file!'
+                    print('Provided RINEX file is a multiday file!')
                     # rinex file is a multiday file, output all the solutions
                     for rnx in rinexinfo.multiday_rnx_list:
                         execute_ppp(rnx, args, stnm, options, sp3types, sp3altrn, brdc_path, erase,
@@ -109,7 +109,7 @@ def main():
                                 not args.no_met, args.decimate)
 
         except pyRinex.pyRinexException as e:
-            print str(e)
+            print(str(e))
             continue
 
 
@@ -127,11 +127,11 @@ def execute_ppp(rinexinfo, args, stnm, options, sp3types, sp3altrn, brdc_path, e
         rinexinfo.auto_coord(brdc=brdc, chi_limit=1000)
         rinexinfo.normalize_header(stninfo)  # empty dict: only applies the coordinate change
     except pyRinex.pyRinexException as e:
-        print str(e)
+        print(str(e))
 
     if args.load_rinex:
         rinexinfo.compress_local_copyto('./')
-        print 'RINEX created in current directory.'
+        print('RINEX created in current directory.')
         return
 
     otl_coeff = ''
@@ -160,16 +160,16 @@ def execute_ppp(rinexinfo, args, stnm, options, sp3types, sp3altrn, brdc_path, e
         ppp.exec_ppp()
 
         if not ppp.check_phase_center(ppp.proc_parameters):
-            print 'WARNING: phase center parameters not found for declared antenna!'
+            print('WARNING: phase center parameters not found for declared antenna!')
 
         if not args.insert_sql:
-            print '%s %10.5f %13.4f %13.4f %13.4f %14.9f %14.9f %8.3f' % (
-            stnm, rinexinfo.date.fyear, ppp.x, ppp.y, ppp.z, ppp.lat[0], ppp.lon[0], ppp.h[0])
+            print('%s %10.5f %13.4f %13.4f %13.4f %14.9f %14.9f %8.3f' % (
+            stnm, rinexinfo.date.fyear, ppp.x, ppp.y, ppp.z, ppp.lat[0], ppp.lon[0], ppp.h[0]))
         else:
-            print 'INSERT INTO stations ("NetworkCode", "StationCode", "auto_x", "auto_y", "auto_z", ' \
+            print('INSERT INTO stations ("NetworkCode", "StationCode", "auto_x", "auto_y", "auto_z", ' \
                   '"Harpos_coeff_otl", lat, lon, height) VALUES ' \
                   '(\'???\', \'%s\', %.4f, %.4f, %.4f, \'%s\', %.8f, %.8f, %.3f)' \
-                  % (stnm, ppp.x, ppp.y, ppp.z, otl_coeff, ppp.lat[0], ppp.lon[0], ppp.h[0])
+                  % (stnm, ppp.x, ppp.y, ppp.z, otl_coeff, ppp.lat[0], ppp.lon[0], ppp.h[0]))
 
         if args.find:
             cnn = dbConnection.Cnn('gnss_data.cfg')
@@ -177,33 +177,33 @@ def execute_ppp(rinexinfo, args, stnm, options, sp3types, sp3altrn, brdc_path, e
             Result, match, closest_stn = ppp.verify_spatial_coherence(cnn, stnm)
 
             if Result:
-                print 'Found matching station: %s.%s' %(match[0]['NetworkCode'], match[0]['StationCode'])
+                print('Found matching station: %s.%s' %(match[0]['NetworkCode'], match[0]['StationCode']))
 
             elif not Result and len(match) == 1:
 
-                print '%s matches the coordinate of %s.%s (distance = %8.3f m) but the filename indicates it is %s' \
+                print('%s matches the coordinate of %s.%s (distance = %8.3f m) but the filename indicates it is %s' \
                       % (rinexinfo.rinex, match[0]['NetworkCode'], match[0]['StationCode'],
-                         float(match[0]['distance']), stnm)
+                         float(match[0]['distance']), stnm))
 
             elif not Result and len(match) > 0:
 
-                print 'Solution for RINEX (%s %s) did not match a unique station location (and station code) ' \
+                print('Solution for RINEX (%s %s) did not match a unique station location (and station code) ' \
                       'within 10 km. Possible cantidate(s): %s' \
                       % (rinexinfo.rinex, rinexinfo.date.yyyyddd(), ', '.join(['%s.%s: %.3f m' %
                                                                                (m['NetworkCode'],
                                                                                 m['StationCode'],
-                                                                                m['distance']) for m in match]))
+                                                                                m['distance']) for m in match])))
 
             elif not Result and len(match) == 0 and len(closest_stn) > 0:
 
-                print 'No matches found. Closest station: %s.%s. (distance = %8.3f m)' \
-                      % (closest_stn[0]['NetworkCode'], closest_stn[0]['StationCode'], closest_stn[0]['distance'])
+                print('No matches found. Closest station: %s.%s. (distance = %8.3f m)' \
+                      % (closest_stn[0]['NetworkCode'], closest_stn[0]['StationCode'], closest_stn[0]['distance']))
 
     except pyPPP.pyRunPPPException as e:
-        print 'Exception in PPP: ' + str(e)
+        print('Exception in PPP: ' + str(e))
 
     except pyRinex.pyRinexException as e:
-        print 'Exception in pyRinex: ' + str(e)
+        print('Exception in pyRinex: ' + str(e))
 
 
 if __name__ == '__main__':

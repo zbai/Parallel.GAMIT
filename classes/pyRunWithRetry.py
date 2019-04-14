@@ -50,13 +50,13 @@ class command(threading.Thread):
                         time.sleep(0.5)
                         continue
                     else:
-                        print self.cmd
+                        print((self.cmd))
                         raise OSError(str(e) + ' after 3 retries on node: ' + platform.node())
                 else:
-                    print self.cmd
+                    print((self.cmd))
                     raise
             except Exception:
-                print self.cmd
+                print((self.cmd))
                 raise
 
     def wait(self, timeout=None):

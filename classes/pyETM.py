@@ -30,7 +30,7 @@ import pg
 import matplotlib
 
 
-if 'DISPLAY' in os.environ.keys():
+if 'DISPLAY' in list(os.environ.keys()):
     if not os.environ['DISPLAY']:
         matplotlib.use('Agg')
 else:
@@ -46,7 +46,7 @@ def tic():
 def toc(text):
 
     global tt
-    print text + ': ' + str(time() - tt)
+    print(text + ': ' + str(time() - tt))
 
 
 LIMIT = 2.5
@@ -107,7 +107,7 @@ def distance(lon1, lat1, lon2, lat2):
 def to_postgres(dictionary):
 
     if isinstance(dictionary, dict):
-        for key, val in dictionary.items():
+        for key, val in list(dictionary.items()):
             if isinstance(val, np.ndarray):
                 dictionary[key] = str(val.flatten().tolist()).replace('[', '{').replace(']', '}')
     else:
@@ -118,7 +118,7 @@ def to_postgres(dictionary):
 
 def to_list(dictionary):
 
-    for key, val in dictionary.items():
+    for key, val in list(dictionary.items()):
         if isinstance(val, np.ndarray):
             dictionary[key] = val.tolist()
 
@@ -1602,12 +1602,12 @@ class ETM:
 
         self.f.canvas.mpl_disconnect(self.cid)
         self.picking = False
-        print 'Epoch: %s' % pyDate.Date(fyear=event.xdata).yyyyddd()
-        jtype = int(input(' -- Enter type of jump (0 = mechanic; 1 = geophysical): '))
+        print('Epoch: %s' % pyDate.Date(fyear=event.xdata).yyyyddd())
+        jtype = int(eval(input(' -- Enter type of jump (0 = mechanic; 1 = geophysical): ')))
         if jtype == 1:
-            relx = input(' -- Enter relaxation (e.g. 0.5, 0.5,0.01): ')
-        operation = str(raw_input(' -- Enter operation (+, -): '))
-        print ' >> Jump inserted'
+            relx = eval(input(' -- Enter relaxation (e.g. 0.5, 0.5,0.01): '))
+        operation = str(input(' -- Enter operation (+, -): '))
+        print(' >> Jump inserted')
 
         # now insert the jump into the db
         cnn = dbConnection.Cnn('gnss_data.cfg')
@@ -1620,11 +1620,11 @@ class ETM:
 
     def enable_picking(self, event):
         if not self.picking:
-            print 'Entering picking mode'
+            print('Entering picking mode')
             self.picking = True
             self.cid = self.f.canvas.mpl_connect('button_press_event', self.onpick)
         else:
-            print 'Disabling picking mode'
+            print('Disabling picking mode')
             self.picking = False
             self.f.canvas.mpl_disconnect(self.cid)
 

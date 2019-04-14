@@ -64,9 +64,9 @@ class StationInfoRecord(pyBunch.Bunch):
 
         # create a hash record using the station information
         # use only the information that can actually generate a change in the antenna position
-        self.hash = zlib.crc32('%.4f %.4f %.4f %s %s %s %s' %
-                               (self.AntennaNorth, self.AntennaEast, self.AntennaHeight, self.HeightCode,
-                                self.AntennaCode, self.RadomeCode, self.ReceiverCode))
+        self.hash = zlib.crc32('%.4f %.4f %.4f %s %s %s %s'.encode('utf-8') %
+                               (self.AntennaNorth, self.AntennaEast, self.AntennaHeight, self.HeightCode.encode('utf-8'),
+                                self.AntennaCode.encode('utf-8'), self.RadomeCode.encode('utf-8'), self.ReceiverCode.encode('utf-8')))
 
         self.record_format = ' %-4s  %-16s  %-19s%-19s%7.4f  %-5s  %7.4f  %7.4f  %-20s  ' \
                              '%-20s  %5s  %-20s  %-15s  %-5s  %-20s'
@@ -116,11 +116,11 @@ class StationInfoRecord(pyBunch.Bunch):
             parse = fieldstruct.unpack_from
 
             if record[0] == ' ' and len(record) >= 77:
-                record = dict(zip(fieldnames, map(str.strip, parse(record.ljust(fieldstruct.size))[1:])))
+                record = dict(list(zip(fieldnames, list(map(str.strip, parse(record.ljust(fieldstruct.size))[1:])))))
             else:
                 return
 
-        for key in self.keys():
+        for key in list(self.keys()):
             try:
                 if key == 'AntennaNorth' or key == 'AntennaEast' or key == 'AntennaHeight':
                     self[key] = float(record[key])

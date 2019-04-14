@@ -318,7 +318,7 @@ class ReadRinex(RinexRecord):
             # line too long! cut
             data = line[0:fs.size]
 
-        fields = list(parse(data))
+        fields = [x.decode() for x in parse(data.encode('utf-8'))]
 
         # convert each element in the list to float if necessary
         for i, field in enumerate(fields):
@@ -390,7 +390,7 @@ class ReadRinex(RinexRecord):
 
     def replace_record(self, header, record, new_values):
 
-        if record not in self.required_records.keys():
+        if record not in list(self.required_records.keys()):
             raise pyRinexException('Record ' + record + ' not implemented!')
 
         new_header = []
@@ -453,7 +453,7 @@ class ReadRinex(RinexRecord):
 
             if line.strip().endswith('INTERVAL'):
                 # get the first occurrence only!
-                record = [key for key in interval_record.keys() if key in line][0]
+                record = [key for key in list(interval_record.keys()) if key in line][0]
 
                 interval_record[record]['found'] = True
 
@@ -493,9 +493,9 @@ class ReadRinex(RinexRecord):
 
         for line in self.header:
 
-            if any(line.strip().endswith(key) for key in self.required_records.keys()):
+            if any(line.strip().endswith(key) for key in list(self.required_records.keys())):
                 # get the first occurrence only!
-                record = [key for key in self.required_records.keys() if key in line][0]
+                record = [key for key in list(self.required_records.keys()) if key in line][0]
 
                 # mark the record as found
                 self.required_records[record]['found'] = True
@@ -569,11 +569,11 @@ class ReadRinex(RinexRecord):
             raise pyRinexExceptionBadFile('Unfixable RINEX header: could not find RINEX VERSION / TYPE')
 
         # now check that all the records where included! there's missing ones, then force them
-        if not all([item['found'] for item in self.required_records.values()]):
+        if not all([item['found'] for item in list(self.required_records.values())]):
             # get the keys of the missing records
             missing_records = {item: self.required_records[item] for item in self.required_records if self.required_records[item]['found'] == False}
 
-            for record in missing_records.keys():
+            for record in list(missing_records.keys()):
                 if '# / TYPES OF OBSERV' in record:
                     raise pyRinexExceptionBadFile('Unfixable RINEX header: could not find # / TYPES OF OBSERV')
 
@@ -682,6 +682,8 @@ class ReadRinex(RinexRecord):
         # run RinSum to get file information
         cmd = pyRunWithRetry.RunCommand('RinSum --notable ' + self.rinex_path, 45)  # DDG: increased from 21 to 45.
         try:
+            # todo: Python is opening the file in binary mode or something which is messing up the header so RinSum
+            #  can't read it.
             output, _ = cmd.run_shell()
         except pyRunWithRetry.RunCommandWithRetryExeception as e:
             # catch the timeout except and pass it as a pyRinexException
@@ -994,13 +996,6 @@ class ReadRinex(RinexRecord):
             raise pyRinexException('RinSum: no data found. Are time limits wrong for file ' + self.rinex +
                                    ' details:' + warn[0])
 
-        # remove non-utf8 chars
-        self.recNo   = self.recNo.decode('utf-8', 'ignore').encode('utf-8')
-        self.recType = self.recType.decode('utf-8', 'ignore').encode('utf-8')
-        self.recVers = self.recVers.decode('utf-8', 'ignore').encode('utf-8')
-        self.antNo   = self.antNo.decode('utf-8', 'ignore').encode('utf-8')
-        self.antType = self.antType.decode('utf-8', 'ignore').encode('utf-8')
-        self.antDome = self.antDome.decode('utf-8', 'ignore').encode('utf-8')
 
     def get_firstobs(self):
 
@@ -1016,7 +1011,7 @@ class ReadRinex(RinexRecord):
         skip = 0
         for line in self.data:
             if skip == 0:
-                fields = list(parse(line))
+                fields = list(parse(line.encode('utf-8')))
 
                 if int(fields[12]) <= 1: # OK FLAG
                     # read first observation
@@ -1266,7 +1261,7 @@ class ReadRinex(RinexRecord):
 
         # set values
         for i, field in enumerate(fieldnames):
-            if field not in NewValues.keys():
+            if field not in list(NewValues.keys()):
                 if rinex_field[i] is not None:
                     NewValues[field] = self.record[rinex_field[i]]
                 else:

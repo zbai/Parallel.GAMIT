@@ -34,7 +34,7 @@ def parse_monitor(cnn, monitor):
             year = int(year)
             doy = int(doy)
         except Exception:
-            print ' -- could not determine project! ' + monitor
+            print(' -- could not determine project! ' + monitor)
             return
 
     try:
@@ -45,19 +45,19 @@ def parse_monitor(cnn, monitor):
     try:
         start_time = datetime.strptime(re.findall('run.sh \((\d+-\d+-\d+ \d+:\d+:\d+)\): Iteration depth: 1', output, re.MULTILINE)[0], '%Y-%m-%d %H:%M:%S')
     except Exception:
-        print ' -- could not determine start_time! ' + monitor
+        print(' -- could not determine start_time! ' + monitor)
         return
 
     try:
         end_time = datetime.strptime(re.findall('finish.sh \((\d+-\d+-\d+ \d+:\d+:\d+)\): Done processing h-files and generating SINEX.', output, re.MULTILINE)[0], '%Y-%m-%d %H:%M:%S')
     except Exception:
-        print ' -- could not determine end_time! ' + monitor
+        print(' -- could not determine end_time! ' + monitor)
         return
 
     try:
         iterations = int(re.findall('run.sh \(\d+-\d+-\d+ \d+:\d+:\d+\): Iteration depth: (\d+)', output, re.MULTILINE)[-1])
     except Exception:
-        print ' -- could not determine iterations!'
+        print(' -- could not determine iterations!')
         return
 
     try:
@@ -136,7 +136,7 @@ def parse_monitor(cnn, monitor):
                                    'execution_time': int((end_time - start_time).total_seconds()/60.0),
                                    'execution_date': start_time})
     except dbConnection.dbErrInsert:
-        print ' -- record already exists ' + monitor
+        print(' -- record already exists ' + monitor)
 
 
 def main():

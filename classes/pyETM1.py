@@ -35,7 +35,7 @@ def tic():
 def toc(text):
 
     global tt
-    print text + ': ' + str(time() - tt)
+    print(text + ': ' + str(time() - tt))
 
 
 LIMIT = 2.5
@@ -91,7 +91,7 @@ def distance(lon1, lat1, lon2, lat2):
 def to_postgres(dictionary):
 
     if isinstance(dictionary, dict):
-        for key, val in dictionary.items():
+        for key, val in list(dictionary.items()):
             if isinstance(val, np.ndarray):
                 dictionary[key] = str(val.flatten().tolist()).replace('[', '{').replace(']', '}')
     else:
@@ -102,7 +102,7 @@ def to_postgres(dictionary):
 
 def to_list(dictionary):
 
-    for key, val in dictionary.items():
+    for key, val in list(dictionary.items()):
         if isinstance(val, np.ndarray):
             dictionary[key] = val.tolist()
 

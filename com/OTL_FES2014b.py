@@ -50,7 +50,7 @@ def create_files():
     #    'SELECT * FROM stations WHERE "NetworkCode" NOT LIKE \'?%%\' ORDER BY "NetworkCode", "StationCode"')
 
     stations = rs.dictresult()
-    print ' >> Cantidad de estaciones a procesar en Chalmers: ' + str(len(stations))
+    print(' >> Cantidad de estaciones a procesar en Chalmers: ' + str(len(stations)))
     stnlist = []
     index = 0
     for stn in stations:
@@ -91,7 +91,7 @@ def import_harpos(filename):
         otl = fileio.readlines()
 
         if otl[0][0:6] != 'HARPOS':
-            print ' >> Input files does not appear to be in HARPOS format!'
+            print(' >> Input files does not appear to be in HARPOS format!')
             return
         else:
             # it's HARPOS alright
@@ -111,7 +111,7 @@ def import_harpos(filename):
                         load_harpos(header, otl[otl.index(line) - 2:otl.index(line)+13])
 
             else:
-                print ' >> Could not find a valid header'
+                print(' >> Could not find a valid header')
 
 
 def import_blq(filename):
@@ -121,7 +121,7 @@ def import_blq(filename):
         otl = fileio.readlines()
 
         if otl[0][0:2] != '$$':
-            print ' >> Input files does not appear to be in BLQ format!'
+            print(' >> Input files does not appear to be in BLQ format!')
             return
         else:
             # it's BLQ alright
@@ -148,7 +148,7 @@ def load_blq(header, otl):
     OTL = OTL.replace('$$ END TABLE', '$$')
     OTL = OTL.replace("'", "")
 
-    print ' >> updating %s.%s' % (NetworkCode, StationCode)
+    print(' >> updating %s.%s' % (NetworkCode, StationCode))
 
     cnn.query('UPDATE stations SET "Harpos_coeff_otl" = \'%s\' WHERE "NetworkCode" = \'%s\' AND "StationCode" = \'%s\'' % (OTL, NetworkCode, StationCode))
 
@@ -164,7 +164,7 @@ def load_harpos(header, otl):
 
     OTL = (''.join(header) + ''.join(otl)).replace(NetStn[0], StationCode + '    ') + 'HARPOS Format version of 2002.12.12'
 
-    print ' >> updating %s.%s' % (NetworkCode, StationCode)
+    print(' >> updating %s.%s' % (NetworkCode, StationCode))
     cnn.query('UPDATE stations SET "Harpos_coeff_otl" = \'%s\' WHERE "NetworkCode" = \'%s\' AND "StationCode" = \'%s\'' % (OTL, NetworkCode, StationCode))
 
 

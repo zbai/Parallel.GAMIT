@@ -38,7 +38,7 @@ def tic():
 def toc(text):
 
     global tt
-    print text + ': ' + str(time() - tt)
+    print(text + ': ' + str(time() - tt))
 
 
 class callback_class():
@@ -231,7 +231,7 @@ def main():
     cnn = dbConnection.Cnn('gnss_data.cfg')
 
     # before attempting anything, check aliases!!
-    print ' >> Checking GAMIT aliases'
+    print(' >> Checking GAMIT aliases')
     check_aliases(cnn)
 
     # initialize the PP job server
@@ -247,10 +247,10 @@ def main():
         date = pyDate.Date(year=int(dd.split('_')[0]), doy=int(dd.split('_')[1]))
     elif dd == 'all':
         # run all dates (1994 to 2018)
-        ts = range(pyDate.Date(year=2004, doy=20).mjd, pyDate.Date(year=2018, doy=87).mjd, 1)
+        ts = list(range(pyDate.Date(year=2004, doy=20).mjd, pyDate.Date(year=2018, doy=87).mjd, 1))
         ts = [pyDate.Date(mjd=tts) for tts in ts]
         for date in ts:
-            print ' >> Processing ' + str(date)
+            print(' >> Processing ' + str(date))
             pull_rinex(cnn, date, Config, JobServer)
 
         return
@@ -261,7 +261,7 @@ def main():
         pull_rinex(cnn, date, Config, JobServer)
 
     if args.mark_uploaded is not None:
-        print 'Processing %i for day %s' % (len(args.mark_uploaded), date.yyyyddd())
+        print('Processing %i for day %s' % (len(args.mark_uploaded), date.yyyyddd()))
         # mark the list of stations as transferred to the AWS
         mark_uploaded(cnn, date, args.mark_uploaded)
 
@@ -276,7 +276,7 @@ def mark_uploaded(cnn, date, stns):
         # check if valid station
         rs = cnn.query('SELECT * FROM stations WHERE "NetworkCode" = \'%s\' AND "StationCode" = \'%s\'' % (NetworkCode, StationCode))
         if rs.ntuples() == 0:
-            print ' %s.%s is not an existing station' % (NetworkCode, StationCode)
+            print(' %s.%s is not an existing station' % (NetworkCode, StationCode))
             continue
 
         # check if station already marked
@@ -292,7 +292,7 @@ def mark_uploaded(cnn, date, stns):
                       % (NetworkCode, StationCode, StationAlias, date.year, date.doy,
                          datetime.now().strftime('%Y-%m-%d %H:%m:%S')))
         else:
-            print ' %s.%s was already marked' % (NetworkCode, StationCode)
+            print(' %s.%s was already marked' % (NetworkCode, StationCode))
 
 
 def id_generator(size=4, chars=string.ascii_lowercase + string.digits):
@@ -426,7 +426,7 @@ def pull_rinex(cnn, date, Config, JobServer):
     # handle any output messages during this batch
     output_handle(callback, metafile)
     pbar.close()
-    print 'Done, chau!'
+    print('Done, chau!')
 
 
 def check_aliases(cnn):
@@ -468,11 +468,11 @@ def check_aliases(cnn):
                             cnn.insert('stationalias', NetworkCode=stn['NetworkCode'], StationCode=stn['StationCode'],
                                        StationAlias=new_alias)
 
-                            print ' -- alias created for %s.%s -> %s' \
-                                  % (stn['NetworkCode'], stn['StationCode'], new_alias)
+                            print(' -- alias created for %s.%s -> %s' \
+                                  % (stn['NetworkCode'], stn['StationCode'], new_alias))
 
                         except dbConnection.dbErrInsert:
-                            print ' -- station %s.%s already has an alias' % (stn['NetworkCode'], stn['StationCode'])
+                            print(' -- station %s.%s already has an alias' % (stn['NetworkCode'], stn['StationCode']))
 
                         break
 

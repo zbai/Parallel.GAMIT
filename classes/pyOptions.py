@@ -6,7 +6,7 @@ Author: Demian D. Gomez
 Class with all the configuration information necessary to run many of the scripts. It loads the config file (gnss_data.cfg).
 """
 
-import ConfigParser
+import configparser
 import os
 from Utils import process_date
 from pyDate import Date
@@ -40,19 +40,19 @@ class ReadOptions:
                         'ppp_exe': None,
                         'ppp_remote_local': ()}
 
-        config = ConfigParser.ConfigParser()
+        config = configparser.ConfigParser()
         config.readfp(open(configfile))
 
         # get the archive config
-        for iconfig, val in dict(config.items('archive')).iteritems():
+        for iconfig, val in dict(config.items('archive')).items():
             self.options[iconfig] = val
 
         # get the otl config
-        for iconfig, val in dict(config.items('otl')).iteritems():
+        for iconfig, val in dict(config.items('otl')).items():
             self.options[iconfig] = val
 
         # get the ppp config
-        for iconfig, val in dict(config.items('ppp')).iteritems():
+        for iconfig, val in dict(config.items('ppp')).items():
             self.options[iconfig] = val
 
         # frames and dates

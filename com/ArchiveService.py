@@ -463,8 +463,7 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry):
                         return None, [StationCode, (ppp.x, ppp.y, ppp.z), coeff, (ppp.lat[0], ppp.lon[0],
                                                                                   ppp.h[0]), crinez]
 
-    except (pyRinex.pyRinexExceptionBadFile, pyRinex.pyRinexExceptionSingleEpoch, pyRinex.pyRinexExceptionNoAutoCoord) \
-            as e:
+    except (pyRinex.pyRinexExceptionBadFile, pyRinex.pyRinexExceptionSingleEpoch, pyRinex.pyRinexExceptionNoAutoCoord) as e:
 
         reject_folder = reject_folder.replace('%reason%','bad_rinex')
 
@@ -663,10 +662,10 @@ def print_archive_service_summary():
     warn = cnn.query_float('SELECT count(*) as cc FROM events WHERE "EventDate" >= \'%s\' AND "EventType" = \'warn\''
                            % exec_date[0][0])
 
-    print ' >> Summary of events for this run:'
-    print ' -- info    : %i' % info[0][0]
-    print ' -- errors  : %i' % erro[0][0]
-    print ' -- warnings: %i' % warn[0][0]
+    print(' >> Summary of events for this run:')
+    print(' -- info    : %i' % info[0][0])
+    print(' -- errors  : %i' % erro[0][0])
+    print(' -- warnings: %i' % warn[0][0])
 
 
 if __name__ == '__main__':
@@ -675,8 +674,6 @@ if __name__ == '__main__':
     '''
 
     # put connection and config in global variable to use inside callback_handle
-    global cnn
-    global repository_data_in
 
     # bind to the repository directory
     parser = argparse.ArgumentParser(description='Archive operations Main Program')
@@ -694,7 +691,7 @@ if __name__ == '__main__':
     repository_data_in = Config.repository_data_in
 
     if not os.path.isdir(Config.repository):
-        print "the provided repository path in gnss_data.cfg is not a folder"
+        print("the provided repository path in gnss_data.cfg is not a folder")
         exit()
 
     JobServer = pyJobServer.JobServer(Config, run_parallel=not args.noparallel,

@@ -36,12 +36,12 @@ class StationData:
         
     def Print(self):
         if self.X != None:
-            print '%13.4f %13.4f %13.4f ' % (self.X, self.Y, self.Z),
+            print('%13.4f %13.4f %13.4f ' % (self.X, self.Y, self.Z), end=' ')
             
         if self.sigX != None:
-            print '%2.10f %2.10f %2.10f\n' % (self.sigX, self.sigY, self.sigZ), 
+            print('%2.10f %2.10f %2.10f\n' % (self.sigX, self.sigY, self.sigZ), end=' ') 
         else:
-            print
+            print()
             
     def __repr__(self):
         
@@ -98,15 +98,15 @@ class mergedSinexStationData():
         
         # don't want to print the sigmaXYZ
         if self.snxStnData.X !=None:
-            print '%13.4f %13.4f %13.4f ' % (self.snxStnData.X, self.snxStnData.Y, self.snxStnData.Z),
+            print('%13.4f %13.4f %13.4f ' % (self.snxStnData.X, self.snxStnData.Y, self.snxStnData.Z), end=' ')
         
         # print additional org info also
         if len(self.orgNameSet)>0:
             for orgName in self.orgNameSet:
-                print orgName, 
-            print
+                print(orgName, end=' ') 
+            print()
         else:
-            print      
+            print()      
 
 
 class snxFileParser(object):
@@ -161,7 +161,7 @@ class snxFileParser(object):
             try:
                 snxFileHandle = open(self.snxFilePath,'r')
             except:
-                print "snxFileParser ERROR:  Could not open file " + self.snxFilePath + " !!!" 
+                print("snxFileParser ERROR:  Could not open file " + self.snxFilePath + " !!!") 
                 raise
             
             #make pattern to match to snx organization ...
@@ -292,7 +292,7 @@ class snxFileParser(object):
                     stationName = stationName.upper()
                     
                     # initialize station data if not seen this station before
-                    if not stationName in self.stationDict.keys():
+                    if not stationName in list(self.stationDict.keys()):
                             self.stationDict[stationName] = StationData()
                             
                     self.stationDict[stationName].domesNumber = domesNumber
@@ -339,7 +339,7 @@ class snxFileParser(object):
                         dictID[ID] = coordID
                         stn_ID[ID] = stationName
                         
-                        if not stationName in self.stationDict.keys():
+                        if not stationName in list(self.stationDict.keys()):
                             self.stationDict[stationName] = StationData()
                             
                         if coordID == 'X':
@@ -379,7 +379,7 @@ class snxFileParser(object):
                         fractionalYear = year+((doy-1)/366.0)+ 0.001413
                         
                         # init if not already in dict
-                        if not stationName in self.stationDict.keys():
+                        if not stationName in list(self.stationDict.keys()):
                             self.stationDict[stationName] = StationData()
                             
                         # set the reference epoch for the velocity    
@@ -412,7 +412,7 @@ class snxFileParser(object):
                     ID1 = matrixLine[0]
 
                     # check that the key is actually a station variance-covariance item
-                    if ID1 in stn_ID.keys():
+                    if ID1 in list(stn_ID.keys()):
 
                         for i, ID2 in enumerate(range(len(matrixLine) - 2)):
                             ID2 = str(int(matrixLine[1]) + i)
@@ -433,12 +433,12 @@ class snxFileParser(object):
     def Print(self,key=None,fid=None):
         
         if key != None and self.contains(key):
-            print key,self.orgName,
+            print(key,self.orgName, end=' ')
             self.stationDict[key].Print()
         
         # loop through each station print info
-        for stationName in self.stationDict.keys():                
-            print stationName,self.orgName,
+        for stationName in list(self.stationDict.keys()):                
+            print(stationName,self.orgName, end=' ')
             self.stationDict[stationName].Print()
             
     def size(self):
@@ -449,7 +449,7 @@ class snxFileParser(object):
         return self
     
     # iterator protocol
-    def next(self):
+    def __next__(self):
         
         #if self.iterList ==None:
         #    self.iterList = list(self.stnIdSet)
@@ -468,7 +468,7 @@ class snxFileParser(object):
             return key
         
     def contains(self,key):
-        return self.stationDict.has_key(key.upper())
+        return key.upper() in self.stationDict
         
     def get(self,key):
         if self.contains(key):
@@ -508,22 +508,22 @@ class snxStationMerger:
         try:
             numberOfOccurrences = int(numberOfOccurences)
         except Exception:
-            print 'number of occurrences is not an integer!!!'
+            print('number of occurrences is not an integer!!!')
             raise
         
         if numberOfOccurrences < 0:
-            print 'number of occurrences must be at least zero!!'
+            print('number of occurrences must be at least zero!!')
             raise Exception
         
         # finally, convert to string for merged station dictionary key
         numberOfOccurrences = str(numberOfOccurrences)
         
         # empty station dictionary case
-        if len(self.mergedStationDict.keys()) == 0:
+        if len(list(self.mergedStationDict.keys())) == 0:
             return False
         
         # check that numberOfOccurances even is in dictionary
-        if numberOfOccurrences not in self.mergedStationDict.keys():
+        if numberOfOccurrences not in list(self.mergedStationDict.keys()):
             return False
         
         elif stationName not in self.mergedStationDict[numberOfOccurrences]:
@@ -552,12 +552,12 @@ class snxStationMerger:
         # add sinex to list
         self.snxObjectList.append(snxObj)
         
-        for stationName in snxObj.stationDict.keys():
+        for stationName in list(snxObj.stationDict.keys()):
             
-            for level in self.mergedStationDict.keys():
+            for level in list(self.mergedStationDict.keys()):
             
                 # first check if station is in level one station dictionary
-                if not stationName in self.mergedStationDict[level].keys():
+                if not stationName in list(self.mergedStationDict[level].keys()):
                     
                     # add the station to this level since it does not exist
                     self.addStation(level, snxObj.orgName, stationName, snxObj.stationDict[stationName])
@@ -605,9 +605,9 @@ class snxStationMerger:
         return self
             
     def Print(self):
-        for level in self.mergedStationDict.keys():
-            for stationName in self.mergedStationDict[level].keys():
-                print stationName, level, 
+        for level in list(self.mergedStationDict.keys()):
+            for stationName in list(self.mergedStationDict[level].keys()):
+                print(stationName, level, end=' ') 
                 self.mergedStationDict[level][stationName].Print()
     
     
