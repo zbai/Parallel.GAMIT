@@ -17,13 +17,14 @@ class RunCommandWithRetryExeception(Exception):
     def __init__(self, value):
         self.value = value
         self.event = pyEvents.Event(Description=value, EventType='error', module=type(self).__name__)
+
     def __str__(self):
         return str(self.value)
 
 
 class command(threading.Thread):
 
-    def __init__(self,command,cwd=os.getcwd(),cat_file=None):
+    def __init__(self, command, cwd=os.getcwd(), cat_file=None):
         self.stdout = None
         self.stderr = None
         self.cmd = command
@@ -37,10 +38,17 @@ class command(threading.Thread):
         while True:
             try:
                 if self.cat_file:
-                    cat = subprocess.Popen(['cat',self.cat_file], shell=False, stdout=subprocess.PIPE, cwd=self.cwd, close_fds=True, bufsize=-1, universal_newlines=True)
-                    self.p = subprocess.Popen(self.cmd.split(), shell=False, stdin=cat.stdout, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=self.cwd, close_fds=True, bufsize=-1, universal_newlines=True)
+                    # TODO: What is this?
+                    cat = subprocess.Popen(['cat', self.cat_file], shell=False, stdout=subprocess.PIPE,
+                                           cwd=self.cwd, close_fds=True, bufsize=-1, universal_newlines=True)
+
+                    self.p = subprocess.Popen(self.cmd.split(), shell=False, stdin=cat.stdout,
+                                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=self.cwd,
+                                              close_fds=True, bufsize=-1, universal_newlines=True)
                 else:
-                    self.p = subprocess.Popen(self.cmd.split(), shell=False, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=self.cwd, close_fds=True, bufsize=-1, universal_newlines=True)
+                    self.p = subprocess.Popen(self.cmd.split(), shell=False, stdout=subprocess.PIPE,
+                                              stderr=subprocess.PIPE, cwd=self.cwd, close_fds=True,
+                                              bufsize=-1, universal_newlines=True)
 
                 self.stdout, self.stderr = self.p.communicate()
                 break
@@ -52,13 +60,13 @@ class command(threading.Thread):
                         time.sleep(0.5)
                         continue
                     else:
-                        print((self.cmd))
+                        print(self.cmd)
                         raise OSError(str(e) + ' after 3 retries on node: ' + platform.node())
                 else:
-                    print((self.cmd))
+                    print(self.cmd)
                     raise
             except Exception:
-                print((self.cmd))
+                print(self.cmd)
                 raise
 
     def wait(self, timeout=None):
@@ -88,7 +96,7 @@ class command(threading.Thread):
 
 
 class RunCommand():
-    def __init__(self,command,time_out,cwd=os.getcwd(),cat_file=None):
+    def __init__(self, command, time_out, cwd=os.getcwd(), cat_file=None):
         self.stdout = None
         self.stderr = None
         self.cmd = command

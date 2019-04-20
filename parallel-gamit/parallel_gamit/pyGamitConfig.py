@@ -41,6 +41,7 @@ class GamitConfiguration(ReadOptions):
             self.gamitopt['sigma_floor_h']    = 0.10
             self.gamitopt['sigma_floor_v']    = 0.15
             self.gamitopt['gamit_remote_local'] = ()
+            self.gamitopt['gg'] = '~/gg'
 
             self.NetworkConfig = None
 

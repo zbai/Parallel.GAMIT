@@ -9,55 +9,6 @@ from Utils import required_length
 from pyBunch import Bunch
 
 
-def main():
-
-    parser = argparse.ArgumentParser(description='Program to alter the default ETM parameters for each station. '
-                                                 'The command can be executed on several stations at the same time. '
-                                                 'It is also possible to alter parameters for PPP and GAMIT '
-                                                 'simultaneously.')
-
-    parser.add_argument('stnlist', type=str, nargs='+', metavar='all|net.stnm',
-                        help="List of networks/stations to process given in [net].[stnm] format or just [stnm] "
-                             "(separated by spaces; if [stnm] is not unique in the database, all stations with that "
-                             "name will be processed). Use keyword 'all' to process all stations in the database. "
-                             "If [net].all is given, all stations from network [net] will be processed. "
-                             "Alternatively, a file with the station list can be provided.")
-
-    parser.add_argument('-fun', '--function_type', nargs='+', metavar=('function', 'argument'), default=[],
-                        help="Specifies the type of function to work with. Can be polynomial (p), jump (j), or "
-                             "periodic (q). Each one accepts a list of arguments. "
-                             "p {terms} where terms equals the number of polynomial terms in the ETM, i.e. "
-                             "terms = 2 is constant velocity and terms = 3 is velocity + acceleration, etc.\n"
-                             "j {action} {type} {date} {relax} where action can be + or -. A + indicates that a jump "
-                             "should be added while a - means that an existing jump should be removed; "
-                             "type = 0 is a mechanic jump and 1 is a geophysical jump; "
-                             "date is the date of the event in all the accepted formats "
-                             "(yyyy/mm/dd yyyy_doy gpswk-wkday fyear); and relax is a list of relaxation times for the "
-                             "logarithmic decays (only used when type = 1, they are ignored when type = 0).\n"
-                             "q {periods} where periods is a list expressed in days (1 yr = 365.25)")
-
-    parser.add_argument('-soln', '--solution_type', nargs='+', choices=['ppp', 'gamit'],
-                        default=['ppp', 'gamit'], action=required_length(1, 2),
-                        help="Specifies the type of solution that this command will affect. If left empty, the ETMs "
-                             "for both PPP and GAMIT will be affected. Otherwise, specify gamit to insert or "
-                             "remove the function on GAMIT ETMs only or ppp to insert or remove the function on PPP "
-                             "ETMs only.")
-
-    parser.add_argument('-print', '--print_params', action='store_true',
-                        help="Print the parameters present in the database for the selected stations.")
-
-    args = parser.parse_args()
-
-    cnn = dbConnection.Cnn("gnss_data.cfg")
-    # get the station list
-    stnlist = Utils.process_stnlist(cnn, args.stnlist)
-
-    if args.print_params:
-        print_params(cnn, stnlist)
-    else:
-        insert_modify_param(parser, cnn, stnlist, args)
-
-
 def print_params(cnn, stnlist):
 
     for station in stnlist:
@@ -174,5 +125,48 @@ def insert_modify_param(parser, cnn, stnlist, args):
 
 if __name__ == '__main__':
 
-    main()
+    parser = argparse.ArgumentParser(description='Program to alter the default ETM parameters for each station. '
+                                                 'The command can be executed on several stations at the same time. '
+                                                 'It is also possible to alter parameters for PPP and GAMIT '
+                                                 'simultaneously.')
 
+    parser.add_argument('stnlist', type=str, nargs='+', metavar='all|net.stnm',
+                        help="List of networks/stations to process given in [net].[stnm] format or just [stnm] "
+                             "(separated by spaces; if [stnm] is not unique in the database, all stations with that "
+                             "name will be processed). Use keyword 'all' to process all stations in the database. "
+                             "If [net].all is given, all stations from network [net] will be processed. "
+                             "Alternatively, a file with the station list can be provided.")
+
+    parser.add_argument('-fun', '--function_type', nargs='+', metavar=('function', 'argument'), default=[],
+                        help="Specifies the type of function to work with. Can be polynomial (p), jump (j), or "
+                             "periodic (q). Each one accepts a list of arguments. "
+                             "p {terms} where terms equals the number of polynomial terms in the ETM, i.e. "
+                             "terms = 2 is constant velocity and terms = 3 is velocity + acceleration, etc.\n"
+                             "j {action} {type} {date} {relax} where action can be + or -. A + indicates that a jump "
+                             "should be added while a - means that an existing jump should be removed; "
+                             "type = 0 is a mechanic jump and 1 is a geophysical jump; "
+                             "date is the date of the event in all the accepted formats "
+                             "(yyyy/mm/dd yyyy_doy gpswk-wkday fyear); and relax is a list of relaxation times for the "
+                             "logarithmic decays (only used when type = 1, they are ignored when type = 0).\n"
+                             "q {periods} where periods is a list expressed in days (1 yr = 365.25)")
+
+    parser.add_argument('-soln', '--solution_type', nargs='+', choices=['ppp', 'gamit'],
+                        default=['ppp', 'gamit'], action=required_length(1, 2),
+                        help="Specifies the type of solution that this command will affect. If left empty, the ETMs "
+                             "for both PPP and GAMIT will be affected. Otherwise, specify gamit to insert or "
+                             "remove the function on GAMIT ETMs only or ppp to insert or remove the function on PPP "
+                             "ETMs only.")
+
+    parser.add_argument('-print', '--print_params', action='store_true',
+                        help="Print the parameters present in the database for the selected stations.")
+
+    args = parser.parse_args()
+
+    cnn = dbConnection.Cnn("gnss_data.cfg")
+    # get the station list
+    stnlist = Utils.process_stnlist(cnn, args.stnlist)
+
+    if args.print_params:
+        print_params(cnn, stnlist)
+    else:
+        insert_modify_param(parser, cnn, stnlist, args)

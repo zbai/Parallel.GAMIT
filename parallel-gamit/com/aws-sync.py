@@ -217,56 +217,6 @@ def sigmas_neu2xyz(lat, lon, sigmas):
     return numpy.row_stack((oxyz[0], oxyz[1], oxyz[2]))
 
 
-def main():
-    parser = argparse.ArgumentParser(description='Script to synchronize AWS with OSU\'s archive database')
-
-    parser.add_argument('date', type=str, nargs=1, help="Check the sync state for this given date. Format can be fyear or yyyy_ddd.")
-    parser.add_argument('-mark', '--mark_uploaded', nargs='+', type=str, help="Pass net.stnm to mark these files as transferred to the AWS", metavar='{net.stnm}')
-    parser.add_argument('-pull', '--pull_rinex', action='store_true', help="Get all the unsynchronized RINEX files in the local dir")
-    parser.add_argument('-np', '--noparallel', action='store_true', help="Execute command without parallelization.")
-
-    args = parser.parse_args()
-
-    Config = pyOptions.ReadOptions("gnss_data.cfg")  # type: pyOptions.ReadOptions
-
-    cnn = dbConnection.Cnn('gnss_data.cfg')
-
-    # before attempting anything, check aliases!!
-    print(' >> Checking GAMIT aliases')
-    check_aliases(cnn)
-
-    # initialize the PP job server
-    if not args.noparallel:
-        JobServer = pyJobServer.JobServer(Config, 1500)  # type: pyJobServer.JobServer
-    else:
-        JobServer = None
-        Config.run_parallel = False
-
-    dd = args.date[0]
-
-    if '_' in dd:
-        date = pyDate.Date(year=int(dd.split('_')[0]), doy=int(dd.split('_')[1]))
-    elif dd == 'all':
-        # run all dates (1994 to 2018)
-        ts = list(range(pyDate.Date(year=2004, doy=20).mjd, pyDate.Date(year=2018, doy=87).mjd, 1))
-        ts = [pyDate.Date(mjd=tts) for tts in ts]
-        for date in ts:
-            print(' >> Processing ' + str(date))
-            pull_rinex(cnn, date, Config, JobServer)
-
-        return
-    else:
-        date = pyDate.Date(fyear=float(dd))
-
-    if args.pull_rinex:
-        pull_rinex(cnn, date, Config, JobServer)
-
-    if args.mark_uploaded is not None:
-        print('Processing %i for day %s' % (len(args.mark_uploaded), date.yyyyddd()))
-        # mark the list of stations as transferred to the AWS
-        mark_uploaded(cnn, date, args.mark_uploaded)
-
-
 def mark_uploaded(cnn, date, stns):
 
     for stn in stns:
@@ -510,4 +460,52 @@ def window_rinex(Rinex, window):
 
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser(description='Script to synchronize AWS with OSU\'s archive database')
+
+    parser.add_argument('date', type=str, nargs=1,
+                        help="Check the sync state for this given date. Format can be fyear or yyyy_ddd.")
+    parser.add_argument('-mark', '--mark_uploaded', nargs='+', type=str,
+                        help="Pass net.stnm to mark these files as transferred to the AWS", metavar='{net.stnm}')
+    parser.add_argument('-pull', '--pull_rinex', action='store_true',
+                        help="Get all the unsynchronized RINEX files in the local dir")
+    parser.add_argument('-np', '--noparallel', action='store_true', help="Execute command without parallelization.")
+
+    args = parser.parse_args()
+
+    Config = pyOptions.ReadOptions("gnss_data.cfg")  # type: pyOptions.ReadOptions
+
+    cnn = dbConnection.Cnn('gnss_data.cfg')
+
+    # before attempting anything, check aliases!!
+    print(' >> Checking GAMIT aliases')
+    check_aliases(cnn)
+
+    # initialize the PP job server
+    if not args.noparallel:
+        JobServer = pyJobServer.JobServer(Config, 1500)  # type: pyJobServer.JobServer
+    else:
+        JobServer = None
+        Config.run_parallel = False
+
+    dd = args.date[0]
+
+    if '_' in dd:
+        date = pyDate.Date(year=int(dd.split('_')[0]), doy=int(dd.split('_')[1]))
+    elif dd == 'all':
+        # run all dates (1994 to 2018)
+        ts = list(range(pyDate.Date(year=2004, doy=20).mjd, pyDate.Date(year=2018, doy=87).mjd, 1))
+        ts = [pyDate.Date(mjd=tts) for tts in ts]
+        for date in ts:
+            print(' >> Processing ' + str(date))
+            pull_rinex(cnn, date, Config, JobServer)
+        exit()
+    else:
+        date = pyDate.Date(fyear=float(dd))
+
+    if args.pull_rinex:
+        pull_rinex(cnn, date, Config, JobServer)
+
+    if args.mark_uploaded is not None:
+        print('Processing %i for day %s' % (len(args.mark_uploaded), date.yyyyddd()))
+        # mark the list of stations as transferred to the AWS
+        mark_uploaded(cnn, date, args.mark_uploaded)

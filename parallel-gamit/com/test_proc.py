@@ -43,7 +43,7 @@ def output_handle(callback):
     return []
 
 
-def main():
+if __name__ == '__main__':
 
     Config = pyOptions.ReadOptions('gnss_data.cfg')
     JobServer = pyJobServer.JobServer(Config)  # type: pyJobServer.JobServer
@@ -85,6 +85,3 @@ def main():
 
     pbar.close()
 
-
-if __name__ == '__main__':
-    main()

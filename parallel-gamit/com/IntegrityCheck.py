@@ -755,7 +755,7 @@ def DeleteRinex(cnn, stnlist, start_date, end_date, completion_limit=0.0):
                            (rnx['Year'], rnx['DOY'], str(e)))
 
 
-def main():
+if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Database integrity tools, metadata check and fixing tools program')
 
@@ -937,8 +937,3 @@ def main():
                           dates[0], dates[1], Config.archive_path)
 
     JobServer.close_cluster()
-
-
-if __name__ == '__main__':
-
-    main()

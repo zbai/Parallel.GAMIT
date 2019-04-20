@@ -42,7 +42,6 @@ cnn = None
 
 
 def insert_station_w_lock(cnn, StationCode, filename, lat, lon, h, x, y, z, otl):
-
     rs = cnn.query("""
 SELECT * FROM
     (SELECT *, 2*asin(sqrt(sin((radians(%.8f)-radians(lat))/2)^2 + 
@@ -102,7 +101,6 @@ SELECT * FROM
 
 
 def callback_handle(job):
-
     global cnn
     global repository_data_in
 
@@ -158,7 +156,6 @@ def callback_handle(job):
 
 
 def check_rinex_timespan_int(rinex, stn):
-
     # how many seconds difference between the rinex file and the record in the db
     stime_diff = abs((stn['ObservationSTime'] - rinex.datetime_firstObs).total_seconds())
     etime_diff = abs((stn['ObservationETime'] - rinex.datetime_lastObs).total_seconds())
@@ -171,7 +168,6 @@ def check_rinex_timespan_int(rinex, stn):
 
 
 def write_error(folder, filename, msg):
-
     # do append just in case...
     count = 0
     while True:
@@ -191,7 +187,6 @@ def write_error(folder, filename, msg):
 
 
 def error_handle(cnn, event, crinez, folder, filename, no_db_log=False):
-
     # rollback any active transactions
     if cnn.active_transaction:
         cnn.rollback_transac()
@@ -222,7 +217,6 @@ def error_handle(cnn, event, crinez, folder, filename, no_db_log=False):
 
 
 def insert_data(cnn, archive, rinexinfo):
-
     inserted = archive.insert_rinex(rinexobj=rinexinfo)
     # if archive.insert_rinex has a dbInserErr, it will be catched by the calling function
     # always remove original file
@@ -279,13 +273,13 @@ def verify_rinex_multiday(cnn, rinexinfo, Config):
 
 
 def process_crinex_file(crinez, filename, data_rejected, data_retry):
-    '''
+    """
     :param crinez:
     :param filename:
     :param data_rejected:
     :param data_retry:
     :return:
-    '''
+    """
 
     # create a uuid temporary folder in case we cannot read the year and doy from the file (and gets rejected)
     reject_folder = os.path.join(data_rejected, str(uuid.uuid4()))
@@ -459,14 +453,17 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry):
 
                         # add the file to the locks table so that it doesn't get processed over and over
                         # this will be removed by user so that the file gets reprocessed once all the metadata is ready
-                        cnn.insert('locks', {'filename':os.path.relpath(crinez, Config.repository_data_in),'StationCode':StationCode})
+                        cnn.insert('locks', {'filename': os.path.relpath(crinez, Config.repository_data_in),
+                                             'StationCode': StationCode})
 
                         return None, [StationCode, (ppp.x, ppp.y, ppp.z), coeff, (ppp.lat[0], ppp.lon[0],
                                                                                   ppp.h[0]), crinez]
 
-    except (pyRinex.pyRinexExceptionBadFile, pyRinex.pyRinexExceptionSingleEpoch, pyRinex.pyRinexExceptionNoAutoCoord) as e:
+    except (
+            pyRinex.pyRinexExceptionBadFile, pyRinex.pyRinexExceptionSingleEpoch,
+            pyRinex.pyRinexExceptionNoAutoCoord) as e:
 
-        reject_folder = reject_folder.replace('%reason%','bad_rinex')
+        reject_folder = reject_folder.replace('%reason%', 'bad_rinex')
 
         # add more verbose output
         e.event['Description'] = e.event['Description'] + '\n' + os.path.relpath(crinez, Config.repository_data_in) + \
@@ -513,7 +510,7 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry):
 
     except pyPPP.pyRunPPPException as e:
 
-        reject_folder = reject_folder.replace('%reason%','no_ppp_solution')
+        reject_folder = reject_folder.replace('%reason%', 'no_ppp_solution')
 
         e.event['StationCode'] = StationCode
         e.event['NetworkCode'] = '???'
@@ -526,7 +523,7 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry):
 
     except pyStationInfo.pyStationInfoException as e:
 
-        retry_folder = retry_folder.replace('%reason%','station_info_exception')
+        retry_folder = retry_folder.replace('%reason%', 'station_info_exception')
 
         e.event['Description'] = e.event['Description'] + '. The file will stay in the repository and will be ' \
                                                           'processed during the next cycle of pyArchiveService.'
@@ -545,7 +542,7 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry):
 
         e.event['Description'] = e.event['Description'] + ' while calculating OTL for %s. ' \
                                                           'The file has been moved into the retry folder.' \
-                                                          % os.path.relpath(crinez, Config.repository_data_in)
+                                 % os.path.relpath(crinez, Config.repository_data_in)
         e.event['StationCode'] = StationCode
         e.event['NetworkCode'] = '???'
         e.event['Year'] = year
@@ -561,7 +558,7 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry):
 
         e.event['Description'] = e.event['Description'] + ' during %s. The file has been moved to the rejected ' \
                                                           'folder. Most likely bad RINEX header/data.' \
-                                                          % os.path.relpath(crinez, Config.repository_data_in)
+                                 % os.path.relpath(crinez, Config.repository_data_in)
         e.event['StationCode'] = StationCode
         e.event['NetworkCode'] = '???'
         e.event['Year'] = year
@@ -578,7 +575,7 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry):
 
         e.event['Description'] = e.event['Description'] + ': %s. Check the brdc/sp3/clk files and also check that ' \
                                                           'the RINEX data is not corrupt.' \
-                                                          % os.path.relpath(crinez, Config.repository_data_in)
+                                 % os.path.relpath(crinez, Config.repository_data_in)
         e.event['StationCode'] = StationCode
         e.event['NetworkCode'] = '???'
         e.event['Year'] = year
@@ -625,7 +622,6 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry):
 
 
 def remove_empty_folders(folder):
-
     for dirpath, _, files in os.walk(folder, topdown=False):  # Listing the files
         for file in files:
             if file.endswith('DS_Store'):
@@ -645,9 +641,9 @@ def remove_empty_folders(folder):
 
 
 def print_archive_service_summary():
-    '''
+    """
     :return:
-    '''
+    """
 
     global cnn
 
@@ -671,7 +667,7 @@ def print_archive_service_summary():
 
 if __name__ == '__main__':
     '''
-    :return:
+    Runs the main part of the script:
     '''
 
     # put connection and config in global variable to use inside callback_handle
@@ -812,7 +808,6 @@ if __name__ == '__main__':
     JobServer.create_cluster(process_crinex_file, depfuncs, callback_handle, pbar, modules=modules)
 
     for file_to_process, sfile in zip(files_path, files_list):
-
         JobServer.submit(file_to_process, sfile, data_reject, data_in_retry)
 
     JobServer.wait()

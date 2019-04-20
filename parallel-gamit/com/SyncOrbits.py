@@ -30,7 +30,8 @@ def get_archive_path(archive, date):
     return archive
 
 
-def main():
+if __name__ == '__main__':
+
     parser = argparse.ArgumentParser(description='Archive operations Main Program')
 
     parser.add_argument('-date', '--date_range', nargs='+', action=required_length(1, 2), metavar='date_start|date_end',
@@ -143,7 +144,3 @@ def main():
 
     except argparse.ArgumentTypeError as e:
         parser.error(str(e))
-
-
-if __name__ == '__main__':
-    main()

@@ -8,37 +8,6 @@ import pyStationInfo
 from zipfile import ZipFile
 
 
-def main():
-
-    parser = argparse.ArgumentParser(description='Program to read package contents created by another '
-                                                 'Parallel.GAMIT system')
-
-    parser.add_argument('zipfiles', type=str, nargs='+', metavar='zipfiles',
-                        help="List of zipfiles to extract information from and print to screen. See option switches to "
-                             "see printing options.")
-
-    parser.add_argument('-stninfo', '--station_info', action='store_true',
-                        help="Print the station information content (in GAMIT format) to the screen.")
-
-    parser.add_argument('-ins', '--insert_sql', action='store_true',
-                        help="Produce a SQL INSERT statement for this station including OTL and coordinates.")
-
-    args = parser.parse_args()
-
-    for zipfile in args.zipfiles:
-        # extract the json for this station
-        json_file = extract_json(zipfile)
-
-        station = json.load(open(json_file, 'r'))
-
-        if args.station_info:
-            print_station_info(station['NetworkCode'], station['StationCode'], station['StationInfo'])
-
-        if args.insert_sql:
-            print_insert_sql(station)
-
-    if os.path.exists('production/import'):
-        shutil.rmtree('production/import')
 
 
 def print_insert_sql(station):
@@ -75,5 +44,32 @@ def extract_json(zipfile):
 
 if __name__ == '__main__':
 
-    main()
+    parser = argparse.ArgumentParser(description='Program to read package contents created by another '
+                                                 'Parallel.GAMIT system')
 
+    parser.add_argument('zipfiles', type=str, nargs='+', metavar='zipfiles',
+                        help="List of zipfiles to extract information from and print to screen. See option switches to "
+                             "see printing options.")
+
+    parser.add_argument('-stninfo', '--station_info', action='store_true',
+                        help="Print the station information content (in GAMIT format) to the screen.")
+
+    parser.add_argument('-ins', '--insert_sql', action='store_true',
+                        help="Produce a SQL INSERT statement for this station including OTL and coordinates.")
+
+    args = parser.parse_args()
+
+    for zipfile in args.zipfiles:
+        # extract the json for this station
+        json_file = extract_json(zipfile)
+
+        station = json.load(open(json_file, 'r'))
+
+        if args.station_info:
+            print_station_info(station['NetworkCode'], station['StationCode'], station['StationInfo'])
+
+        if args.insert_sql:
+            print_insert_sql(station)
+
+    if os.path.exists('production/import'):
+        shutil.rmtree('production/import')

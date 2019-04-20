@@ -10,7 +10,7 @@ import pg
 import pyDate
 
 
-def main():
+if __name__ == '__main__':
 
     print(' >> Loading g08d APRs...')
     mat = hdf5storage.loadmat('PRIORS_from_g08d.mat')
@@ -51,6 +51,3 @@ def main():
 
         else:
             print(' -- COULD NOT FIND STATION ' + NetworkCode + '.' + StationCode)
-
-if __name__ == '__main__':
-    main()

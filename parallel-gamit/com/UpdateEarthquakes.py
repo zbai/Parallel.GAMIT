@@ -14,6 +14,7 @@ from libcomcat import comcat
 
 TIMEFMT2 = '%Y-%m-%d %H:%M:%S.%f'
 
+
 def getNewEvent(event, maxmags):
     ibigmag = -1
     bigmag = 0
@@ -39,6 +40,7 @@ def getNewEvent(event, maxmags):
 
     newevent = OrderedDict(list(zip(keys, values)))
     return newevent
+
 
 class AddEarthquakes():
 
@@ -89,13 +91,8 @@ class AddEarthquakes():
                 continue
 
 
-def main():
+if __name__ == '__main__':
+
     import dbConnection
     cnn = dbConnection.Cnn('gnss_data.cfg')
     AddEarthquakes(cnn)
-    return
-
-
-if __name__ == '__main__':
-
-    main()

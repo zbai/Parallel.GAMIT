@@ -27,20 +27,6 @@ import dbConnection
 # Import the email modules we'll need
 
 
-def main():
-    parser = argparse.ArgumentParser(description='Ocean tide loading program')
-
-    parser.add_argument('-import', '--import_otl', nargs=1,
-                        help="File containing the BLQ parameters returned by the Chalmers website service.")
-
-    args = parser.parse_args()
-
-    if args.import_otl:
-        import_blq(args.import_otl[0])
-    else:
-        create_files()
-
-
 def create_files():
 
     cnn = dbConnection.Cnn("gnss_data.cfg")
@@ -170,4 +156,14 @@ def load_harpos(header, otl):
 
 if __name__ == '__main__':
 
-    main()
+    parser = argparse.ArgumentParser(description='Ocean tide loading program')
+
+    parser.add_argument('-import', '--import_otl', nargs=1,
+                        help="File containing the BLQ parameters returned by the Chalmers website service.")
+
+    args = parser.parse_args()
+
+    if args.import_otl:
+        import_blq(args.import_otl[0])
+    else:
+        create_files()

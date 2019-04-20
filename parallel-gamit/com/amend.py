@@ -119,49 +119,52 @@ def output_handle(callback):
 
     return []
 
-cnn = dbConnection.Cnn('gnss_data.cfg')
-options = pyOptions.ReadOptions('gnss_data.cfg')
 
-JobServer = pyJobServer.JobServer(options)
-archive = pyArchiveStruct.RinexStruct(cnn)
+if __name__ == '__main__':
 
-for table in ['rinex']:
+    cnn = dbConnection.Cnn('gnss_data.cfg')
+    options = pyOptions.ReadOptions('gnss_data.cfg')
 
-    print(" >> Processing " + table)
+    JobServer = pyJobServer.JobServer(options)
+    archive = pyArchiveStruct.RinexStruct(cnn)
 
-    tbl = cnn.query('SELECT * FROM ' + table + ' WHERE "Completion" is null')
+    for table in ['rinex']:
 
-    rnx = tbl.dictresult()
+        print(" >> Processing " + table)
 
-    callback = []
-    pbar = tqdm(total=len(rnx), ncols=80)
+        tbl = cnn.query('SELECT * FROM ' + table + ' WHERE "Completion" is null')
 
-    depfuncs = (verify_rinex_date_multiday,)
-    modules = ('pyRinex', 'dbConnection', 'traceback', 'platform', 'pyDate', 'pyOptions', 'pyArchiveStruct')
+        rnx = tbl.dictresult()
 
-    for rinex in rnx:
-        path = archive.build_rinex_path(rinex['NetworkCode'], rinex['StationCode'], rinex['ObservationYear'], rinex['ObservationDOY'])
+        callback = []
+        pbar = tqdm(total=len(rnx), ncols=80)
 
-        rfile = os.path.join(options.archive_path, path)
+        depfuncs = (verify_rinex_date_multiday,)
+        modules = ('pyRinex', 'dbConnection', 'traceback', 'platform', 'pyDate', 'pyOptions', 'pyArchiveStruct')
 
-        callback.append(callback_class(pbar))
+        for rinex in rnx:
+            path = archive.build_rinex_path(rinex['NetworkCode'], rinex['StationCode'], rinex['ObservationYear'], rinex['ObservationDOY'])
 
-        arguments = (rinex, rfile)
+            rfile = os.path.join(options.archive_path, path)
 
-        JobServer.SubmitJob(UpdateRecord, arguments, depfuncs, modules, callback, callback_class(pbar), 'callbackfunc')
+            callback.append(callback_class(pbar))
 
-        if JobServer.process_callback:
-            # handle any output messages during this batch
-            callback = output_handle(callback)
-            JobServer.process_callback = False
+            arguments = (rinex, rfile)
 
+            JobServer.SubmitJob(UpdateRecord, arguments, depfuncs, modules, callback, callback_class(pbar), 'callbackfunc')
 
-    tqdm.write(' >> waiting for jobs to finish...')
-    JobServer.job_server.wait()
-    tqdm.write(' >> Done.')
-    pbar.close()
-    output_handle(callback)
+            if JobServer.process_callback:
+                # handle any output messages during this batch
+                callback = output_handle(callback)
+                JobServer.process_callback = False
 
 
-print('\n')
-JobServer.job_server.print_stats()
+        tqdm.write(' >> waiting for jobs to finish...')
+        JobServer.job_server.wait()
+        tqdm.write(' >> Done.')
+        pbar.close()
+        output_handle(callback)
+
+
+    print('\n')
+    JobServer.job_server.print_stats()

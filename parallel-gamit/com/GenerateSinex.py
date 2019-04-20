@@ -88,7 +88,7 @@ def process_sinex(cnn, project, dates, sinex):
     add_domes(sinex, stations)
 
 
-def main():
+if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='GNSS time series stacker')
 
@@ -118,7 +118,3 @@ def main():
     process_sinex(cnn, project, dates, sinex)
 
     # generate REP file
-
-
-if __name__ == '__main__':
-    main()

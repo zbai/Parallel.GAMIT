@@ -227,134 +227,6 @@ def compare_aliases(Station, AllStations):
     return True
 
 
-def main():
-
-    global cnn
-
-    parser = argparse.ArgumentParser(description='Parallel.GAMIT main execution program')
-
-    parser.add_argument('session_cfg', type=str, nargs=1, metavar='session.cfg',
-                        help="Filename with the session configuration to run Parallel.GAMIT")
-    parser.add_argument('-d', '--date', type=str, nargs=2, metavar='{date}',
-                        help="Date range to process. Can be specified in yyyy/mm/dd yyyy_doy wwww-d format")
-    parser.add_argument('-dp', '--date_parser', type=str, nargs=2, metavar='{year} {doys}',
-                        help="Parse date using ranges and commas (e.g. 2018 1,3-6). "
-                             "Cannot cross year boundaries")
-    parser.add_argument('-e', '--exclude', type=str, nargs='+', metavar='station',
-                        help="List of stations to exclude from this processing (e.g. -e igm1 lpgs vbca)")
-    parser.add_argument('-p', '--purge', action='store_true',
-                        help="Purge year doys from the database and directory structure and re-run the solution.")
-    parser.add_argument('-dry', '--dry_run', action='store_true',
-                        help="Generate the directory structures (locally) but do not run GAMIT. "
-                             "Output is left in the production directory.")
-    parser.add_argument('-kml', '--generate_kml', action='store_true',
-                        help="Generate KML and exit without running GAMIT.")
-
-    parser.add_argument('-np', '--noparallel', action='store_true', help="Execute command without parallelization.")
-
-    args = parser.parse_args()
-
-    dates = None
-    drange = None
-    try:
-        if args.date_parser:
-            year = int(args.date_parser[0])
-            doys = parseIntSet(args.date_parser[1])
-
-            if any([doy for doy in doys if doy < 1]):
-                parser.error('DOYs cannot start with zero. Please selected a DOY range between 1-365/366')
-
-            if 366 in doys:
-                if year % 4 != 0:
-                    parser.error('Year ' + str(year) + ' is not a leap year: DOY 366 does not exist.')
-
-            dates = [pyDate.Date(year=year, doy=i) for i in doys]
-            drange = [dates[0], dates[-1]]
-        else:
-            drange = process_date(args.date, missing_input=None)
-
-            if not all(drange):
-                parser.error('Must specify a start and end date for the processing.')
-
-            # get the dates to purge
-            dates = [pyDate.Date(mjd=i) for i in range(drange[0].mjd, drange[1].mjd + 1)]
-
-    except ValueError as e:
-        parser.error(str(e))
-
-    print(' >> Reading configuration files and creating project network, please wait...')
-
-    GamitConfig = pyGamitConfig.GamitConfiguration(args.session_cfg[0])  # type: pyGamitConfig.GamitConfiguration
-
-    print(' >> Checing GAMIT tables for requested config and year, please wait...')
-
-    JobServer = pyJobServer.JobServer(GamitConfig,
-                                      check_gamit_tables=(pyDate.Date(year=drange[1].year, doy=drange[1].doy),
-                                                          GamitConfig.gamitopt['eop_type']),
-                                      run_parallel=not args.noparallel,
-                                      software_sync=GamitConfig.gamitopt['gamit_remote_local'])
-
-    cnn = dbConnection.Cnn(GamitConfig.gamitopt['gnss_data'])  # type: dbConnection.Cnn
-
-    # to exclude stations, append them to GamitConfig.NetworkConfig with a - in front
-    exclude = args.exclude
-    if exclude is not None:
-        print(' >> User selected list of stations to exclude:')
-        Utils.print_columns(exclude)
-        GamitConfig.NetworkConfig['stn_list'] += ',-' + ',-'.join(exclude)
-
-    if args.dry_run is not None:
-        dry_run = args.dry_run
-    else:
-        dry_run = False
-
-    if not dry_run:
-        # ignore if calling a dry run
-        # purge solutions if requested
-        purge_solutions(JobServer, args, dates, GamitConfig)
-
-    # initialize stations in the project
-    stations = station_list(cnn, GamitConfig.NetworkConfig, drange)
-
-    tqdm.write(' >> Creating GAMIT session instances, please wait...')
-
-    sessions = []
-    archive = pyArchiveStruct.RinexStruct(cnn)  # type: pyArchiveStruct.RinexStruct
-
-    for date in tqdm(dates, ncols=80):
-
-        # make the dir for these sessions
-        # this avoids a racing condition when starting each process
-        pwd = GamitConfig.gamitopt['solutions_dir'].rstrip('/') + '/' + date.yyyy() + '/' + date.ddd()
-
-        if not os.path.exists(pwd):
-            os.makedirs(pwd)
-
-        net_object = Network(cnn, archive, GamitConfig, stations, date)
-
-        sessions += net_object.sessions
-
-    if args.generate_kml:
-        # generate a KML of the sessions
-        generate_kml(dates, sessions, GamitConfig)
-        exit()
-
-    # print a summary of the current project (NOT VERY USEFUL AFTER ALL)
-    # print_summary(stations, sessions, drange)
-
-    # run the job server
-    ExecuteGamit(sessions, JobServer, dry_run)
-
-    # execute globk on doys that had to be divided into subnets
-    if not args.dry_run:
-        ExecuteGlobk(GamitConfig, sessions, dates)
-
-        # parse the zenith delay outputs
-        ParseZTD(GamitConfig.NetworkConfig.network_id, sessions, GamitConfig)
-
-    print(' >> Done processing and parsing information. Successful exit from Parallel.GAMIT')
-
-
 def generate_kml(dates, sessions, GamitConfig):
 
     tqdm.write('  >> Generating KML for this run (see production directory)...')
@@ -641,5 +513,128 @@ def ExecuteGamit(Sessions, JobServer, dry_run=False):
 
 
 if __name__ == '__main__':
-    main()
+#    global cnn
+
+    parser = argparse.ArgumentParser(description='Parallel.GAMIT main execution program')
+
+    parser.add_argument('session_cfg', type=str, nargs=1, metavar='session.cfg',
+                        help="Filename with the session configuration to run Parallel.GAMIT")
+    parser.add_argument('-d', '--date', type=str, nargs=2, metavar='{date}',
+                        help="Date range to process. Can be specified in yyyy/mm/dd yyyy_doy wwww-d format")
+    parser.add_argument('-dp', '--date_parser', type=str, nargs=2, metavar='{year} {doys}',
+                        help="Parse date using ranges and commas (e.g. 2018 1,3-6). "
+                             "Cannot cross year boundaries")
+    parser.add_argument('-e', '--exclude', type=str, nargs='+', metavar='station',
+                        help="List of stations to exclude from this processing (e.g. -e igm1 lpgs vbca)")
+    parser.add_argument('-p', '--purge', action='store_true',
+                        help="Purge year doys from the database and directory structure and re-run the solution.")
+    parser.add_argument('-dry', '--dry_run', action='store_true',
+                        help="Generate the directory structures (locally) but do not run GAMIT. "
+                             "Output is left in the production directory.")
+    parser.add_argument('-kml', '--generate_kml', action='store_true',
+                        help="Generate KML and exit without running GAMIT.")
+
+    parser.add_argument('-np', '--noparallel', action='store_true', help="Execute command without parallelization.")
+
+    args = parser.parse_args()
+
+    dates = None
+    drange = None
+    try:
+        if args.date_parser:
+            year = int(args.date_parser[0])
+            doys = parseIntSet(args.date_parser[1])
+
+            if any([doy for doy in doys if doy < 1]):
+                parser.error('DOYs cannot start with zero. Please selected a DOY range between 1-365/366')
+
+            if 366 in doys:
+                if year % 4 != 0:
+                    parser.error('Year ' + str(year) + ' is not a leap year: DOY 366 does not exist.')
+
+            dates = [pyDate.Date(year=year, doy=i) for i in doys]
+            drange = [dates[0], dates[-1]]
+        else:
+            drange = process_date(args.date, missing_input=None)
+
+            if not all(drange):
+                parser.error('Must specify a start and end date for the processing.')
+
+            # get the dates to purge
+            dates = [pyDate.Date(mjd=i) for i in range(drange[0].mjd, drange[1].mjd + 1)]
+
+    except ValueError as e:
+        parser.error(str(e))
+
+    print(' >> Reading configuration files and creating project network, please wait...')
+
+    GamitConfig = pyGamitConfig.GamitConfiguration(args.session_cfg[0])  # type: pyGamitConfig.GamitConfiguration
+
+    print(' >> Checing GAMIT tables for requested config and year, please wait...')
+
+    JobServer = pyJobServer.JobServer(GamitConfig,
+                                      check_gamit_tables=(pyDate.Date(year=drange[1].year, doy=drange[1].doy),
+                                                          GamitConfig.gamitopt['eop_type']),
+                                      run_parallel=not args.noparallel,
+                                      software_sync=GamitConfig.gamitopt['gamit_remote_local'])
+
+    cnn = dbConnection.Cnn(GamitConfig.gamitopt['gnss_data'])  # type: dbConnection.Cnn
+
+    # to exclude stations, append them to GamitConfig.NetworkConfig with a - in front
+    exclude = args.exclude
+    if exclude is not None:
+        print(' >> User selected list of stations to exclude:')
+        Utils.print_columns(exclude)
+        GamitConfig.NetworkConfig['stn_list'] += ',-' + ',-'.join(exclude)
+
+    if args.dry_run is not None:
+        dry_run = args.dry_run
+    else:
+        dry_run = False
+
+    if not dry_run:
+        # ignore if calling a dry run
+        # purge solutions if requested
+        purge_solutions(JobServer, args, dates, GamitConfig)
+
+    # initialize stations in the project
+    stations = station_list(cnn, GamitConfig.NetworkConfig, drange)
+
+    tqdm.write(' >> Creating GAMIT session instances, please wait...')
+
+    sessions = []
+    archive = pyArchiveStruct.RinexStruct(cnn)  # type: pyArchiveStruct.RinexStruct
+
+    for date in tqdm(dates, ncols=80):
+
+        # make the dir for these sessions
+        # this avoids a racing condition when starting each process
+        pwd = GamitConfig.gamitopt['solutions_dir'].rstrip('/') + '/' + date.yyyy() + '/' + date.ddd()
+
+        if not os.path.exists(pwd):
+            os.makedirs(pwd)
+
+        net_object = Network(cnn, archive, GamitConfig, stations, date)
+
+        sessions += net_object.sessions
+
+    if args.generate_kml:
+        # generate a KML of the sessions
+        generate_kml(dates, sessions, GamitConfig)
+        exit()
+
+    # print a summary of the current project (NOT VERY USEFUL AFTER ALL)
+    # print_summary(stations, sessions, drange)
+
+    # run the job server
+    ExecuteGamit(sessions, JobServer, dry_run)
+
+    # execute globk on doys that had to be divided into subnets
+    if not args.dry_run:
+        ExecuteGlobk(GamitConfig, sessions, dates)
+
+        # parse the zenith delay outputs
+        ParseZTD(GamitConfig.NetworkConfig.network_id, sessions, GamitConfig)
+
+    print(' >> Done processing and parsing information. Successful exit from Parallel.GAMIT')
 

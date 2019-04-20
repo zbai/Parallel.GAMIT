@@ -45,57 +45,6 @@ def replace_vars(filename, date):
     return filename
 
 
-def main():
-    parser = argparse.ArgumentParser(description='Archive operations Main Program')
-
-    parser.add_argument('stnlist', type=str, nargs='+', metavar='all|net.stnm',
-                        help="List of networks/stations to process given in [net].[stnm] format or just [stnm] (separated by spaces; if [stnm] is not unique in the database, all stations with that name will be processed). Use keyword 'all' to process all stations in the database. If [net].all is given, all stations from network [net] will be processed. Alternatevily, a file with the station list can be provided.")
-
-    parser.add_argument('-date', '--date_range', nargs='+', action=required_length(1,2), metavar='date_start|date_end', help="Date range to check given as [date_start] or [date_start] and [date_end]. Allowed formats are yyyy.doy or yyyy/mm/dd..")
-    parser.add_argument('-win', '--window', nargs=1, metavar='days', type=int,
-                        help="Download data from a given time window determined by today - {days}.")
-
-    try:
-        args = parser.parse_args()
-
-        cnn = dbConnection.Cnn('gnss_data.cfg')
-        Config = pyOptions.ReadOptions('gnss_data.cfg')
-
-        if len(args.stnlist) == 1 and os.path.isfile(args.stnlist[0]):
-            print(' >> Station list read from ' + args.stnlist[0])
-            stnlist = [line.strip() for line in open(args.stnlist[0], 'r')]
-            stnlist = [{'NetworkCode': item.split('.')[0], 'StationCode': item.split('.')[1]} for item in stnlist]
-        else:
-            stnlist = Utils.process_stnlist(cnn, args.stnlist)
-
-        print(' >> Selected station list:')
-        print_columns([item['NetworkCode'] + '.' + item['StationCode'] for item in stnlist])
-
-        dates = []
-
-        try:
-            if args.window:
-                # today - ndays
-                d = pyDate.Date(year=datetime.now().year, month=datetime.now().month, day=datetime.now().day)
-                dates = [d-int(args.window[0]), d]
-            else:
-                dates = process_date(args.date_range)
-
-        except ValueError as e:
-            parser.error(str(e))
-
-        if dates[0] < pyDate.Date(gpsWeek=650, gpsWeekDay=0):
-            dates = [pyDate.Date(gpsWeek=650, gpsWeekDay=0),
-                     pyDate.Date(year=datetime.now().year, month=datetime.now().month, day=datetime.now().day)]
-
-        # go through the dates
-        drange = np.arange(dates[0].mjd, dates[1].mjd + 1, 1)
-
-        download_data(cnn, Config, stnlist, drange)
-
-    except argparse.ArgumentTypeError as e:
-        parser.error(str(e))
-
 
 def download_data(cnn, Config, stnlist, drange):
 
@@ -314,4 +263,58 @@ def download_http(fqdn, folder, destiny, filename):
 
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser(description='Archive operations Main Program')
+
+    parser.add_argument('stnlist', type=str, nargs='+', metavar='all|net.stnm',
+                        help="List of networks/stations to process given in [net].[stnm] format or just [stnm] "
+                             "(separated by spaces; if [stnm] is not unique in the database, all stations with that "
+                             "name will be processed). Use keyword 'all' to process all stations in the database. If "
+                             "[net].all is given, all stations from network [net] will be processed. Alternatevily, a "
+                             "file with the station list can be provided.")
+
+    parser.add_argument('-date', '--date_range', nargs='+', action=required_length(1,2), metavar='date_start|date_end',
+                        help="Date range to check given as [date_start] or [date_start] and [date_end]. Allowed formats "
+                             "are yyyy.doy or yyyy/mm/dd..")
+    parser.add_argument('-win', '--window', nargs=1, metavar='days', type=int,
+                        help="Download data from a given time window determined by today - {days}.")
+
+    try:
+        args = parser.parse_args()
+
+        cnn = dbConnection.Cnn('gnss_data.cfg')
+        Config = pyOptions.ReadOptions('gnss_data.cfg')
+
+        if len(args.stnlist) == 1 and os.path.isfile(args.stnlist[0]):
+            print(' >> Station list read from ' + args.stnlist[0])
+            stnlist = [line.strip() for line in open(args.stnlist[0], 'r')]
+            stnlist = [{'NetworkCode': item.split('.')[0], 'StationCode': item.split('.')[1]} for item in stnlist]
+        else:
+            stnlist = Utils.process_stnlist(cnn, args.stnlist)
+
+        print(' >> Selected station list:')
+        print_columns([item['NetworkCode'] + '.' + item['StationCode'] for item in stnlist])
+
+        dates = []
+
+        try:
+            if args.window:
+                # today - ndays
+                d = pyDate.Date(year=datetime.now().year, month=datetime.now().month, day=datetime.now().day)
+                dates = [d-int(args.window[0]), d]
+            else:
+                dates = process_date(args.date_range)
+
+        except ValueError as e:
+            parser.error(str(e))
+
+        if dates[0] < pyDate.Date(gpsWeek=650, gpsWeekDay=0):
+            dates = [pyDate.Date(gpsWeek=650, gpsWeekDay=0),
+                     pyDate.Date(year=datetime.now().year, month=datetime.now().month, day=datetime.now().day)]
+
+        # go through the dates
+        drange = np.arange(dates[0].mjd, dates[1].mjd + 1, 1)
+
+        download_data(cnn, Config, stnlist, drange)
+
+    except argparse.ArgumentTypeError as e:
+        parser.error(str(e))

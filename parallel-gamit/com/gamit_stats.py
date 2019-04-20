@@ -140,7 +140,7 @@ def parse_monitor(cnn, monitor):
         print(' -- record already exists ' + monitor)
 
 
-def main():
+if __name__ == '__main__':
 
     cnn = dbConnection.Cnn('gnss_data.cfg')
 
@@ -163,6 +163,3 @@ def main():
                     if os.path.isfile(sess + '/monitor.log'):
                         parse_monitor(cnn, sess + '/monitor.log')
 
-
-if __name__ == '__main__':
-    main()

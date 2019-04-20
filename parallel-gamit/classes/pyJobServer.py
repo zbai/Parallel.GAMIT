@@ -45,7 +45,7 @@ def test_node(check_gamit_tables=None, software_sync=()):
         return ' -- %s: Incorrect Python version: %i.%i.%i. Recommended version > 3' \
                % (platform.node(), version.major, version.minor, version.micro)
 
-    # start importing the modeles needed
+    # start importing the modules needed
     try:
         import pyRinex
         import dbConnection
@@ -131,13 +131,13 @@ def test_node(check_gamit_tables=None, software_sync=()):
                % (platform.node(), traceback.format_exc())
 
     try:
-        brdc = pyBrdc.GetBrdcOrbits(Config.brdc_path, date, test_dir)
+        pyBrdc.GetBrdcOrbits(Config.brdc_path, date, test_dir)
     except Exception:
         return ' -- %s: Problem while testing the broadcast ephemeris archive (%s) access:\n%s' \
                % (platform.node(), Config.brdc_path, traceback.format_exc())
 
     try:
-        sp3 = pySp3.GetSp3Orbits(Config.sp3_path, date, Config.sp3types, test_dir)
+        pySp3.GetSp3Orbits(Config.sp3_path, date, Config.sp3types, test_dir)
     except Exception:
         return ' -- %s: Problem while testing the sp3 orbits archive (%s) access:\n%s' \
                % (platform.node(), Config.sp3_path, traceback.format_exc())
@@ -186,7 +186,7 @@ def test_node(check_gamit_tables=None, software_sync=()):
 
         date = check_gamit_tables[0]
         eop  = check_gamit_tables[1]
-
+        # TODO: Change this so it's not hardwired into the home directory anymore
         gg = os.path.expanduser('~/gg')
         tables = os.path.expanduser('~/gg/tables')
 

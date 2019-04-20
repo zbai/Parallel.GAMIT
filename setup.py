@@ -26,5 +26,12 @@ setuptools.setup(
                       'tqdm',
                       'dispy',
                       'dirsync',
-                      'psutil']
+                      'psutil',
+                      'hdf5storage',
+                      'libcomcat',
+                      'pysftp',
+                      'simplekml',
+                      'magic',
+                      'sklearn',
+                      'seaborn']
 )
