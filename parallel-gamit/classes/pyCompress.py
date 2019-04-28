@@ -9,7 +9,7 @@ Not really used for the moment...
 import gzip
 
 import magic
-import zipfile
+import zip_file
 
 
 class Compress():
@@ -22,7 +22,7 @@ class Compress():
 
         if 'zip archive' in filetype.lower():
 
-            file = zipfile.ZipFile(file)
+            file = zip_file.ZipFile(file)
             file.extractall(dest)
 
         elif 'gzip' in filetype.lower():

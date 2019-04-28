@@ -12,6 +12,7 @@ import glob
 import os
 import urllib.error
 import urllib.parse
+# noinspection PyCompatibility
 import urllib.request
 from datetime import datetime
 from shutil import copy
@@ -32,7 +33,12 @@ from tqdm import tqdm
 
 
 def replace_vars(filename, date):
+    """
 
+    :param filename:
+    :param date:
+    :return:
+    """
     filename = filename.replace('${year}', str(date.year))
     filename = filename.replace('${doy}', str(date.doy).zfill(3))
     filename = filename.replace('${day}', str(date.day).zfill(2))
@@ -45,24 +51,31 @@ def replace_vars(filename, date):
     return filename
 
 
+def download_data(cnn, config, stnlist, drange):
+    """
 
-def download_data(cnn, Config, stnlist, drange):
-
+    :param cnn:
+    :param config:
+    :param stnlist:
+    :param drange:
+    """
     archive = pyArchiveStruct.RinexStruct(cnn)
 
-    pbar = tqdm(desc='%-30s' % ' >> Downloading stations declared in data_source', total=len(drange)*len(stnlist), ncols=160)
+    pbar = tqdm(desc='%-30s' % ' >> Downloading stations declared in data_source', total=len(drange) * len(stnlist),
+                ncols=160)
 
     for date in [pyDate.Date(mjd=mdj) for mdj in drange]:
 
         for stn in stnlist:
 
-            StationCode = stn['StationCode']
-            NetworkCode = stn['NetworkCode']
+            stationcode = stn['StationCode']
+            networkcode = stn['NetworkCode']
 
-            pbar.set_postfix(current='%s.%s %s' % (NetworkCode, StationCode, date.yyyyddd()))
+            pbar.set_postfix(current='%s.%s %s' % (networkcode, stationcode, date.yyyyddd()))
             pbar.update()
 
-            rinex = archive.get_rinex_record(NetworkCode=NetworkCode, StationCode=StationCode, ObservationYear=date.year,
+            rinex = archive.get_rinex_record(NetworkCode=networkcode, StationCode=stationcode,
+                                             ObservationYear=date.year,
                                              ObservationDOY=date.doy)
 
             if not rinex:
@@ -73,49 +86,64 @@ def download_data(cnn, Config, stnlist, drange):
                 download = False
 
             if download:
-                rs = cnn.query('SELECT * FROM data_source WHERE "NetworkCode" = \'%s\' AND "StationCode" = \'%s\' ORDER BY try_order' % (NetworkCode, StationCode))
+                rs = cnn.query(
+                    'SELECT * FROM data_source WHERE "NetworkCode" = \'%s\' AND "StationCode" = \'%s\' ORDER BY try_order' % (
+                        networkcode, stationcode))
                 sources = rs.dictresult()
 
                 for source in sources:
 
-                    tqdm.write(' >> Need to download %s.%s %s' % (NetworkCode, StationCode, date.yyyyddd()))
+                    tqdm.write(' >> Need to download %s.%s %s' % (networkcode, stationcode, date.yyyyddd()))
 
                     result = False
 
                     folder = os.path.dirname(replace_vars(source['path'], date))
-                    destiny = os.path.join(Config.repository_data_in, source['fqdn'].replace(':', '_'))
+                    destiny = os.path.join(config.repository_data_in, source['fqdn'].replace(':', '_'))
                     filename = os.path.basename(replace_vars(source['path'], date))
 
                     if source['protocol'].lower() == 'ftp':
-                        result = download_ftp(source['fqdn'], source['username'], source['password'], folder, destiny, filename)
+                        result = download_ftp(source['fqdn'], source['username'], source['password'], folder, destiny,
+                                              filename)
 
                     elif source['protocol'].lower() == 'sftp':
-                        result = download_sftp(source['fqdn'], source['username'], source['password'], folder, destiny, filename)
+                        result = download_sftp(source['fqdn'], source['username'], source['password'], folder, destiny,
+                                               filename)
 
                     elif source['protocol'].lower() == 'http':
                         result = download_http(source['fqdn'], folder, destiny, filename)
 
                     else:
-                        tqdm.write('   -- Unknown protocol %s for %s.%s' % (source['protocol'].lower(), NetworkCode, StationCode))
+                        tqdm.write('   -- Unknown protocol %s for %s.%s' % (
+                            source['protocol'].lower(), networkcode, stationcode))
 
                     if result:
-                        tqdm.write('   -- Successful download of %s.%s %s' % (NetworkCode, StationCode, date.yyyyddd()))
+                        tqdm.write('   -- Successful download of %s.%s %s' % (networkcode, stationcode, date.yyyyddd()))
 
                         # success downloading file
                         if source['format']:
                             tqdm.write('   -- File requires postprocess using scheme %s' % (source['format']))
-                            process_file(os.path.join(destiny, filename), filename, destiny, source['format'], StationCode, date)
+                            process_file(os.path.join(destiny, filename), filename, destiny, source['format'],
+                                         stationcode)
 
                         break
                     else:
-                        tqdm.write('   -- Could not download %s.%s %s -> trying next source' % (NetworkCode, StationCode, date.yyyyddd()))
+                        tqdm.write('   -- Could not download %s.%s %s -> trying next source' % (
+                            networkcode, stationcode, date.yyyyddd()))
             else:
-                tqdm.write(' >> File for %s.%s %s already in db' % (NetworkCode, StationCode, date.yyyyddd()))
+                tqdm.write(' >> File for %s.%s %s already in db' % (networkcode, stationcode, date.yyyyddd()))
 
     pbar.close()
 
 
-def process_file(filepath, filename, destiny, source, StationCode, date):
+def process_file(filepath, filename, destiny, source, stationcode):
+    """
+
+    :param filepath:
+    :param filename:
+    :param destiny:
+    :param source:
+    :param stationcode:
+    """
     # post-process of data
 
     temp_dir = os.path.join(destiny, 'temp')
@@ -142,7 +170,7 @@ def process_file(filepath, filename, destiny, source, StationCode, date):
         ofile = glob.glob(temp_dir + '/*.??[oOdD]')
 
         if ofile:
-            rinex = pyRinex.ReadRinex('???', StationCode, ofile[0])
+            rinex = pyRinex.ReadRinex('???', stationcode, ofile[0])
             # compress rinex to data_in
             rinex.compress_local_copyto(destiny)
             # remove downloaded zip
@@ -166,7 +194,16 @@ def process_file(filepath, filename, destiny, source, StationCode, date):
 
 
 def download_ftp(fqdn, username, password, folder, destiny, filename):
+    """
 
+    :param fqdn:
+    :param username:
+    :param password:
+    :param folder:
+    :param destiny:
+    :param filename:
+    :return:
+    """
     try:
         tqdm.write('   -- Connecting to ' + fqdn)
 
@@ -200,6 +237,16 @@ def download_ftp(fqdn, username, password, folder, destiny, filename):
 
 
 def download_sftp(fqdn, username, password, folder, destiny, filename):
+    """
+
+    :param fqdn:
+    :param username:
+    :param password:
+    :param folder:
+    :param destiny:
+    :param filename:
+    :return:
+    """
     try:
         cnopts = pysftp.CnOpts()
         cnopts.hostkeys = None
@@ -243,7 +290,14 @@ def download_sftp(fqdn, username, password, folder, destiny, filename):
 
 
 def download_http(fqdn, folder, destiny, filename):
+    """
 
+    :param fqdn:
+    :param folder:
+    :param destiny:
+    :param filename:
+    :return:
+    """
     try:
 
         if not os.path.exists(destiny):
@@ -272,9 +326,9 @@ if __name__ == '__main__':
                              "[net].all is given, all stations from network [net] will be processed. Alternatevily, a "
                              "file with the station list can be provided.")
 
-    parser.add_argument('-date', '--date_range', nargs='+', action=required_length(1,2), metavar='date_start|date_end',
-                        help="Date range to check given as [date_start] or [date_start] and [date_end]. Allowed formats "
-                             "are yyyy.doy or yyyy/mm/dd..")
+    parser.add_argument('-date', '--date_range', nargs='+', action=required_length(1, 2), metavar='date_start|date_end',
+                        help="Date range to check given as [date_start] or [date_start] and [date_end]. Allowed "
+                             "formats are yyyy.doy or yyyy/mm/dd..")
     parser.add_argument('-win', '--window', nargs=1, metavar='days', type=int,
                         help="Download data from a given time window determined by today - {days}.")
 
@@ -286,7 +340,7 @@ if __name__ == '__main__':
 
         if len(args.stnlist) == 1 and os.path.isfile(args.stnlist[0]):
             print(' >> Station list read from ' + args.stnlist[0])
-            stnlist = [line.strip() for line in open(args.stnlist[0], 'r')]
+            stnlist = [line.strip() for line in open(args.stnlist[0])]
             stnlist = [{'NetworkCode': item.split('.')[0], 'StationCode': item.split('.')[1]} for item in stnlist]
         else:
             stnlist = Utils.process_stnlist(cnn, args.stnlist)
@@ -300,7 +354,7 @@ if __name__ == '__main__':
             if args.window:
                 # today - ndays
                 d = pyDate.Date(year=datetime.now().year, month=datetime.now().month, day=datetime.now().day)
-                dates = [d-int(args.window[0]), d]
+                dates = [d - int(args.window[0]), d]
             else:
                 dates = process_date(args.date_range)
 

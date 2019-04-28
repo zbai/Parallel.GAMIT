@@ -525,8 +525,8 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry):
 
         retry_folder = retry_folder.replace('%reason%', 'station_info_exception')
 
-        e.event['Description'] = e.event['Description'] + '. The file will stay in the repository and will be ' \
-                                                          'processed during the next cycle of pyArchiveService.'
+        e.event['Description'] += '. The file will stay in the repository and will be ' \
+                                  'processed during the next cycle of pyArchiveService.'
         e.event['StationCode'] = StationCode
         e.event['NetworkCode'] = '???'
         e.event['Year'] = year
@@ -540,9 +540,9 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry):
 
         retry_folder = retry_folder.replace('%reason%', 'otl_exception')
 
-        e.event['Description'] = e.event['Description'] + ' while calculating OTL for %s. ' \
-                                                          'The file has been moved into the retry folder.' \
-                                 % os.path.relpath(crinez, Config.repository_data_in)
+        e.event['Description'] += ' while calculating OTL for %s. ' \
+                                  'The file has been moved into the retry folder.' \
+                                  % os.path.relpath(crinez, Config.repository_data_in)
         e.event['StationCode'] = StationCode
         e.event['NetworkCode'] = '???'
         e.event['Year'] = year
@@ -556,9 +556,9 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry):
         # a bad RINEX file requested an orbit for a date < 0 or > now()
         reject_folder = reject_folder.replace('%reason%', 'bad_rinex')
 
-        e.event['Description'] = e.event['Description'] + ' during %s. The file has been moved to the rejected ' \
-                                                          'folder. Most likely bad RINEX header/data.' \
-                                 % os.path.relpath(crinez, Config.repository_data_in)
+        e.event['Description'] += ' during %s. The file has been moved to the rejected ' \
+                                  'folder. Most likely bad RINEX header/data.' \
+                                  % os.path.relpath(crinez, Config.repository_data_in)
         e.event['StationCode'] = StationCode
         e.event['NetworkCode'] = '???'
         e.event['Year'] = year
@@ -573,9 +573,9 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry):
         # if PPP fails and ArchiveService tries to run sh_rnx2apr and it doesn't find the orbits, send to retry
         retry_folder = retry_folder.replace('%reason%', 'sp3_exception')
 
-        e.event['Description'] = e.event['Description'] + ': %s. Check the brdc/sp3/clk files and also check that ' \
-                                                          'the RINEX data is not corrupt.' \
-                                 % os.path.relpath(crinez, Config.repository_data_in)
+        e.event['Description'] += ': %s. Check the brdc/sp3/clk files and also check that ' \
+                                  'the RINEX data is not corrupt.' \
+                                  % os.path.relpath(crinez, Config.repository_data_in)
         e.event['StationCode'] = StationCode
         e.event['NetworkCode'] = '???'
         e.event['Year'] = year
@@ -819,4 +819,4 @@ if __name__ == '__main__':
     print_archive_service_summary()
 
     # iterate to delete empty folders
-    remove_empty_folders(data_in)
+    # remove_empty_folders(data_in)

@@ -5,7 +5,7 @@ import os
 import shutil
 
 import pyStationInfo
-from zipfile import ZipFile
+from zip_file import ZipFile
 
 
 

@@ -92,7 +92,7 @@ import pyRinex
 import pySp3
 import pyStationInfo
 import scandir
-import zipfile
+import zip_file
 from Utils import ecef2lla
 from Utils import process_date
 from tqdm import tqdm
@@ -1049,8 +1049,8 @@ def export_station(cnn, stnlist, pyArchive, archive_path, dataless):
             json.dump(export_dic, file, indent=4, sort_keys=True, cls=Encoder)
 
         # make the zip file with the station
-        with zipfile.ZipFile('%s.%s.zip' % (NetworkCode, StationCode),
-                             "w", zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
+        with zip_file.ZipFile('%s.%s.zip' % (NetworkCode, StationCode),
+                             "w", zip_file.ZIP_DEFLATED, allowZip64=True) as zf:
             for root, _, filenames in os.walk(dest):
                 for name in filenames:
                     name = os.path.join(root, name)
@@ -1087,7 +1087,7 @@ def import_station(cnn, args):
 
             try:
                 # process each station file
-                zipfile.ZipFile(ff).extractall(path)
+                zip_file.ZipFile(ff).extractall(path)
 
                 jfile = glob.glob(os.path.join(path, '*.json'))
 
@@ -1124,7 +1124,7 @@ def import_station(cnn, args):
                 # delete all files once we're done.
                 shutil.rmtree(path)
 
-            except zipfile.BadZipfile:
+            except zip_file.BadZipfile:
                 tqdm.write(' -- Bad zipfile detected: %s' % ff)
 
 

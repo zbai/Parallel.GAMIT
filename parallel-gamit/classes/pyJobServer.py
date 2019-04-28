@@ -187,10 +187,9 @@ def test_node(check_gamit_tables=None, software_sync=()):
         date = check_gamit_tables[0]
         eop  = check_gamit_tables[1]
         # TODO: Change this so it's not hardwired into the home directory anymore
-        gg = os.path.expanduser('~/gg')
-        tables = os.path.expanduser('~/gg/tables')
+        tables = os.path.join(Config.options['gg'], 'tables')
 
-        if not os.path.isdir(gg):
+        if not os.path.isdir(Config.options['gg']):
             return ' -- %s: Could not GAMIT installation dir (gg)' % (platform.node())
 
         if not os.path.isdir(tables):
@@ -293,8 +292,8 @@ class JobServer:
                     servers = [_f for _f in list(Config.options['node_list'].split(',')) if _f]
 
             # initialize the cluster
-            self.cluster = dispy.JobCluster(test_node, servers, recover_file='pg.dat', pulse_interval=60,
-                                            cluster_status=self.check_cluster)
+            self.cluster = dispy.JobCluster(test_node, servers, recover_file='pg.dat',
+                                             ip_addr=servers)
             # discover the available nodes
             self.cluster.discover_nodes(servers)
 
@@ -334,7 +333,7 @@ class JobServer:
 
             self.cluster.wait()
 
-            self.result.append(j())
+            self.result.append(j)
 
             self.nodes.append(node)
 

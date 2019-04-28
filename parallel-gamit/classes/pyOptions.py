@@ -39,7 +39,8 @@ class ReadOptions:
                         'atx': None,
                         'height_codes': None,
                         'ppp_exe': None,
-                        'ppp_remote_local': ()}
+                        'ppp_remote_local': (),
+                        'gg': None}
 
         config = configparser.ConfigParser()
         config.readfp(open(configfile))
@@ -65,16 +66,16 @@ class ReadOptions:
         for frame, atx in zip(frames, atx):
             date = process_date(self.options[frame.lower()].split(','))
             self.Frames += [{'name': frame, 'atx': atx, 'dates':
-                                    (Date(year=date[0].year, doy=date[0].doy, hour=0, minute=0, second=0),
-                                     Date(year=date[1].year, doy=date[1].doy, hour=23, minute=59, second=59))}]
+                (Date(year=date[0].year, doy=date[0].doy, hour=0, minute=0, second=0),
+                 Date(year=date[1].year, doy=date[1].doy, hour=23, minute=59, second=59))}]
 
         self.options['frames'] = self.Frames
 
         self.archive_path = self.options['path']
-        self.sp3_path     = self.options['sp3']
-        self.brdc_path    = self.options['brdc']
-        self.repository   = self.options['repository']
-
+        self.sp3_path = self.options['sp3']
+        self.brdc_path = self.options['brdc']
+        self.repository = self.options['repository']
+        self.gg = self.options['gg']
         self.repository_data_in = os.path.join(self.repository, 'data_in')
         self.repository_data_in_retry = os.path.join(self.repository, 'data_in_retry')
         self.repository_data_reject = os.path.join(self.repository, 'data_rejected')

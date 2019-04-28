@@ -207,7 +207,9 @@ class GamitSession(object):
             raise
 
     def create_otl_list(self):
+        """
 
+        """
         if os.path.isfile(os.path.join(self.pwd_tables, 'otl.list')):
             os.remove(os.path.join(self.pwd_tables, 'otl.list'))
 
@@ -322,29 +324,62 @@ $$\n""" % (self.Config.options['otlmodel']))
 
     def link_tables(self):
 
-        try:
-            link_tables = open('link_tables.sh', 'w')
-        except (OSError, IOError):
-            raise GamitSessionException('Could not create script file link_tables.sh')
+        linklist = ['gdetic.dat',
+                    'guess_rcvant.dat',
+                    'hi.dat',
+                    'leap.sec',
+                    'svnav.dat',
+                    'svs_exclude.dat',
+                    'tform.dat',
+                    'antmod.dat',
+                    'rcvant.dat',
+                    'dcb.dat',
+                    'eq_rename',
+                    'otlcmc.dat',
+                    'otl.grid',
+                    'otl.list',
+                    'atl.grid',
+                    'atl.list',
+                    'gpt.grid',
+                    'core']
 
-        # link the apr file as the lfile.
-        contents = \
-            """#!/bin/bash
-            # set up links
-            cd %s;
-            sh_links.tables -frame J2000 -year %s -eop %s -topt none &> sh_links.out;
-            # kill the earthquake rename file
-            rm eq_rename
-            # create an empty rename file
-            echo "" > eq_rename
-            cd ..;
-            """ % (self.pwd_tables, self.date.yyyy(), self.GamitOpts['eop_type'])
+        linklist2 = [f'nutabl.{self.date.year}',
+                     f'soltab.{self.date.year}.J2000',
+                     f'luntab.{self.date.year}.J2000',
+                     f'atml.grid.{self.date.year}',
+                     f'atml.list.{self.date.year}',
+                     f'map.grid.{self.date.year}',
+                     f'map.list.{self.date.year}',
+                     f'met.grid.{self.date.year}',
+                     f'met.list.{self.date.year}',
+                     'ut1.{}'.format(self.GamitOpts['eop_type']),
+                     'pole.{}'.format(self.GamitOpts['eop_type'])]
 
-        link_tables.write(contents)
-        link_tables.close()
+        linklistdst = ['nutabl.',
+                       'soltab.',
+                       'luntab.',
+                       'atml.grid',
+                       'atml.list',
+                       'map.grid',
+                       'map.list',
+                       'met.grid',
+                       'met.list',
+                       'ut1.',
+                       'pole.']
+        for link in linklist:
+            try:
+                os.remove(os.path.join(self.pwd_tables, link))
+                os.symlink(os.path.join(self.Config.gg,'tables', link), os.path.join(self.pwd_tables, link))
+            except FileNotFoundError:
+                os.symlink(os.path.join(self.Config.gg,'tables', link), os.path.join(self.pwd_tables, link))
 
-        os.system('chmod +x link_tables.sh')
-        os.system('./link_tables.sh')
+        for linksrc, linkdst in zip(linklist2, linklistdst):
+            try:
+                os.remove(os.path.join(self.pwd_tables, linkdst))
+                os.symlink(os.path.join(self.Config.gg, 'tables', linksrc), os.path.join(self.pwd_tables, linkdst))
+            except FileNotFoundError:
+                os.symlink(os.path.join(self.Config.gg, 'tables', linksrc), os.path.join(self.pwd_tables, linkdst))
+        # TODO: symbolic links aren't working, should probably migrate the shell script into python.
 
     def get_rinex_filenames(self):
         lst = []
