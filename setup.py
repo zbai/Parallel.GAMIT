@@ -6,8 +6,8 @@ import setuptools
 setuptools.setup(
     name='Parallel.GAMIT',
     version='',
-    packages=['parallel-gamit', 'parallel-gamit.com', 'parallel-gamit.classes', 'parallel-gamit.stacker',
-              'parallel-gamit.parallel_gamit'],
+    packages=['GAMITArchive', 'GAMITArchive.com', 'GAMITArchive.classes', 'GAMITArchive.stacker',
+              'GAMITArchive.parallel_gamit'],
     url='',
     license='',
     author='Demian Gomez',

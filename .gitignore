@@ -103,3 +103,4 @@ data/
 classes/.idea/
 configuration_files/production
 venv3/
+backup/

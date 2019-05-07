@@ -1,0 +1,4 @@
+[run]
+include =
+    $HOME/PycharmProjects/Parallel.GAMIT/GAMITArchive/__init__.py
+    $HOME/PycharmProjects/Parallel.GAMIT/bin/ArchiveService.py

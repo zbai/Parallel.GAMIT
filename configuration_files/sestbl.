@@ -145,7 +145,7 @@ Scratch directory = ./tmp
                                     (Applies only to update for final solution after initial )
   Update tolerance                ; minimum adjustment for updating L-file coordinates, default .3 m
   SOLVE-only = YES                ; YES/NO  default = NO 
-  X-compress = YES                ; Uncompress/compress X-files  default = NO  
+  X-compress = YES                ; uncompress/compress X-files  default = NO
   SCANDD control                  ; FULL (default), FIRST, BOTH, IFBAD, NONE
   Run CTOX = YES                  ; Make clean X-files from C-files  default = NO
   Bias apriori = 100.             ; Optional constraint on biases for LC_AUTCLN (default 0 -> no constrint)
