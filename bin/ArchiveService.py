@@ -242,7 +242,7 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry, cfg_file='g
     reject_folder = os.path.join(data_rejected, str(uuid.uuid4()))
 
     try:
-        cnn = GAMITArchive.Cnn(cfg_file)
+        cnn = GAMITArchive.Connection(cfg_file)
         cfg = GAMITArchive.ReadOptions(cfg_file)
         archix = GAMITArchive.RinexStruct(cnn)
         # apply local configuration (path to repo) in the executing node
@@ -613,7 +613,7 @@ def main(args):
                                        software_sync=[
                                            config.options['ppp_remote_local']])  # type: GAMITArchive.JobServer
 
-    conn = GAMITArchive.Cnn(args.config_file)
+    conn = GAMITArchive.Connection(args.config_file)
     # create the execution log
     conn.insert('executions', {'script': 'ArchiveService.py'})
 

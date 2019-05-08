@@ -104,3 +104,5 @@ classes/.idea/
 configuration_files/production
 venv3/
 backup/
+gnss_data.cfg
+.coveragerc

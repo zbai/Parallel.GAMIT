@@ -10,7 +10,7 @@ class ArchiveServiceTest(unittest.TestCase):
 
     def setUp(self) -> None:
         self.config_file = 'debug.cfg'
-        self.cnn = GAMITArchive.Cnn(self.config_file)
+        self.cnn = GAMITArchive.Connection(self.config_file)
         self.stationcode = 'test'
 
     def test_insert_station_w_lock(self):

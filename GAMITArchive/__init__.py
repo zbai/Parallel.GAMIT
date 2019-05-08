@@ -625,7 +625,7 @@ def test_node(check_gamit_tables=None, software_sync=(), cfg_file='gnss_data.cfg
     # continue with a test SQL connection
     # make sure that the gnss_data.cfg is present
     try:
-        Cnn(cfg_file)
+        Connection(cfg_file)
     except Exception:
         return ' -- %s: Problem found while connecting to postgres:\n%s ' % (platform.node(), traceback.format_exc())
 
@@ -2044,7 +2044,7 @@ class Event(dict):
         return str(self['Description'])
 
 
-class Cnn:
+class Connection:
     """
     Ideally this class is to be used as a direct connection to the gnss_data database.  As such it should initiate to
     a pgdb.Connection object through the uses of pgdb.connect().  Once the object has established a connection to the
@@ -2056,7 +2056,6 @@ class Cnn:
 
     def __init__(self, configfile='gnss_data.cfg'):
 
-        # set casting of numeric to floats
         self.options = {'hostname': 'localhost',
                         'username': 'postgres',
                         'password': '',
@@ -2067,17 +2066,14 @@ class Cnn:
         config = configparser.ConfigParser()
         with open(configfile) as cf:
             config.read_file(cf)
-
         # get the database config
         for key in config['postgres']:
             self.options[key] = config.get('postgres', key)
-
         connect_dsn = 'dbname={} host={} user={} password={}'.format(self.options['database'],
                                                                      self.options['hostname'],
                                                                      self.options['username'],
                                                                      self.options['password'])
         # open connection to server
-
         try:
             self.conn = psycopg2.connect(connect_dsn)
             if self.conn.closed == 1:
