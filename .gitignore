@@ -106,3 +106,4 @@ venv3/
 backup/
 gnss_data.cfg
 .coveragerc
+debug.cfg

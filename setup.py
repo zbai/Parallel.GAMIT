@@ -1,17 +1,13 @@
-"""
-Setup.py
-"""
-import setuptools
+from setuptools import setup
 
-setuptools.setup(
+setup(
     name='Parallel.GAMIT',
     version='',
-    packages=['GAMITArchive', 'GAMITArchive.com', 'GAMITArchive.classes', 'GAMITArchive.stacker',
-              'GAMITArchive.parallel_gamit'],
+    packages=['GAMITArchive'],
     url='',
     license='',
     author='Demian Gomez',
     author_email='',
     description='',
-    requires=['numpy']
+    install_requires=['dirsync', 'dispy', 'numpy', 'scandir', 'tqdm', 'psycopg2']
 )

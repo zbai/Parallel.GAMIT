@@ -27,6 +27,7 @@ from collections import defaultdict
 from tqdm import tqdm
 from psycopg2 import sql
 import logging
+from decimal import Decimal
 
 DELAY = 5
 TYPE_CRINEZ = 0
@@ -574,7 +575,7 @@ def get_norm_doy_str(doy):
     return doy
 
 
-def test_node(check_gamit_tables=None, software_sync=(), cfg_file='gnss_data.cfg'):
+def test_node(check_gamit_tables=None, software_sync=(), cfg_file='gnss_data.cfg') -> str:
     # test node: function that makes sure that all required packages and tools are present in the nodes
 
     def check_tab_file(tabfile, date):
@@ -2076,8 +2077,6 @@ class Connection:
         # open connection to server
         try:
             self.conn = psycopg2.connect(connect_dsn)
-            if self.conn.closed == 1:
-                raise DBErrConnect
         except Exception as e:
             raise e
 
@@ -2087,9 +2086,16 @@ class Connection:
         except Exception as e:
             print(e)
             pass
-        del self.conn
 
     def _execute_wrapper(self, sql_statement, values=None, retval=False, return_dict=False):
+        """
+        Deal with all the actual database interactions here and deal with the related error possibilities.
+        :param sql_statement: A composable object.
+        :param values: List or tuple of values for the sql statement.
+        :param retval: Whether to return a value or not.
+        :param return_dict: Return it as a dictionary or not.
+        :return: Returns either a list of tuples containing the results or a dictionary.
+        """
         try:
             with self.conn.cursor() as curs:
                 if values is not None:
@@ -2103,11 +2109,14 @@ class Connection:
                         d = defaultdict(list)
                         for n, key in enumerate(keys):
                             for rec in qresults:
-                                d[key].append(rec[n])
+                                if type(rec[n]) != Decimal:
+                                    d[key].append(rec[n])
+                                else:
+                                    d[key].append(float(rec[n]))
                         return d
                     else:
-                        return curs.fetchall()
 
+                        return curs.fetchall()
             self.conn.commit()
         except Exception as e:
             raise DBErrInsert(e)
@@ -2119,7 +2128,7 @@ class Connection:
         insert_statement = sql.SQL("INSERT INTO {0} ({1}) VALUES ({2});").format(x, y, z)
         self._execute_wrapper(insert_statement, [v for v in record.values()])
 
-    def clear_locks(self):
+    def update_locks(self):
 
         clear_statement = sql.SQL("DELETE FROM locks WHERE {} NOT LIKE {};").format(sql.Identifier('NetworkCode'),
                                                                                     sql.Placeholder())
@@ -2240,15 +2249,15 @@ class Connection:
 
         return self._execute_wrapper(sql_select, vals, retval=True)
 
-    def update(self, table: str, row: dict, **kw):
+    def update(self, table: str, row: dict, record: dict):
         a = sql.SQL('{}').format(sql.Identifier(table))
-        b = sql.SQL(', ').join([sql.Identifier(key) for key in kw.keys()])
-        c = sql.SQL(', ').join(sql.Placeholder() * len(kw))
+        b = sql.SQL(', ').join([sql.Identifier(key) for key in record.keys()])
+        c = sql.SQL(', ').join(sql.Placeholder() * len(record))
         d = sql.SQL(', ').join([sql.Identifier(key) for key in row.keys()])
         e = sql.SQL(', ').join(sql.Placeholder() * len(row))
         insert_statement = sql.SQL("UPDATE {0} SET ({1}) = ({2}) WHERE ({3}) LIKE ({4})").format(a, b, c, d, e)
         vals = []
-        for v in kw.values():
+        for v in record.values():
             vals.append(v)
         for v in row.values():
             vals.append(v)
@@ -2738,7 +2747,7 @@ class GetBrdcOrbits(OrbitalProduct):
         return self
 
 
-class JobServer(dispy.JobCluster):
+class JobServer:
     # TODO: Make this into a subclass of the dispy jobcluster
 
     def __init__(self, config, check_gamit_tables=None, software_sync=(), cfg_file='gnss_data.cfg'):
@@ -2781,17 +2790,18 @@ class JobServer(dispy.JobCluster):
                     servers = [_f for _f in list(config.options['node_list'].split(',')) if _f]
 
             # initialize the cluster
-            self.cluster = dispy.JobCluster(test_node, servers, recover_file='pg.dat',
+            # TODO: The correct IP address isn't resolved on my Mac so it's hardcoded here.
+            self.cluster = dispy.JobCluster(test_node, servers,
+                                            recover_file='pg.dat',
                                             ip_addr=servers)
-            # discover the available nodes
-            self.cluster.discover_nodes(servers)
+            result = self.cluster.submit(cfg_file=cfg_file)
 
             # wait for all nodes
             time.sleep(DELAY)
 
             stop = False
 
-            for r in self.result:
+            for r in result:
                 if 'Test passed!' not in r:
                     print(r)
                     stop = True
@@ -2800,12 +2810,12 @@ class JobServer(dispy.JobCluster):
                 print(' >> Errors were encountered during initialization. Check messages.')
                 # terminate execution if problems were found
                 self.cluster.close()
-                exit()
+                sys.exit()
 
             self.cluster.close()
         else:
             print(' >> Parallel processing deactivated by user')
-            r = test_node(check_gamit_tables)
+            r = test_node(check_gamit_tables=check_gamit_tables, cfg_file=cfg_file)
             if 'Test passed!' not in r:
                 print(r)
                 print(' >> Errors were encountered during initialization. Check messages.')
@@ -3058,7 +3068,8 @@ class ReadOptions:
                         'gg': None}
 
         config = configparser.ConfigParser()
-        config.read_file(open(configfile))
+        with open(configfile) as fp:
+            config.read_file(fp)
 
         # get the archive config
         for section in config.sections():
@@ -3156,7 +3167,7 @@ class RunPPP(PPPSpatialCheck):
 
         assert isinstance(rinexobj, ReadRinex)
 
-        PPPSpatialCheck.__init__(self)
+        super().__init__()
 
         self.rinex = rinexobj
         self.epoch = rinexobj.date
@@ -3228,9 +3239,9 @@ class RunPPP(PPPSpatialCheck):
 
             try:
                 # create a production folder to analyze the rinex file
-                if not os.path.exists(self.rootdir):
-                    os.makedirs(self.rootdir)
-                    os.makedirs(os.path.join(self.rootdir, 'orbits'))
+
+                os.makedirs(self.rootdir, exist_ok=True)
+                os.makedirs(os.path.join(self.rootdir, 'orbits'), exist_ok=True)
             except Exception:
                 # could not create production dir! FATAL
                 raise
@@ -5241,7 +5252,7 @@ class GetEOP(OrbitalProduct):
             self.eop_filename = sp3type + date.wwww() + '7.erp'
 
             try:
-                OrbitalProduct.__init__(self, sp3archive, date, self.eop_filename, copyto)
+                super().__init__(sp3archive, date, self.eop_filename, copyto)
                 self.eop_path = self.file_path
                 self.type = sp3type
                 break

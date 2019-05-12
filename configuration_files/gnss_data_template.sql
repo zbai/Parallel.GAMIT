@@ -15,27 +15,97 @@ SET check_function_bodies = false;
 SET client_min_messages = warning;
 SET row_security = off;
 
-DROP DATABASE gnss_data;
+ALTER TABLE ONLY public.stations DROP CONSTRAINT stations_networks_networkcode_fk;
+ALTER TABLE ONLY public.stationinfo DROP CONSTRAINT stationinfo_stations_networkcode_fk;
+ALTER TABLE ONLY public.stationinfo DROP CONSTRAINT stationinfo_receivers_receivercode_fk;
+ALTER TABLE ONLY public.stationinfo DROP CONSTRAINT stationinfo_antennas_antennacode_fk;
+ALTER TABLE ONLY public.stationalias DROP CONSTRAINT stationalias_stations_networkcode_fk;
+ALTER TABLE ONLY public.rinex_tank_struct DROP CONSTRAINT rinex_tank_struct_keys_keycode_fk;
+ALTER TABLE ONLY public.rinex DROP CONSTRAINT rinex_stations_networkcode_fk;
+ALTER TABLE ONLY public.ppp_soln DROP CONSTRAINT ppp_soln_stations_networkcode_fk;
+ALTER TABLE ONLY public.ppp_soln_excl DROP CONSTRAINT ppp_soln_excl_stations_networkcode_fk;
+ALTER TABLE ONLY public.locks DROP CONSTRAINT locks_stations_networkcode_fk;
+ALTER TABLE ONLY public.gamit_soln DROP CONSTRAINT gamit_soln_stations_networkcode_fk;
+ALTER TABLE ONLY public.gamit_htc DROP CONSTRAINT gamit_htc_antennas_antennacode_fk;
+ALTER TABLE ONLY public.etmsv2 DROP CONSTRAINT etmsv2_stations_networkcode_fk;
+ALTER TABLE ONLY public.etms DROP CONSTRAINT etms_stations_networkcode_fk;
+ALTER TABLE ONLY public.etm_params DROP CONSTRAINT etm_params_stations_networkcode_fk;
+ALTER TABLE ONLY public.data_source DROP CONSTRAINT "data_source_NetworkCode_fkey";
+ALTER TABLE ONLY public.apr_coords DROP CONSTRAINT apr_coords_stations_networkcode_fk;
+ALTER TABLE ONLY public.stations DROP CONSTRAINT stations_pk;
+ALTER TABLE ONLY public.stationinfo DROP CONSTRAINT stationinfo_pk;
+ALTER TABLE ONLY public.stationalias DROP CONSTRAINT stationalias_pk;
+ALTER TABLE ONLY public.rinex_tank_struct DROP CONSTRAINT rinex_tank_struct_pk;
+ALTER TABLE ONLY public.rinex DROP CONSTRAINT rinex_pk;
+ALTER TABLE ONLY public.receivers DROP CONSTRAINT receivers_pk;
+ALTER TABLE ONLY public.ppp_soln DROP CONSTRAINT ppp_soln_pk;
+ALTER TABLE ONLY public.ppp_soln_excl DROP CONSTRAINT ppp_soln_excl_pk;
+ALTER TABLE ONLY public.networks DROP CONSTRAINT networks_pk;
+ALTER TABLE ONLY public.locks DROP CONSTRAINT locks_pk;
+ALTER TABLE ONLY public.keys DROP CONSTRAINT keys_pk;
+ALTER TABLE ONLY public.gamit_subnets DROP CONSTRAINT gamit_subnets_pk;
+ALTER TABLE ONLY public.gamit_soln DROP CONSTRAINT gamit_soln_pk;
+ALTER TABLE ONLY public.gamit_htc DROP CONSTRAINT gamit_htc_pk;
+ALTER TABLE ONLY public.events DROP CONSTRAINT events_pk;
+ALTER TABLE ONLY public.etmsv2 DROP CONSTRAINT etmsv2_pk;
+ALTER TABLE ONLY public.etms DROP CONSTRAINT etms_pk;
+ALTER TABLE ONLY public.etm_params DROP CONSTRAINT etm_params_pk;
+ALTER TABLE ONLY public.earthquakes DROP CONSTRAINT earthquakes_pk;
+ALTER TABLE ONLY public.data_source DROP CONSTRAINT data_source_pkey;
+ALTER TABLE ONLY public.aws_sync DROP CONSTRAINT aws_sync_pk;
+ALTER TABLE ONLY public.apr_coords DROP CONSTRAINT apr_coords_pk;
+ALTER TABLE ONLY public.antennas DROP CONSTRAINT antennas_pk;
+DROP TABLE public.stations;
+DROP TABLE public.stationinfo;
+DROP TABLE public.stationalias;
+DROP TABLE public.rinex_tank_struct;
+DROP TABLE public.rinex;
+DROP TABLE public.receivers;
+DROP TABLE public.ppp_soln_excl;
+DROP TABLE public.ppp_soln;
+DROP TABLE public.networks;
+DROP TABLE public.locks;
+DROP TABLE public.keys;
+DROP TABLE public.gamit_subnets;
+DROP TABLE public.gamit_soln;
+DROP TABLE public.gamit_htc;
+DROP TABLE public.executions;
+DROP SEQUENCE public.executions_id_seq;
+DROP TABLE public.events;
+DROP SEQUENCE public.events_event_id_seq;
+DROP TABLE public.etmsv2;
+DROP SEQUENCE public.etmsv2_uid_seq;
+DROP TABLE public.etms;
+DROP TABLE public.etm_params;
+DROP SEQUENCE public.etm_params_uid_seq;
+DROP TABLE public.earthquakes;
+DROP TABLE public.data_source;
+DROP TABLE public.aws_sync;
+DROP TABLE public.apr_coords;
+DROP TABLE public.antennas;
+DROP FUNCTION public.update_timespan_trigg();
+DROP FUNCTION public.update_station_timespan("NetworkCode" character varying, "StationCode" character varying);
+DROP FUNCTION public.stationalias_check();
+DROP FUNCTION public.isleapyear(year integer);
+DROP FUNCTION public.horizdist(neu double precision[]);
+DROP FUNCTION public.fyear("Year" numeric, "DOY" numeric, "Hour" numeric, "Minute" numeric, "Second" numeric);
+DROP FUNCTION public.ecef2neu(dx numeric, dy numeric, dz numeric, lat numeric, lon numeric);
+DROP SCHEMA public;
 --
--- Name: gnss_data; Type: DATABASE; Schema: -; Owner: postgres
+-- Name: public; Type: SCHEMA; Schema: -; Owner: postgres
 --
 
-CREATE DATABASE gnss_data WITH TEMPLATE = template0 ENCODING = 'UTF8' LC_COLLATE = 'en_US.UTF-8' LC_CTYPE = 'en_US.UTF-8';
+CREATE SCHEMA public;
 
 
-ALTER DATABASE gnss_data OWNER TO postgres;
+ALTER SCHEMA public OWNER TO postgres;
 
-\connect gnss_data
+--
+-- Name: SCHEMA public; Type: COMMENT; Schema: -; Owner: postgres
+--
 
-SET statement_timeout = 0;
-SET lock_timeout = 0;
-SET idle_in_transaction_session_timeout = 0;
-SET client_encoding = 'UTF8';
-SET standard_conforming_strings = on;
-SELECT pg_catalog.set_config('search_path', '', false);
-SET check_function_bodies = false;
-SET client_min_messages = warning;
-SET row_security = off;
+COMMENT ON SCHEMA public IS 'standard public schema';
+
 
 --
 -- Name: ecef2neu(numeric, numeric, numeric, numeric, numeric); Type: FUNCTION; Schema: public; Owner: postgres
@@ -567,11 +637,11 @@ ALTER TABLE public.receivers OWNER TO postgres;
 CREATE TABLE public.rinex (
     "NetworkCode" character varying NOT NULL,
     "StationCode" character varying NOT NULL,
-    "ObservationYear" numeric NOT NULL,
-    "ObservationMonth" numeric NOT NULL,
-    "ObservationDay" numeric NOT NULL,
-    "ObservationDOY" numeric NOT NULL,
-    "ObservationFYear" numeric NOT NULL,
+    "ObservationYear" integer NOT NULL,
+    "ObservationMonth" integer NOT NULL,
+    "ObservationDay" integer NOT NULL,
+    "ObservationDOY" integer NOT NULL,
+    "ObservationFYear" real NOT NULL,
     "ObservationSTime" timestamp without time zone,
     "ObservationETime" timestamp without time zone,
     "ReceiverType" character varying(20),
@@ -581,67 +651,13 @@ CREATE TABLE public.rinex (
     "AntennaSerial" character varying(20),
     "AntennaDome" character varying(20),
     "Filename" character varying(20),
-    "Interval" numeric NOT NULL,
-    "AntennaOffset" numeric,
-    "Completion" numeric(7,3) NOT NULL
+    "Interval" real NOT NULL,
+    "AntennaOffset" real,
+    "Completion" real NOT NULL
 );
 
 
 ALTER TABLE public.rinex OWNER TO postgres;
-
---
--- Name: rinex_proc; Type: VIEW; Schema: public; Owner: postgres
---
-
-CREATE VIEW public.rinex_proc AS
- SELECT rnx."NetworkCode",
-    rnx."StationCode",
-    rnx."ObservationYear",
-    rnx."ObservationMonth",
-    rnx."ObservationDay",
-    rnx."ObservationDOY",
-    rnx."ObservationFYear",
-    rnx."ObservationSTime",
-    rnx."ObservationETime",
-    rnx."ReceiverType",
-    rnx."ReceiverSerial",
-    rnx."ReceiverFw",
-    rnx."AntennaType",
-    rnx."AntennaSerial",
-    rnx."AntennaDome",
-    rnx."Filename",
-    rnx."Interval",
-    rnx."AntennaOffset",
-    rnx."Completion",
-    rnx."mI"
-   FROM ( SELECT aa."NetworkCode",
-            aa."StationCode",
-            aa."ObservationYear",
-            aa."ObservationMonth",
-            aa."ObservationDay",
-            aa."ObservationDOY",
-            aa."ObservationFYear",
-            aa."ObservationSTime",
-            aa."ObservationETime",
-            aa."ReceiverType",
-            aa."ReceiverSerial",
-            aa."ReceiverFw",
-            aa."AntennaType",
-            aa."AntennaSerial",
-            aa."AntennaDome",
-            aa."Filename",
-            aa."Interval",
-            aa."AntennaOffset",
-            aa."Completion",
-            min(aa."Interval") OVER (PARTITION BY aa."NetworkCode", aa."StationCode", aa."ObservationYear", aa."ObservationDOY") AS "mI"
-           FROM (public.rinex aa
-             LEFT JOIN public.rinex bb ON ((((aa."NetworkCode")::text = (bb."NetworkCode")::text) AND ((aa."StationCode")::text = (bb."StationCode")::text) AND (aa."ObservationYear" = bb."ObservationYear") AND (aa."ObservationDOY" = bb."ObservationDOY") AND (aa."Completion" < bb."Completion"))))
-          WHERE (bb."NetworkCode" IS NULL)
-          ORDER BY aa."NetworkCode", aa."StationCode", aa."ObservationYear", aa."ObservationDOY", aa."Interval", aa."Completion") rnx
-  WHERE (rnx."Interval" = rnx."mI");
-
-
-ALTER TABLE public.rinex_proc OWNER TO postgres;
 
 --
 -- Name: rinex_tank_struct; Type: TABLE; Schema: public; Owner: postgres
@@ -719,6 +735,222 @@ CREATE TABLE public.stations (
 ALTER TABLE public.stations OWNER TO postgres;
 
 --
+-- Data for Name: antennas; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.antennas ("AntennaCode", "AntennaDescription") FROM stdin;
+LEIAT504	\N
+TRM29659.00	\N
+TRM59800.00	\N
+SEPPOLANT_X_MF	\N
+\.
+
+
+--
+-- Data for Name: apr_coords; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.apr_coords ("NetworkCode", "StationCode", "FYear", x, y, z, sn, se, su, "ReferenceFrame", "Year", "DOY") FROM stdin;
+\.
+
+
+--
+-- Data for Name: aws_sync; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.aws_sync ("NetworkCode", "StationCode", "StationAlias", "Year", "DOY", sync_date) FROM stdin;
+\.
+
+
+--
+-- Data for Name: data_source; Type: TABLE DATA; Schema: public; Owner: pmatheny
+--
+
+COPY public.data_source ("NetworkCode", "StationCode", try_order, protocol, fqdn, username, password, path, format) FROM stdin;
+\.
+
+
+--
+-- Data for Name: earthquakes; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.earthquakes (date, lat, lon, depth, mag) FROM stdin;
+\.
+
+
+--
+-- Data for Name: etm_params; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.etm_params ("NetworkCode", "StationCode", soln, object, terms, frequencies, jump_type, relaxation, "Year", "DOY", action, uid) FROM stdin;
+\.
+
+
+--
+-- Data for Name: etms; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.etms ("NetworkCode", "StationCode", "Name", "Value", hash) FROM stdin;
+\.
+
+
+--
+-- Data for Name: etmsv2; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.etmsv2 ("NetworkCode", "StationCode", soln, object, t_ref, jump_type, relaxation, frequencies, params, sigmas, metadata, hash, jump_date, uid) FROM stdin;
+\.
+
+
+--
+-- Data for Name: events; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.events (event_id, "EventDate", "EventType", "NetworkCode", "StationCode", "Year", "DOY", "Description", stack, module, node) FROM stdin;
+\.
+
+
+--
+-- Data for Name: executions; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.executions (id, script, exec_date) FROM stdin;
+\.
+
+
+--
+-- Data for Name: gamit_htc; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.gamit_htc ("AntennaCode", "HeightCode", v_offset, h_offset) FROM stdin;
+TRM29659.00	DHPAB	0	0
+SEPPOLANT_X_MF	DHPAB	0	0
+LEIAT504	DHPAB	0	0
+TRM59800.00	DHPAB	0	0
+\.
+
+
+--
+-- Data for Name: gamit_soln; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.gamit_soln ("NetworkCode", "StationCode", "Project", "Year", "DOY", "FYear", "X", "Y", "Z", sigmax, sigmay, sigmaz, "VarianceFactor", sigmaxy, sigmayz, sigmaxz) FROM stdin;
+\.
+
+
+--
+-- Data for Name: gamit_subnets; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.gamit_subnets ("Project", subnet, "Year", "DOY", centroid, stations, alias, ties) FROM stdin;
+\.
+
+
+--
+-- Data for Name: keys; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.keys ("KeyCode", "TotalChars", rinex_col_out, rinex_col_in, isnumeric) FROM stdin;
+day	2	"ObservationDay"	ObservationDay	1
+doy	3	LPAD("ObservationDOY"::text,3,'0')	ObservationDOY	1
+gpsweek	4	\N	\N	1
+month	2	"ObservationMonth"	ObservationMonth	1
+network	3	"NetworkCode"	NetworkCode	0
+station	4	"StationCode"	StationCode	0
+year	4	"ObservationYear"	ObservationYear	1
+\.
+
+
+--
+-- Data for Name: locks; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.locks (filename, "NetworkCode", "StationCode") FROM stdin;
+\.
+
+
+--
+-- Data for Name: networks; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.networks ("NetworkCode", "NetworkName") FROM stdin;
+bug	debug network
+???	Temporary network for new stations
+\.
+
+
+--
+-- Data for Name: ppp_soln; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.ppp_soln ("NetworkCode", "StationCode", "X", "Y", "Z", "Year", "DOY", "ReferenceFrame", sigmax, sigmay, sigmaz, sigmaxy, sigmaxz, sigmayz, hash) FROM stdin;
+\.
+
+
+--
+-- Data for Name: ppp_soln_excl; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.ppp_soln_excl ("NetworkCode", "StationCode", "Year", "DOY") FROM stdin;
+\.
+
+
+--
+-- Data for Name: receivers; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.receivers ("ReceiverCode", "ReceiverDescription") FROM stdin;
+TRIMBLE NETRS	\N
+LEICA RS500	\N
+ALERTGEO RESOLUTE	\N
+\.
+
+
+--
+-- Data for Name: rinex; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.rinex ("NetworkCode", "StationCode", "ObservationYear", "ObservationMonth", "ObservationDay", "ObservationDOY", "ObservationFYear", "ObservationSTime", "ObservationETime", "ReceiverType", "ReceiverSerial", "ReceiverFw", "AntennaType", "AntennaSerial", "AntennaDome", "Filename", "Interval", "AntennaOffset", "Completion") FROM stdin;
+\.
+
+
+--
+-- Data for Name: rinex_tank_struct; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.rinex_tank_struct ("Level", "KeyCode") FROM stdin;
+1	network
+2	station
+3	year
+4	doy
+\.
+
+
+--
+-- Data for Name: stationalias; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.stationalias ("NetworkCode", "StationCode", "StationAlias") FROM stdin;
+\.
+
+
+--
+-- Data for Name: stationinfo; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.stationinfo ("NetworkCode", "StationCode", "ReceiverCode", "ReceiverSerial", "ReceiverFirmware", "AntennaCode", "AntennaSerial", "AntennaHeight", "AntennaNorth", "AntennaEast", "HeightCode", "RadomeCode", "DateStart", "DateEnd", "ReceiverVers", "Comments") FROM stdin;
+\.
+
+
+--
+-- Data for Name: stations; Type: TABLE DATA; Schema: public; Owner: postgres
+--
+
+COPY public.stations ("NetworkCode", "StationCode", "StationName", "DateStart", "DateEnd", auto_x, auto_y, auto_z, "Harpos_coeff_otl", lat, lon, height, max_dist, dome) FROM stdin;
+\.
+
+
+--
 -- Name: etm_params_uid_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
 --
 
@@ -729,21 +961,21 @@ SELECT pg_catalog.setval('public.etm_params_uid_seq', 1, false);
 -- Name: etmsv2_uid_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
 --
 
-SELECT pg_catalog.setval('public.etmsv2_uid_seq', 35, true);
+SELECT pg_catalog.setval('public.etmsv2_uid_seq', 1, true);
 
 
 --
 -- Name: events_event_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
 --
 
-SELECT pg_catalog.setval('public.events_event_id_seq', 22582, true);
+SELECT pg_catalog.setval('public.events_event_id_seq', 1, true);
 
 
 --
 -- Name: executions_id_seq; Type: SEQUENCE SET; Schema: public; Owner: postgres
 --
 
-SELECT pg_catalog.setval('public.executions_id_seq', 88, true);
+SELECT pg_catalog.setval('public.executions_id_seq', 1, true);
 
 
 --

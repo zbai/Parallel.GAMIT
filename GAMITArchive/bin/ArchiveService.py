@@ -21,6 +21,7 @@ import platform
 import traceback
 import uuid
 import shutil
+import sys
 
 from tqdm import tqdm
 
@@ -57,65 +58,21 @@ def insert_station_w_lock(cnn, stationcode, filename, lat, lon, h, x, y, z, otl)
 
         # insert record in stations with temporary NetworkCode
         try:
-            cnn.insert('stations', NetworkCode=network_code,
-                       StationCode=stationcode,
-                       auto_x=x,
-                       auto_y=y,
-                       auto_z=z,
-                       Harpos_coeff_otl=otl,
-                       lat=round(lat, 8),
-                       lon=round(lon, 8),
-                       height=round(h, 3))
+            cnn.insert('stations', {'NetworkCode': network_code,
+                                    'StationCode': stationcode,
+                                    'auto_x': x,
+                                    'auto_y': y,
+                                    'auto_z': z,
+                                    'Harpos_coeff_otl': otl,
+                                    'lat': round(lat, 8),
+                                    'lon': round(lon, 8),
+                                    'height': round(h, 3)})
         except GAMITArchive.DBErrInsert:
             # another process did the insert before, ignore the error
             pass
 
         # update the lock information for this station
-        cnn.update('locks', {'filename': filename}, NetworkCode=network_code, StationCode=stationcode)
-
-
-def callback_handle(job):
-    if job.result is not None:
-        out_message = job.result[0]
-        new_station = job.result[1]
-
-        if out_message:
-            tqdm.write(' -- There were unhandled errors during this batch. '
-                       'Please check errors_pyArchiveService.log for details')
-
-            # function to print any error that are encountered during parallel execution
-            with open('errors_pyArchiveService.log', 'a') as f:
-                f.write('ON {}  an unhandled error occurred:\n{}\n'
-                        'END OF ERROR =================== \n\n'.format(dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                                                                       out_message))
-
-        if new_station:
-            tqdm.write(' -- New stations were found in the repository. Please assign a network to each new station '
-                       'and remove the locks from the files before running again ArchiveService')
-
-            station_code = new_station[0]
-            x = new_station[1][0]
-            y = new_station[1][1]
-            z = new_station[1][2]
-            otl = new_station[2]
-            lat = new_station[3][0]
-            lon = new_station[3][1]
-            h = new_station[3][2]
-
-            filename = os.path.relpath(new_station[4], repository_data_in)
-
-            insert_station_w_lock(conn, station_code, filename, lat, lon, h, x, y, z, otl)
-
-    elif job.exception:
-        tqdm.write(' -- There were unhandled errors during this batch. '
-                   'Please check errors_pyArchiveService.log for details')
-
-        # function to print any error that are encountered during parallel execution
-        f = open('errors_pyArchiveService.log', 'a')
-        f.write('ON ' + dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S') + ' an unhandled error occurred:\n')
-        f.write('{0}\n'.format(job.exception))
-        f.write('END OF ERROR =================== \n\n')
-        f.close()
+        cnn.update('locks', {'filename': filename}, {'NetworkCode': network_code, 'StationCode': stationcode})
 
 
 def check_rinex_timespan_int(rinex, station):
@@ -244,7 +201,7 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry, cfg_file='g
     try:
         cnn = GAMITArchive.Connection(cfg_file)
         cfg = GAMITArchive.ReadOptions(cfg_file)
-        archix = GAMITArchive.RinexStruct(cnn)
+        archix = GAMITArchive.RinexStruct(cnn, cfg_file=cfg_file)
         # apply local configuration (path to repo) in the executing node
         crinez = os.path.join(cfg.repository_data_in, crinez)
 
@@ -284,7 +241,7 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry, cfg_file='g
         with GAMITArchive.ReadRinex(network_code, station_code, crinez) as rinexinfo:  # type: GAMITArchive.ReadRinex
 
             # STOP! see if rinexinfo is a multiday rinex file
-            if not verify_rinex_multiday(cnn, rinexinfo, cfg):
+            if not verify_rinex_multiday(cnn, rinexinfo, cfg):  # pragma: no cover
                 # was a multiday rinex. verify_rinex_date_multiday took care of it
                 return None, None
 
@@ -317,7 +274,7 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry, cfg_file='g
 
                 try:
                     ppp.exec_ppp()
-
+                # TODO: What exactly would cause an exception here that we haven't already checked for?
                 except GAMITArchive.RunPPPException as ePPP:
 
                     # inflate the chi**2 limit to make sure it will pass (even if we get a crappy coordinate)
@@ -417,14 +374,14 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry, cfg_file='g
 
                         # add the file to the locks table so that it doesn't get processed over and over
                         # this will be removed by user so that the file gets reprocessed once all the metadata is ready
-                        cnn.insert('locks', filename=os.path.relpath(crinez, cfg.repository_data_in),
-                                   StationCode=station_code)
+                        cnn.insert('locks', {'filename': os.path.relpath(crinez, cfg.repository_data_in),
+                                   'StationCode': station_code})
 
                         return None, [station_code, (ppp.x, ppp.y, ppp.z), coeff, (ppp.lat[0], ppp.lon[0],
                                                                                    ppp.h[0]), crinez]
-
+    # TODO: This is a giant try statement, I think we can pare it down a bit.
     except (GAMITArchive.Rinexexceptionbadfile, GAMITArchive.Rinexexceptionsingleepoch,
-            GAMITArchive.Rinexexceptionnoautocoord) as e:
+            GAMITArchive.Rinexexceptionnoautocoord) as e:  # pragma: no cover
 
         reject_folder = reject_folder.replace('%reason%', 'bad_rinex')
 
@@ -440,7 +397,7 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry, cfg_file='g
 
         return None, None
 
-    except GAMITArchive.RinexException as e:
+    except GAMITArchive.RinexException as e:  # pragma: no cover
 
         retry_folder = retry_folder.replace('%reason%', 'rinex_issues')
 
@@ -456,7 +413,7 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry, cfg_file='g
 
         return None, None
 
-    except GAMITArchive.Runpppexceptioncoordconflict as e:
+    except GAMITArchive.Runpppexceptioncoordconflict as e:  # pragma: no cover
 
         retry_folder = retry_folder.replace('%reason%', 'coord_conflicts')
 
@@ -471,7 +428,7 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry, cfg_file='g
 
         return None, None
 
-    except GAMITArchive.RunPPPException as e:
+    except GAMITArchive.RunPPPException as e:  # pragma: no cover
 
         reject_folder = reject_folder.replace('%reason%', 'no_ppp_solution')
 
@@ -484,7 +441,7 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry, cfg_file='g
 
         return None, None
 
-    except GAMITArchive.StationInfoException as e:
+    except GAMITArchive.StationInfoException as e:  # pragma: no cover
 
         retry_folder = retry_folder.replace('%reason%', 'station_info_exception')
 
@@ -499,7 +456,7 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry, cfg_file='g
 
         return None, None
 
-    except GAMITArchive.OTLException as e:
+    except GAMITArchive.OTLException as e:  # pragma: no cover
 
         retry_folder = retry_folder.replace('%reason%', 'otl_exception')
 
@@ -515,7 +472,7 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry, cfg_file='g
 
         return None, None
 
-    except GAMITArchive.Productsexceptionunreasonabledate as e:
+    except GAMITArchive.Productsexceptionunreasonabledate as e:  # pragma: no cover
         # a bad RINEX file requested an orbit for a date < 0 or > now()
         reject_folder = reject_folder.replace('%reason%', 'bad_rinex')
 
@@ -531,7 +488,7 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry, cfg_file='g
 
         return None, None
 
-    except GAMITArchive.ProductsException as e:
+    except GAMITArchive.ProductsException as e:  # pragma: no cover
 
         # if PPP fails and ArchiveService tries to run sh_rnx2apr and it doesn't find the orbits, send to retry
         retry_folder = retry_folder.replace('%reason%', 'sp3_exception')
@@ -548,7 +505,7 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry, cfg_file='g
 
         return None, None
 
-    except GAMITArchive.DBErrInsert as e:
+    except GAMITArchive.DBErrInsert as e:  # pragma: no cover
 
         reject_folder = reject_folder.replace('%reason%', 'duplicate_insert')
 
@@ -569,7 +526,7 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry, cfg_file='g
 
         return None, None
 
-    except Exception:
+    except Exception:  # pragma: no cover
 
         retry_folder = retry_folder.replace('%reason%', 'general_exception')
 
@@ -584,37 +541,23 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry, cfg_file='g
     return None, None
 
 
-def duplicate_archive(destination: str, src: str):
-    """
-    Recreates the archive in a new location.
-    :return:
-    """
-    try:
-
-        shutil.copy2(src, destination)
-    except Exception as e:
-        print(e)
-
-
 def main(args):
     """
-    Runs the main part of the script:
+    Runs the main part of the script.
     """
     # Parse the config arguments.
     config = GAMITArchive.ReadOptions(args.config_file)
 
-    repository_data_in = config.repository_data_in
-
-    if not os.path.isdir(config.options['repository']):
+    if not os.path.isdir(config.options['repository']):  # pragma: no cover
         print("The provided repository path in gnss_data.cfg is not a folder.")
-        exit()
+        sys.exit()
 
     jobserver = GAMITArchive.JobServer(config,
-                                       software_sync=[
-                                           config.options['ppp_remote_local']])  # type: GAMITArchive.JobServer
+                                       software_sync=[config.options['ppp_remote_local']],
+                                       cfg_file=args.config_file)  # type: GAMITArchive.JobServer
 
     conn = GAMITArchive.Connection(args.config_file)
-    # create the execution log
+    # Log the execution of the script
     conn.insert('executions', {'script': 'ArchiveService.py'})
 
     # set the data_xx directories
@@ -627,19 +570,20 @@ def main(args):
     os.makedirs(data_in_retry, exist_ok=True)
     os.makedirs(data_reject, exist_ok=True)
 
-    archive = GAMITArchive.RinexStruct(conn)
+    archive = GAMITArchive.RinexStruct(conn, cfg_file=args.config_file)
 
-    pbar = tqdm(desc='%-30s' % ' >> Scanning data_in_retry', ncols=160, unit='crz')
-
+    pbar = tqdm(desc='%-30s' % ' >> Scanning data_in_retry',
+                ncols=160,
+                unit='crz')
     rfiles, paths, _ = archive.scan_archive_struct(data_in_retry, pbar)
-
     pbar.close()
 
-    pbar = tqdm(desc='%-30s' % ' -- Moving files to data_in', total=len(rfiles), ncols=160, unit='crz')
+    pbar = tqdm(desc='%-30s' % ' -- Moving files to data_in',
+                total=len(rfiles),
+                ncols=160,
+                unit='crz')
 
     for rfile, path in zip(rfiles, paths):
-
-        dest_file = os.path.join(data_in, rfile)
 
         # move_new the file into the folder
         shutil.move(path, data_in)
@@ -651,12 +595,12 @@ def main(args):
         try:
             # remove the log file that accompanies this Z file
             os.remove(path.replace('d.Z', '.log'))
-        except Exception:
-            exit()
+        except OSError:
+            sys.exit()
 
     pbar.close()
 
-    conn.clear_locks()
+    conn.update_locks()
     # get the locks to avoid reprocessing files that had no metadata in the database
     locks = conn.load_table('locks')
 
@@ -687,39 +631,64 @@ def main(args):
     depfuncs = (check_rinex_timespan_int, write_error, error_handle, insert_data, verify_rinex_multiday)
     modules = ('GAMITArchive', 'os', 'datetime', 'uuid', 'numpy', 'traceback', 'platform')
 
-    if args.duplicate:
-        # TODO: Flesh out the archive duplication process here.
-        os.makedirs(args.duplicate, exist_ok=True)
-        fn = duplicate_archive
-        stations = conn.query('SELECT "StationCode" from stations').getresult()
-    else:
-        fn = process_crinex_file
+    fn = process_crinex_file
+
+    def callback_handle(job):
+        if job.result is not None:
+            out_message = job.result[0]
+            new_station = job.result[1]
+
+            if out_message:
+                tqdm.write(' -- There were unhandled errors during this batch. '
+                           'Please check errors_pyArchiveService.log for details')
+
+                # function to print any error that are encountered during parallel execution
+                with open('errors_pyArchiveService.log', 'a') as f:
+                    f.write('ON {}  an unhandled error occurred:\n{}\n'
+                            'END OF ERROR =================== \n\n'.format(
+                            dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                            out_message))
+
+            if new_station:
+                tqdm.write(' -- New stations were found in the repository. Please assign a network to each new station '
+                           'and remove the locks from the files before running again ArchiveService')
+
+                station_code = new_station[0]
+                x = new_station[1][0]
+                y = new_station[1][1]
+                z = new_station[1][2]
+                otl = new_station[2]
+                lat = new_station[3][0]
+                lon = new_station[3][1]
+                h = new_station[3][2]
+
+                filename = os.path.relpath(new_station[4], config.repository_data_in)
+
+                insert_station_w_lock(conn, station_code, filename, lat, lon, h, x, y, z, otl)
+
+        elif job.exception:
+            tqdm.write(' -- There were unhandled errors during this batch. '
+                       'Please check errors_pyArchiveService.log for details')
+
+            # function to print any error that are encountered during parallel execution
+            with open('errors_pyArchiveService.log', 'a') as f:
+                f.write('ON ' + dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S') + ' an unhandled error occurred:\n')
+                f.write('{0}\n'.format(job.exception))
+                f.write('END OF ERROR =================== \n\n')
 
     jobserver.create_cluster(fn, depfuncs, callback_handle, pbar, modules=modules)
 
-    if args.duplicate:
-        for stn in stations:
-            stationfiles = conn.query(
-                'SELECT "ObservationYear","ObservationDOY" from rinex where "StationCode" like $1', stn).getresult()
-            for stnfile in stationfiles:
-                source = os.path.join(config.archive_path,
-                                      '{}{:03}0.{}d.Z'.format(*stn, stnfile[1], str(stnfile[0])[-2:]))
-                jobserver.submit(args.duplicate, source)
-    else:
-        for file_to_process, sfile in zip(files_path, files_list):
-            jobserver.submit(file_to_process, sfile, data_reject, data_in_retry)
+    for file_to_process, sfile in zip(files_path, files_list):
+        jobserver.submit(file_to_process, sfile, data_reject, data_in_retry, args.config_file)
 
     jobserver.wait()
-
     pbar.close()
-
     jobserver.close_cluster()
-
     conn.print_summary('ArchiveService.py')
     # TODO: Remove the folders in the production folder.
 
 
-if __name__ == '__main__':
+if __name__ == '__main__':  # pragma: no cover
     # Parse CLI arguments.
     parser = argparse.ArgumentParser(description='Archive operations Main Program')
 
