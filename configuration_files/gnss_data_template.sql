@@ -297,7 +297,7 @@ CREATE TABLE public.aws_sync (
 ALTER TABLE public.aws_sync OWNER TO postgres;
 
 --
--- Name: data_source; Type: TABLE; Schema: public; Owner: pmatheny
+-- Name: data_source; Type: TABLE; Schema: public; Owner: postgres
 --
 
 CREATE TABLE public.data_source (
@@ -313,7 +313,7 @@ CREATE TABLE public.data_source (
 );
 
 
-ALTER TABLE public.data_source OWNER TO pmatheny;
+ALTER TABLE public.data_source OWNER TO postgres;
 
 --
 -- Name: earthquakes; Type: TABLE; Schema: public; Owner: postgres

@@ -18,14 +18,14 @@ import argparse
 import datetime as dt
 import os
 import platform
-import traceback
-import uuid
 import shutil
 import sys
+import traceback
+import uuid
 
 from tqdm import tqdm
 
-import GAMITArchive
+import gpys
 
 
 def insert_station_w_lock(cnn, stationcode, filename, lat, lon, h, x, y, z, otl):
@@ -67,7 +67,7 @@ def insert_station_w_lock(cnn, stationcode, filename, lat, lon, h, x, y, z, otl)
                                     'lat': round(lat, 8),
                                     'lon': round(lon, 8),
                                     'height': round(h, 3)})
-        except GAMITArchive.DBErrInsert:
+        except gpys.DBErrInsert:
             # another process did the insert before, ignore the error
             pass
 
@@ -136,7 +136,7 @@ def insert_data(cnn, archix, rinexinfo):
 
     if not inserted:
         # insert an event to account for the file (otherwise is weird to have a missing rinex in the events table
-        event = GAMITArchive.Event(
+        event = gpys.Event(
             Description=rinexinfo.crinez + ' had the same interval and completion as an existing file. '
                                            'CRINEZ deleted from data_in.',
             NetworkCode=rinexinfo.NetworkCode,
@@ -165,7 +165,7 @@ def verify_rinex_multiday(cnn, rinexinfo, cfg):
             rnx.compress_local_copyto(retry_folder)
 
         # if the file corresponding to this session is found, assign its object to rinexinfo
-        event = GAMITArchive.Event(
+        event = gpys.Event(
             Description='%s was a multi-day rinex file. The following rinex files where generated '
                         'and moved to the repository/data_in_retry: %s. The file %s did not enter '
                         'the database at this time.' %
@@ -199,9 +199,9 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry, cfg_file='g
     reject_folder = os.path.join(data_rejected, str(uuid.uuid4()))
 
     try:
-        cnn = GAMITArchive.Connection(cfg_file)
-        cfg = GAMITArchive.ReadOptions(cfg_file)
-        archix = GAMITArchive.RinexStruct(cnn, cfg_file=cfg_file)
+        cnn = gpys.Connection(cfg_file)
+        cfg = gpys.ReadOptions(cfg_file)
+        archix = gpys.RinexStruct(cnn, cfg_file=cfg_file)
         # apply local configuration (path to repo) in the executing node
         crinez = os.path.join(cfg.repository_data_in, crinez)
 
@@ -218,9 +218,9 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry, cfg_file='g
     if fileparts:
         station_code = fileparts[0].lower()
         doy = int(fileparts[1])
-        year = int(GAMITArchive.get_norm_year_str(fileparts[3]))
+        year = int(gpys.get_norm_year_str(fileparts[3]))
     else:
-        event = GAMITArchive.Event(
+        event = gpys.Event(
             Description='Could not read the station code, year or doy for file ' + crinez,
             EventType='error')
         error_handle(cnn, event, crinez, reject_folder, filename, db_log=True)
@@ -229,16 +229,16 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry, cfg_file='g
     # we can now make better reject and retry folders
     # TODO: We can probably clean up this string building a bit.
     reject_folder = os.path.join(data_rejected,
-                                 '%reason%/' + GAMITArchive.get_norm_year_str(
-                                     year) + '/' + GAMITArchive.get_norm_doy_str(doy))
+                                 '%reason%/' + gpys.get_norm_year_str(
+                                     year) + '/' + gpys.get_norm_doy_str(doy))
     # TODO: We can probably clean up this string building a bit.
     retry_folder = os.path.join(data_retry,
-                                '%reason%/' + GAMITArchive.get_norm_year_str(
-                                    year) + '/' + GAMITArchive.get_norm_doy_str(doy))
+                                '%reason%/' + gpys.get_norm_year_str(
+                                    year) + '/' + gpys.get_norm_doy_str(doy))
 
     try:
         # main try except block
-        with GAMITArchive.ReadRinex(network_code, station_code, crinez) as rinexinfo:  # type: GAMITArchive.ReadRinex
+        with gpys.ReadRinex(network_code, station_code, crinez) as rinexinfo:  # type: gpys.ReadRinex
 
             # STOP! see if rinexinfo is a multiday rinex file
             if not verify_rinex_multiday(cnn, rinexinfo, cfg):  # pragma: no cover
@@ -254,7 +254,7 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry, cfg_file='g
             # make sure that the file has the appropriate coordinates in the header for PPP.
             # put the correct APR coordinates in the header.
             # ppp didn't work, try using sh_rx2apr
-            brdc = GAMITArchive.GetBrdcOrbits(cfg.options['brdc'], rinexinfo.date, rinexinfo.rootdir)
+            brdc = gpys.GetBrdcOrbits(cfg.options['brdc'], rinexinfo.date, rinexinfo.rootdir)
 
             # inflate the chi**2 limit to make sure it will pass (even if we get a crappy coordinate)
             try:
@@ -263,33 +263,33 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry, cfg_file='g
                 # normalize header to add the APR coordinate
                 # empty dict since nothing extra to change (other than the APR coordinate)
                 rinexinfo.normalize_header(dict())
-            except GAMITArchive.Rinexexceptionnoautocoord:
+            except gpys.Rinexexceptionnoautocoord:
                 # could not determine an autonomous coordinate, try PPP anyways. 50% chance it will work
                 pass
 
-            with GAMITArchive.RunPPP(rinexinfo, '', cfg.options, cfg.sp3types, cfg.sp3altrn,
-                                     rinexinfo.antOffset,
-                                     strict=False, apply_met=False,
-                                     clock_interpolation=True) as ppp:  # type: GAMITArchive.RunPPP
+            with gpys.RunPPP(rinexinfo, '', cfg.options, cfg.sp3types, cfg.sp3altrn,
+                             rinexinfo.antOffset,
+                             strict=False, apply_met=False,
+                             clock_interpolation=True) as ppp:  # type: gpys.RunPPP
 
                 try:
                     ppp.exec_ppp()
                 # TODO: What exactly would cause an exception here that we haven't already checked for?
-                except GAMITArchive.RunPPPException as ePPP:
+                except gpys.RunPPPException as ePPP:
 
                     # inflate the chi**2 limit to make sure it will pass (even if we get a crappy coordinate)
                     # if coordinate is TOO bad it will get kicked off by the unreasonable geodetic height
                     try:
                         auto_coords_xyz, auto_coords_lla = rinexinfo.auto_coord(brdc, chi_limit=1000)
 
-                    except GAMITArchive.Rinexexceptionnoautocoord as e:
+                    except gpys.Rinexexceptionnoautocoord as e:
                         # catch pyRinexExceptionNoAutoCoord and convert it into a pyRunPPPException
 
-                        raise GAMITArchive.RunPPPException(
+                        raise gpys.RunPPPException(
                             'Both PPP and sh_rx2apr failed to obtain a coordinate for %s.\n'
                             'The file has been moved into the rejection folder. '
                             'Summary PPP file and error (if exists) follows:\n%s\n\n'
-                            'ERROR section:\n%s\nGAMITArchive.auto_coord error follows:\n%s'
+                            'ERROR section:\n%s\ngpys.auto_coord error follows:\n%s'
                             % (crinez.replace(cfg.repository_data_in, ''),
                                ppp.summary, str(ePPP).strip(), str(e).strip()))
 
@@ -304,7 +304,7 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry, cfg_file='g
 
                 # check for unreasonable heights
                 if ppp.h[0] > 9000 or ppp.h[0] < -400:
-                    raise GAMITArchive.RinexException(os.path.relpath(crinez, cfg.repository_data_in) +
+                    raise gpys.RinexException(os.path.relpath(crinez, cfg.repository_data_in) +
                                                         ' : unreasonable geodetic height (%.3f). '
                                                         'RINEX file will not enter the archive.' % (ppp.h[0]))
 
@@ -333,7 +333,7 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry, cfg_file='g
                                    os.path.join(retry_folder, filename.replace(station_code, match[0]['StationCode'])),
                                    station_code, ppp.x, ppp.y, ppp.z, ppp.lat[0], ppp.lon[0], ppp.h[0])
 
-                        raise GAMITArchive.Runpppexceptioncoordconflict(error)
+                        raise gpys.Runpppexceptioncoordconflict(error)
 
                     elif len(match) > 1:
                         # a number of things could have happened:
@@ -355,7 +355,7 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry, cfg_file='g
                                               (m['NetworkCode'], m['StationCode'], m['distance']) for m in match]),
                                    station_code, ppp.x, ppp.y, ppp.z, ppp.lat[0], ppp.lon[0], ppp.h[0])
 
-                        raise GAMITArchive.Runpppexceptioncoordconflict(error)
+                        raise gpys.Runpppexceptioncoordconflict(error)
 
                     else:
                         # only found a station removing the distance limit (could be thousands of km away!)
@@ -367,8 +367,8 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry, cfg_file='g
                         # if the user inserted the station by then, it will get moved to the appropriate place.
                         # we return all the relevant metadata to ease the insert of the station in the database
 
-                        otl = GAMITArchive.OceanLoading(station_code, cfg.options['grdtab'],
-                                                        cfg.options['otlgrid'])
+                        otl = gpys.OceanLoading(station_code, cfg.options['grdtab'],
+                                                cfg.options['otlgrid'])
                         # use the ppp coordinates to calculate the otl
                         coeff = otl.calculate_otl_coeff(ppp.x, ppp.y, ppp.z)
 
@@ -380,8 +380,8 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry, cfg_file='g
                         return None, [station_code, (ppp.x, ppp.y, ppp.z), coeff, (ppp.lat[0], ppp.lon[0],
                                                                                    ppp.h[0]), crinez]
     # TODO: This is a giant try statement, I think we can pare it down a bit.
-    except (GAMITArchive.Rinexexceptionbadfile, GAMITArchive.Rinexexceptionsingleepoch,
-            GAMITArchive.Rinexexceptionnoautocoord) as e:  # pragma: no cover
+    except (gpys.Rinexexceptionbadfile, gpys.Rinexexceptionsingleepoch,
+            gpys.Rinexexceptionnoautocoord) as e:  # pragma: no cover
 
         reject_folder = reject_folder.replace('%reason%', 'bad_rinex')
 
@@ -397,7 +397,7 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry, cfg_file='g
 
         return None, None
 
-    except GAMITArchive.RinexException as e:  # pragma: no cover
+    except gpys.RinexException as e:  # pragma: no cover
 
         retry_folder = retry_folder.replace('%reason%', 'rinex_issues')
 
@@ -413,7 +413,7 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry, cfg_file='g
 
         return None, None
 
-    except GAMITArchive.Runpppexceptioncoordconflict as e:  # pragma: no cover
+    except gpys.Runpppexceptioncoordconflict as e:  # pragma: no cover
 
         retry_folder = retry_folder.replace('%reason%', 'coord_conflicts')
 
@@ -428,7 +428,7 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry, cfg_file='g
 
         return None, None
 
-    except GAMITArchive.RunPPPException as e:  # pragma: no cover
+    except gpys.RunPPPException as e:  # pragma: no cover
 
         reject_folder = reject_folder.replace('%reason%', 'no_ppp_solution')
 
@@ -441,7 +441,7 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry, cfg_file='g
 
         return None, None
 
-    except GAMITArchive.StationInfoException as e:  # pragma: no cover
+    except gpys.StationInfoException as e:  # pragma: no cover
 
         retry_folder = retry_folder.replace('%reason%', 'station_info_exception')
 
@@ -456,7 +456,7 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry, cfg_file='g
 
         return None, None
 
-    except GAMITArchive.OTLException as e:  # pragma: no cover
+    except gpys.OTLException as e:  # pragma: no cover
 
         retry_folder = retry_folder.replace('%reason%', 'otl_exception')
 
@@ -472,7 +472,7 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry, cfg_file='g
 
         return None, None
 
-    except GAMITArchive.Productsexceptionunreasonabledate as e:  # pragma: no cover
+    except gpys.Productsexceptionunreasonabledate as e:  # pragma: no cover
         # a bad RINEX file requested an orbit for a date < 0 or > now()
         reject_folder = reject_folder.replace('%reason%', 'bad_rinex')
 
@@ -488,7 +488,7 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry, cfg_file='g
 
         return None, None
 
-    except GAMITArchive.ProductsException as e:  # pragma: no cover
+    except gpys.ProductsException as e:  # pragma: no cover
 
         # if PPP fails and ArchiveService tries to run sh_rnx2apr and it doesn't find the orbits, send to retry
         retry_folder = retry_folder.replace('%reason%', 'sp3_exception')
@@ -505,7 +505,7 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry, cfg_file='g
 
         return None, None
 
-    except GAMITArchive.DBErrInsert as e:  # pragma: no cover
+    except gpys.DBErrInsert as e:  # pragma: no cover
 
         reject_folder = reject_folder.replace('%reason%', 'duplicate_insert')
 
@@ -513,14 +513,14 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry, cfg_file='g
         # (or the same) of the same station to the db: move_new it to the rejected folder.
         # The user might want to retry later. Log it in events
         # this case should be very rare
-        event = GAMITArchive.Event(Description='Duplicate rinex insertion attempted while processing ' +
-                                               os.path.relpath(crinez, cfg.repository_data_in) +
+        event = gpys.Event(Description='Duplicate rinex insertion attempted while processing ' +
+                                       os.path.relpath(crinez, cfg.repository_data_in) +
                                                ' : (file moved to rejected folder)\n' + str(e),
-                                   EventType='warn',
-                                   StationCode=station_code,
-                                   NetworkCode='???',
-                                   Year=year,
-                                   DOY=doy)
+                           EventType='warn',
+                           StationCode=station_code,
+                           NetworkCode='???',
+                           Year=year,
+                           DOY=doy)
 
         error_handle(cnn, event, crinez, reject_folder, filename)
 
@@ -530,9 +530,9 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry, cfg_file='g
 
         retry_folder = retry_folder.replace('%reason%', 'general_exception')
 
-        event = GAMITArchive.Event(Description=traceback.format_exc() + ' processing: ' +
-                                               os.path.relpath(crinez, cfg.repository_data_in) + ' in node ' +
-                                               platform.node() + ' (file moved to retry folder)', EventType='error')
+        event = gpys.Event(Description=traceback.format_exc() + ' processing: ' +
+                                       os.path.relpath(crinez, cfg.repository_data_in) + ' in node ' +
+                                       platform.node() + ' (file moved to retry folder)', EventType='error')
 
         error_handle(cnn, event, crinez, retry_folder, filename, db_log=False)
 
@@ -546,17 +546,16 @@ def main(args):
     Runs the main part of the script.
     """
     # Parse the config arguments.
-    config = GAMITArchive.ReadOptions(args.config_file)
+    config = gpys.ReadOptions(args.config_file)
 
     if not os.path.isdir(config.options['repository']):  # pragma: no cover
-        print("The provided repository path in gnss_data.cfg is not a folder.")
-        sys.exit()
+        raise FileNotFoundError("The provided repository path in {} is not a folder.".format(args.config_file))
 
-    jobserver = GAMITArchive.JobServer(config,
-                                       software_sync=[config.options['ppp_remote_local']],
-                                       cfg_file=args.config_file)  # type: GAMITArchive.JobServer
+    jobserver = gpys.JobServer(config,
+                               software_sync=[config.options['ppp_remote_local']],
+                               cfg_file=args.config_file)  # type: gpys.JobServer
 
-    conn = GAMITArchive.Connection(args.config_file)
+    conn = gpys.Connection(args.config_file)
     # Log the execution of the script
     conn.insert('executions', {'script': 'ArchiveService.py'})
 
@@ -570,7 +569,7 @@ def main(args):
     os.makedirs(data_in_retry, exist_ok=True)
     os.makedirs(data_reject, exist_ok=True)
 
-    archive = GAMITArchive.RinexStruct(conn, cfg_file=args.config_file)
+    archive = gpys.RinexStruct(conn, cfg_file=args.config_file)
 
     pbar = tqdm(desc='%-30s' % ' >> Scanning data_in_retry',
                 ncols=160,
@@ -629,7 +628,7 @@ def main(args):
     pbar = tqdm(desc='%-30s' % ' >> Processing repository', total=len(files_path), ncols=160, unit='crz')
 
     depfuncs = (check_rinex_timespan_int, write_error, error_handle, insert_data, verify_rinex_multiday)
-    modules = ('GAMITArchive', 'os', 'datetime', 'uuid', 'numpy', 'traceback', 'platform')
+    modules = ('gpys', 'os', 'datetime', 'uuid', 'numpy', 'traceback', 'platform')
 
     fn = process_crinex_file
 

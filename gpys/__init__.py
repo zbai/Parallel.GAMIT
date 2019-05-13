@@ -17,12 +17,8 @@ import traceback
 import uuid
 import zlib
 import functools
-import dirsync
-import dispy
-import dispy.httpd
 import numpy
 import psycopg2
-import scandir
 from collections import defaultdict
 from tqdm import tqdm
 from psycopg2 import sql
@@ -797,7 +793,7 @@ def create_unzip_script(run_file_path):
     except (OSError, IOError):
         raise Exception('could not open file ' + run_file_path)
 
-    contents = """#!/bin/csh -f
+    contents = """#!/ArchiveService/csh -f
         # set default mode
         set out_current = 0
         set del_input = 0
@@ -2817,9 +2813,8 @@ class JobServer:
             print(' >> Parallel processing deactivated by user')
             r = test_node(check_gamit_tables=check_gamit_tables, cfg_file=cfg_file)
             if 'Test passed!' not in r:
-                print(r)
-                print(' >> Errors were encountered during initialization. Check messages.')
-                sys.exit()
+                raise FileNotFoundError('\n{}\n >> Errors were encountered during '
+                                        'initialization. Check messages.'.format(r))
 
     def check_cluster(self, status, node):
 

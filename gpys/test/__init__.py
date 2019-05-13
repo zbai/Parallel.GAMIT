@@ -1,9 +1,9 @@
 """
 The testing script to help debug functions and classes.  The classes are split up into the script that they call.
-GAMITArchive is implicitly tested via the ArchiveService routines.
+gpys is implicitly tested via the ArchiveService routines.
 """
 import unittest
-from bin.ArchiveService import *
+from gpys.ArchiveService import *
 from psycopg2 import sql
 import shutil
 import os
@@ -23,8 +23,8 @@ class ArchiveServiceTest(unittest.TestCase):
 
     def setUp(self) -> None:
         self.config_file = 'debug.cfg'
-        self.cnn = GAMITArchive.Connection(self.config_file)
-        self.assertIn('gnss_data_debug', self.cnn.conn.dsn)
+        self.cnn = gpys.Connection(self.config_file)
+        self.assertIn('gnss_data', self.cnn.conn.dsn)
         # Clear the debug database.
         delete_tables = [sql.Identifier('rinex'),
                          sql.Identifier('stations'),
