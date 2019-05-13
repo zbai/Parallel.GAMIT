@@ -1,0 +1,349 @@
+#!/bin/csh -f
+#
+#doc Create GAMIT g/tfile with partials from SP3 orbit file
+#doc
+#
+# sh_sp3fit
+#
+#
+# Purpose      Obtain GAMIT g/tfile with partials from SP3 orbit file
+#
+# Input        Automatic:   sp3 filename, session.info, station.info 
+#              Interactive: sp3 filename, project name, date, models
+#
+# Note: If a session.info file is available in the current directory, the last record 
+#       in the session.info file is used to set the year and doy used for the g- and t-file.
+#
+# Output       G-file and (optionally) t-file fit to input SP3 file
+#              Summary of adjustments (sp3fit.fit) and rms values (sp3fit.rms)
+#
+# sh_sp3fit   -f sp3files [-o orbit-name] [-d year doy] [-i equator prec] [-r radmod] [-t] [-u] [-m tol]
+#  
+#   -f    sp3 file names (up to 3 allowed) 
+#   -o    4-char name for g/t-files; default taken from first 3 chars of input .sp3 file plus decade (ie igs9) if not given.
+#   -d    year and day--of-year (yyyy ddd); default = extracted from session.info, (if it exists),
+#         or the input .sp3 file if not given.  If two entries (yyyy ddd1 ddd2), then the fit
+#         extends from 0h on ddd1 through 24h on ddd2 (assume multiple sp3 files input)
+#         mark the start
+#   -i    inertial reference system for t-file; default = J2000 IAU76  
+#   -n    nutation for t-file; default = IAU00
+#   -g    gravity field for t-file; default = EGM96     
+#   -r    radiation-pressure model; default = BERNE    
+#   -t    integrate estimated initial conditions (g-file) to get new t-file; 
+#            default is to skip, deferring ARC to GAMIT batch run
+#   -u    exclude satellites with orbit accuracy exponents = 0, which denotes unknown accuracy
+#   -m    max misfit tolerance in meters before a satellite is removed from orbit fit.
+#   -x    Do not clean up temporary files (useful for debug)  TAH 091208
+#
+# To exclude satellites from the orbfit estimation. Create a file called svs_exclude.dat
+# This file is free format and has the format, yr, doy, sv.  
+# (Eg.  1994 033 16 ) - to exclude prn 16 from 1994 doy 033.
+# An example svs_exclude.dat file containing unmodelable IGS satellites is given in ~/gg/tables
+#
+# by Peng Fang (pfang@ucsd.edu), Mar 96. Last modified by S. McClusky December 2004 to exclude SVs misfit editing
+  
+# display comments if no arguments    
+          
+
+if ($#argv < 1) then
+        sed -e "1d" -e "/by Peng/q" -e "s/#//" $0
+        exit
+endif
+
+# set file names
+set stnfo = station.info
+set sesfo = session.info
+
+# initialize variables
+set sp3files = ""
+set orbt = ""
+set doy1 = ""
+set yr = ""
+set year = ""
+set inert_ref = ""
+set radmod = ""   
+set gravity = ""
+set newt = "no"
+set no_unkn = "no"
+set userdoyy = "no"
+set slines = 0
+set tsp3files = ""
+set max_fit_tol = 0
+set clean = 'Y'
+   
+# read orbit name from station.info
+if( -e $stnfo ) then  
+#  Detect whether new or old-style station.info  
+  grep 'TRCK SITE' station.info >! tmp.stinfo
+  set num = `wc tmp.stinfo` 
+  if( $num[1] > 0 ) then 
+     set stnfotype = 'old'  
+  else
+     set stnfotype = 'new'
+  endif     
+  if( $stnfotype == 'old' ) then
+    set orbt = `head -n 1 station.info`; shift orbt  
+  else   
+    set orbit = ""
+  endif
+endif 
+
+# read session date from session.info                                            
+if( -e $sesfo && ! -z $sesfo ) then
+   set slines = `cat session.info | wc -l`
+#   set ydoy = `head -n 3 session.info | tail -n -1`  
+   if ( $year != '' && $doy1 != '' ) then
+     set year = `head -n 3 $sesfo | tail -n -1 | awk ' $1 >= 1 && $1 <= 2100 && $2 >= 1 && $2 <= 366 {printf "%4d ", $1}'` 
+     set doy1  = `head -n 3 $sesfo | tail -n -1 | awk ' $1 >= 1 && $1 <= 2100 && $2 >= 1 && $2 <= 366 {printf "%03d ", $2}'`
+     set doy2 = $doy1
+     set yr = `sh_year -year $year`
+   else
+# session.info invalid format (neglect it!!!)
+     set slines = 0
+   endif
+endif
+#echo $yr $doy1
+
+# override with user input options 
+foreach a ($argv)
+switch($a)
+  case -f:
+###     set sp3file = $argv[2]  
+      set sp3files = (`echo $argv | cut -d- -f2`); shift sp3files
+     breaksw
+  case -o:
+     set orbt = $argv[2]
+     breaksw
+   case -d: 
+     set userdoyy = "yes" 
+#    Variable yr[1] = 4 char yr, yr[2] = 2 char yr, yr[3] = 1 char yr
+     set yr = `sh_year -year $argv[2]`  
+     set days  = (`echo $argv[2-] | cut -d- -f1`); shift days 
+     set doy1 = $days[1]
+     if( $#days > 1 ) then
+        set doy2 = $days[2]
+     else
+        set doy2 = $doy1  
+     endif  
+     breaksw
+   case -i:
+     set inert_ref =  ( $argv[2] $argv[3] )
+     breaksw   
+   case -g:
+     set gravity =  $argv[2] 
+     breaksw
+   case -r:
+     set radmod = $argv[2]
+     set radmod = `echo $radmod | tr '[a-z]' '[A-Z]'`
+    breaksw 
+   case -t:
+     set newt = "yes"
+     breaksw
+   case -u:
+     set no_unkn = "yes"
+     breaksw
+   case -m:
+     set max_fit_tol = $argv[2]
+     breaksw 
+   case -x:
+     set clean = 'N'
+     breaksw 
+endsw
+shift
+end 
+
+# set defaults if parameters not in tables or input 
+if ( $userdoyy == "no" && $slines == 0 ) then
+  set mjd = ` head -n 2 $sp3files[1] | tail -n -1 | awk '{print $5+$6}'`
+  set doy1 = ` doy $mjd | head -n 1 | awk '{printf"%03d \n", $6}'`
+  set doy2 = $doy1
+  set year = ` doy $mjd | head -n 1 | awk '{printf" %04d \n", $2}'`
+  set yr = `sh_year -year $year`
+  echo " "
+  echo "Generating fitted g-file for: $yr[1] $doy1"
+endif
+if( $sp3files[1] == "" ) then 
+   echo " "
+   echo "No sp3 files input--stop"
+   exit
+endif
+if( $orbt == "" ) then 
+   set orbt = `echo $sp3files[1] $yr[2] | awk '{print substr($1,1,3) substr($2,1,1)}'`
+   echo " "
+   echo "Orbit name not given, set to: $orbt "
+endif
+if( $doy1 == "" ) then  
+    echo " " 
+    echo "Cannot read date from input .sp3 file --stop"
+    exit
+endif
+if( $inert_ref[1] == "" ) then 
+    echo " "        
+    echo "Inertial frame and precession not input, set = J2000 IAU76"
+    set inert_ref = "J2000 IAU76"
+endif       
+if( $gravity == "" ) then 
+    echo " "        
+    echo "Gravity field not input set = EGM96"
+    set gravity = EGM96
+endif       
+if( $radmod == "" ) then  
+    echo " " 
+    echo "Radiation-pressure mode not input, set = BERNE"
+    set radmod = BERNE  
+endif
+   
+# Set timestamp ID variable
+
+set ID = "${yr[1]}_${doy1}_`date +"%H%M%S"`" 
+
+# remove previous t-files and status files
+\rm -f t$orbt$yr[3].$doy1
+\rm -f t$sp3files[1] 
+\rm -f GAMIT.status GAMIT.warning GAMIT.fatal 
+\rm -f NGSTOT.status NGSTOT.warning NGSTOT.fatal
+\rm -f ORBFIT.status ORBFIT.warning ORBFIT.fatal
+
+# run NGSTOT to convert the sp3 files to t-files
+foreach spfil ( `echo $sp3files` )
+ ngstot $spfil t$spfil
+ set tsp3files = ( $tsp3files t$spfil )
+end
+if ( -e "NGSTOT.fatal" ) then
+   echo "NGSTOT.fatal exists, stop in sh_sp3fit"
+   exit
+endif
+       
+# choose the reference epoch to use (1st if 1 or 2; 2nd if 3)
+if ( $#sp3files == 3 ) then
+  set refgfile = g$sp3files[2]  
+  set doyref = `echo $doy1 | awk '{printf" %d \n", ($1 + 1)}'`
+else
+  set refgfile = g$sp3files[1]    
+  set doyref = $doy1
+endif
+#  Pad with zeros for g-file name
+set  doyref = `echo $doyref | awk '{printf("%3.3d",$1)}'`  
+#if ( $doyref < 100 && $doyref > 9 ) then
+#   set doyref = 0$doyref
+#else if ( $doy1 < 10 ) then
+#   set doyref = 00$doyref 
+#endif
+
+# create the ARC input file and run the initial ARC
+grep PRN $refgfile >! arc.inp.$ID
+echo "END" >> arc.inp.$ID
+echo "$gravity $radmod  900.0   75.00   GPST  INERTIAL      $inert_ref" >> arc.inp.$ID
+echo "arcout.$doy1" >> arc.inp.$ID
+echo "$refgfile" >> arc.inp.$ID
+echo "" >> arc.inp.$ID
+echo "$yr[1] $doy1  0  0   .00000" >> arc.inp.$ID
+echo "$yr[1] $doy2 23 58   .00000" >> arc.inp.$ID
+echo "Y" >> arc.inp.$ID
+echo "t${yr[2]}${doy1}.tmp" >> arc.inp.$ID
+
+# if radmod = UCLR1, change the nominal SRP parameters to 1 1 1 instead of 1 0 0 
+if( $radmod == "UCLR1" ) then
+  cat $refgfile | sed s/0.00000000000000D+00/0.10000000000000D+01/g >! tmp.$$
+  mv tmp.$$ $refgfile
+endif
+
+arc < arc.inp.$ID
+if ( -e "GAMIT.fatal" ) then
+   echo "GAMIT.fatal exists, stop in sh_sp3fit"
+   exit                           
+endif
+
+# Check if there is a satellite exclude file with entries from this day
+set exclude_sv = "" 
+set exclude_sv_d2 = ""
+set exclude_sv_d3 = ""                                      
+if ( -e svs_exclude.dat ) then
+ set exclude_sv = `cat svs_exclude.dat | grep $yr[1] | grep " $doy1 " | awk '{for (i=3; i<=NF; i++) printf " pn%02d",$i}'`  
+# If a multiday fit, check the 2nd and 3rd days as well   
+  if ( $#sp3files == 2 ) then  
+    set doychk2 = `echo $doy1 | awk '{printf" %d \n", ($1 + 1)}'`
+    set exclude_sv_d2 = `cat svs_exclude.dat | grep $yr[1] | grep " $doychk2 " | awk '{for (i=3; i<=NF; i++) printf " pn%02d",$i}'`  
+  endif
+  if ( $#sp3files == 3 ) then   
+    set doychk3 = `echo $doy1 | awk '{printf" %d \n", ($1 + 1)}'`
+    set exclude_sv_d3 = `cat svs_exclude.dat | grep $yr[1] | grep " $doychk3 " | awk '{for (i=3; i<=NF; i++) printf " pn%02d",$i}'`  
+  endif 
+endif
+
+# Exclude unknown accuracy satellites
+set unknown_acc = ""                                       
+if ( $no_unkn == "yes" ) then
+  set nsat = `grep "^+ " $sp3files[1] | head -n 1 | awk '{print $2}'`
+  set prns = `grep "^+ " $sp3files[1] | cut -c10- | awk '{printf "%s",$0}' | awk -F"G" -v nsat=$nsat '{for (i=2; i<=nsat+1; i++) printf "%d ", $i}'`
+#  set prns = `grep "^+ " $sp3files[1] | head -n 5 | cut -c9-`
+  set accu = `grep "^++" $sp3files[1] | head -n 5 | cut -c10- | awk '{printf "%s",$0}' | awk -v nsat=$nsat '{for (i=1; i<=nsat; i++) printf "%d ", $i}'`
+#  set accu = `grep "^++" $sp3files[1] | head -n 5 | cut -c9-`
+  set unknown_acc = `echo $nsat $prns $accu | awk '{nsat=$1; for (i=1; i<=nsat;i++) if ($(i+nsat+1)==0) printf " pn%02d",$(i+1)}'`
+  if ( $#unknown_acc >= 1 ) echo "PRN $unknown_acc excluded from g-file because accuracy unknown."
+endif
+
+set exclude_all = `echo $exclude_sv $exclude_sv_d2 $exclude_sv_d3 $unknown_acc | awk '{for (i=1; i<=NF; i++) printf " %s",$i}' | sort -u`
+                                              
+# create the ORBFIT control file for the first 8 parameters common to all fits
+  echo " trans:  0 0 0" >! orbfit.cmd.$ID              
+  echo " i_rot:  0 0 0" >> orbfit.cmd.$ID              
+  echo " t_rot:  1 1 0" >> orbfit.cmd.$ID              
+  echo " scale:  0 " >> orbfit.cmd.$ID                
+  echo " pos:    1 1 1" >> orbfit.cmd.$ID              
+  echo " vel:    1 1 1" >> orbfit.cmd.$ID              
+# create the ORBFIT control for radiation presure parameters
+if ( $radmod == "BERNE" || $radmod ==  "BERN1") then
+  echo " srad:   1 1 1 1 1 1 1 1 1 " >> orbfit.cmd.$ID  
+else if  ( $radmod == "BERN2" ) then
+  echo " srad:   1 1 1 1 1 1 0 0 0 " >> orbfit.cmd.$ID  
+else
+  echo " srad:   1 1 1 0 0 0 0 0 0 " >> orbfit.cmd.$ID  
+endif 
+echo " exclude: $exclude_all" >> orbfit.cmd.$ID
+echo " max_fit_tol: $max_fit_tol" >> orbfit.cmd.$ID
+
+# Now do the fit                                             
+orbfit orbfit.cmd.$ID sp3fit_${orbt}${yr[3]}${doyref} 0 t${yr[2]}${doy1}.tmp $tsp3files
+# old format:
+# orbfit tfile.tmp t${sp3files[1]} sp3fit_${orbt}${yr[3]}${doy}.rms 0
+if ( -e "ORBFIT.fatal" ) then
+   echo "ORBFIT aborted, stop in sh_sp3fit"
+   exit
+endif
+\mv g${yr[2]}${doy1}.tmp.fit g${orbt}${yr[3]}.${doyref} 
+\mv svs_${yr[2]}${doy1}.tmp_fit.apr svs_${orbt}${yr[2]}.${doyref}
+#\rm tfile.tmp tmp.F* >! /dev/null
+
+# create a postfit t-file if requested   
+if ( $newt == "yes" ) then
+#  remake the arc.input file with the new g-file name (we want the real name for the headers)
+  grep PRN g${orbt}${yr[3]}.${doyref} >! arc.inp.$ID
+  echo "END" >> arc.inp.$ID
+  echo "EGM96 $radmod  900.0   75.00   GPST  INERTIAL      $inert_ref" >> arc.inp.$ID
+  echo "arcout.$doyref" >> arc.inp.$ID
+  echo "g${orbt}${yr[3]}.${doyref}" >> arc.inp.$ID
+  echo "" >> arc.inp.$ID
+  echo "$yr[1] $doy1  0  0   .00000" >> arc.inp.$ID
+  echo "$yr[1] $doy2 23 58   .00000" >> arc.inp.$ID
+  echo "Y" >> arc.inp.$ID
+  echo "t${orbt}${yr[3]}.${doyref}" >> arc.inp.$ID
+  arc < arc.inp.$ID
+  if ( -e "GAMIT.fatal" ) then
+     echo "ARC aborted in integrating post-fit t-file, stop in sh_sp3fit"
+     exit                           
+  endif
+endif
+
+# See if we will clean up temporal files
+if( $clean == 'Y' ) then
+  \rm arcout.${doyref} orbfit.cmd.$ID  t${yr[2]}${doy1}.tmp
+  \rm arc.inp.$ID g$sp3files[1] y$sp3files[1] tmp_*
+  set ttfs = `echo $sp3files[1] | awk '{printf("t%s?.sp3",substr($1,1,7))}'`
+  set nttfs = `echo $ttfs | wc -w`
+  if( $nttfs == 2 ) then
+     \rm $ttfs
+  endif
+endif
+
+exit
