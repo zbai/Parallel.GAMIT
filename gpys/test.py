@@ -3,13 +3,14 @@ The testing script to help debug functions and classes.  The classes are split u
 gpys is implicitly tested via the ArchiveService routines.
 """
 import unittest
-from gpys.ArchiveService import *
 from psycopg2 import sql
 import shutil
 import os
 import argparse
 from collections import defaultdict
 import datetime as dt
+
+from gpys.ArchiveService import *
 
 
 def dict2sqlresult(record: dict) -> defaultdict:

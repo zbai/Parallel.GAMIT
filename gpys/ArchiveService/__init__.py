@@ -12,6 +12,7 @@ file in the repo until you assign the correct NetworkCode and add the station in
 It is invoked just by calling python ArchiveService.py
 Requires the config file gnss_data.cfg (in the running folder)
 
+TODO: Move just about everything into the gpys init file.
 """
 
 import argparse

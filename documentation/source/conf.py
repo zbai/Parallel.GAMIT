@@ -19,7 +19,7 @@
 
 # -- Project information -----------------------------------------------------
 
-project = u'Parallel.GAMIT'
+project = u'gpys'
 copyright = u'2019, Demian Gomez'
 author = u'Demian Gomez'
 
@@ -133,7 +133,7 @@ latex_elements = {
 # (source start file, target name, title,
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
-    (master_doc, 'ParallelGAMIT.tex', u'Parallel.GAMIT Documentation',
+    (master_doc, 'ParallelGAMIT.tex', u'gpys Documentation',
      u'Demian Gomez', 'manual'),
 ]
 
@@ -143,7 +143,7 @@ latex_documents = [
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
 man_pages = [
-    (master_doc, 'parallelgamit', u'Parallel.GAMIT Documentation',
+    (master_doc, 'parallelgamit', u'gpys Documentation',
      [author], 1)
 ]
 
@@ -154,7 +154,7 @@ man_pages = [
 # (source start file, target name, title, author,
 #  dir menu entry, description, category)
 texinfo_documents = [
-    (master_doc, 'ParallelGAMIT', u'Parallel.GAMIT Documentation',
+    (master_doc, 'ParallelGAMIT', u'gpys Documentation',
      author, 'ParallelGAMIT', 'One line description of project.',
      'Miscellaneous'),
 ]
