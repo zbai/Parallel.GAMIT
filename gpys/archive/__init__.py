@@ -3,8 +3,6 @@ import argparse
 import logging
 import shutil
 import sys
-import dispy
-import time
 
 logger_name = 'archive'
 logger = logging.getLogger(logger_name)
@@ -21,7 +19,7 @@ def parse_data_in(filename: str) -> str:
     return 'complete: {}'.format(filename)
 
 
-if __name__ == '__main__':
+def main():
     parser = argparse.ArgumentParser(description='Archive operations Main Program')
 
     parser.add_argument('-purge', '--purge_locks', action='store_true',
@@ -44,7 +42,7 @@ if __name__ == '__main__':
     else:
         logger.setLevel(logging.INFO)
         stream.setLevel(logging.INFO)
-    form = logging.Formatter('%(asctime)-15s - %(name)-25s %(levelname)s - %(message)s',
+    form = logging.Formatter('%(asctime)-15s %(name)-25s %(levelname)s - %(message)s',
                              '%Y-%m-%d %H:%M:%S')
     stream.setFormatter(form)
     logger.addHandler(stream)
@@ -64,7 +62,7 @@ if __name__ == '__main__':
             shutil.move(file.path, '/'.join([config.data_in.as_posix(), file.name]))
         logger.info('Sucessfully moved {} files to {}.'.format(len(retry_files), config.data_in))
     except Exception as e:
-        logger.error('Uncaught exception: {}'.format(e))
+        logger.error('Uncaught Exception: {} {}'.format(type(e), e))
         sys.exit(2)
     logger.debug('Filtering out the files that were found in the locks table.')
     try:
@@ -73,7 +71,7 @@ if __name__ == '__main__':
         data_in_files = archive.scan_archive_struct(config.data_in)
         logger.debug('Finished parsing the locks table. List of data_in files built.')
     except Exception as e:
-        logger.error('Uncaught exception: {}'.format(e))
+        logger.error('Uncaught Exception: {} {}'.format(type(e), e))
         sys.exit(2)
     # TODO: Set up the full jobserver and run parse_data_in.
 
@@ -81,3 +79,7 @@ if __name__ == '__main__':
     cluster.connect(parse_data_in)
     logger.info('End of `archive` reached.')
     sys.exit(0)
+
+
+if __name__ == '__main__':
+    main()

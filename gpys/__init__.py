@@ -2428,7 +2428,7 @@ class JobServer:
             else:
                 self.head_logger.debug('Cluster was not started.')
         except Exception as e:
-            self.head_logger.error('Uncaught Exception: {}'.format(e))
+            self.head_logger.error('Uncaught Exception: {} {}'.format(type(e), e))
             sys.exit(1)
 
     def connect(self, compute, setup=None):
@@ -2439,7 +2439,7 @@ class JobServer:
                                             setup=setup,
                                             ping_interval=int(self.options['ping_interval']),
                                             pulse_interval=6,
-                                            loglevel=logging.DEBUG)
+                                            loglevel=self.head_logger.getEffectiveLevel())
             for node in self.options['node_list']:
                 self.cluster.discover_nodes(node)
                 self.head_logger.debug('Waiting {} seconds.'.format(2*int(self.options['ping_interval'])))
@@ -2449,7 +2449,7 @@ class JobServer:
             self.head_logger.error(e, exc_info=sys.exc_info())
             sys.exit(1)
         except Exception as e:
-            self.head_logger.error('Uncaught Exception: {}'.format(e))
+            self.head_logger.error('Uncaught Exception: {} {}'.format(type(e), e))
             sys.exit(1)
 
     def cluster_test(self):
@@ -2469,7 +2469,9 @@ class JobServer:
                 job = self.cluster.submit_job_id_node('InitialTest-{}'.format(node), node)
                 jobs.append(job)
             if None in jobs:
-                raise ConnectionError('Error while submitting job')
+                raise ConnectionError('Error while submitting job.  '
+                                      'The server may not be '
+                                      'started on {}.'.format(self.options['node_list'][jobs.index(None)]))
             tstart = time.time()
             while not self.cluster.wait():
                 time.sleep(0.1)
@@ -2480,10 +2482,10 @@ class JobServer:
             self.head_logger.debug('Started a Dispy job and it worked :D')
             self.tested = True
         except ConnectionError as e:
-            self.head_logger.error(e, exc_info=sys.exc_info())
+            self.head_logger.error(e)
             sys.exit(1)
         except Exception as e:
-            self.head_logger.error('Uncaught Exception: {}'.format(e))
+            self.head_logger.error('Uncaught Exception: {} {}'.format(type(e), e))
             sys.exit(1)
         finally:
             self.head_logger.debug('Shutting down cluster.')
@@ -2639,7 +2641,7 @@ class ReadOptions:
             logger.error('FileNotFoundError: {}'.format(p), exc_info=sys.exc_info())
             sys.exit(1)
         except Exception as e:
-            logger.error('Uncaught exception: {}.'.format(e), exc_info=sys.exc_info(), stack_info=True)
+            logger.error('Uncaught Exception: {} {}'.format(type(e), e), exc_info=sys.exc_info(), stack_info=True)
             sys.exit(1)
         finally:
             del fp, p, section
@@ -2671,7 +2673,7 @@ class ReadOptions:
                          exc_info=sys.exc_info())
             sys.exit(1)
         except Exception as e:
-            logger.error('Uncaught exception: {}.'.format(e), exc_info=sys.exc_info(), stack_info=True)
+            logger.error('Uncaught Exception: {} {}'.format(type(e), e), exc_info=sys.exc_info(), stack_info=True)
             sys.exit(1)
         finally:
             del frame, atx
@@ -2707,19 +2709,18 @@ class ReadOptions:
             logger.error(e)
             sys.exit(1)
 
-        # TODO: Move cluster initialization to its own class.
         logger.debug('Testing JobServer connection.')
         try:
             JobServer(self.options).cluster_test()
         except Exception as e:
-            logger.error('Uncaught Exception: {}'.format(e))
+            logger.error('Uncaught Exception: {} {}'.format(type(e), e))
             sys.exit(1)
         logger.debug('JobServer connected.')
         logger.debug('Check out the database connection.')
         try:
             self.conn = Connection(self.options, parent_logger=parent_logger)
         except Exception as e:
-            logger.error('Uncaught Exception: {}'.format(e))
+            logger.error('Uncaught Exception: {} {}'.format(type(e), e))
             sys.exit(1)
         logger.debug('Database connection established.')
         logger.debug('Config sucessfully read in.')
