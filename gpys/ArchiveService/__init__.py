@@ -202,7 +202,7 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry, cfg_file='g
     try:
         cnn = gpys.Connection(cfg_file)
         cfg = gpys.ReadOptions(cfg_file)
-        archix = gpys.RinexStruct(cnn, cfg_file=cfg_file)
+        archix = gpys.RinexArchive(cnn, cfg_file=cfg_file)
         # apply local configuration (path to repo) in the executing node
         crinez = os.path.join(cfg.repository_data_in, crinez)
 
@@ -570,7 +570,7 @@ def main(args):
     os.makedirs(data_in_retry, exist_ok=True)
     os.makedirs(data_reject, exist_ok=True)
 
-    archive = gpys.RinexStruct(conn, cfg_file=args.config_file)
+    archive = gpys.RinexArchive(conn, cfg_file=args.config_file)
 
     pbar = tqdm(desc='%-30s' % ' >> Scanning data_in_retry',
                 ncols=160,

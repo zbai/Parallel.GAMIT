@@ -24,6 +24,12 @@ from tqdm import tqdm
 from psycopg2 import sql
 import logging
 from decimal import Decimal
+import dispy
+import asyncio
+import logging
+from pathlib import Path
+import socket
+import inspect
 
 DELAY = 5
 TYPE_CRINEZ = 0
@@ -31,13 +37,7 @@ TYPE_RINEX = 1
 TYPE_RINEZ = 2
 TYPE_CRINEX = 3
 
-
-class UtilsException(Exception):
-    def __init__(self, value):
-        self.value = value
-
-    def __str__(self):
-        return str(self.value)
+gpys_logger = logging.getLogger('gpys')
 
 
 class ProductsException(Exception):
@@ -49,119 +49,6 @@ class ProductsException(Exception):
         return str(self.value)
 
 
-class DBErrInsert(Exception):
-    pass
-
-
-class RunPPPException(Exception):
-    def __init__(self, value):
-        self.value = value
-        self.event = Event(Description=value, EventType='error')
-
-    def __str__(self):
-        return str(self.value)
-
-
-class DBErrUpdate(Exception):
-    pass
-
-
-class DBErrConnect(Exception):
-    pass
-
-
-class DBErrDelete(Exception):
-    pass
-
-
-class OTLException(Exception):
-    def __init__(self, value):
-        self.value = value
-        self.event = Event(Description=value, EventType='error', module=type(self).__name__)
-
-    def __str__(self):
-        return str(self.value)
-
-
-class RinexException(Exception):
-    def __init__(self, value):
-        self.value = value
-        self.event = Event(Description=value, EventType='error')
-
-    def __str__(self):
-        return str(self.value)
-
-
-class StationInfoException(Exception):
-    def __init__(self, value):
-        self.value = value
-        self.event = Event(Description=value, EventType='error')
-
-    def __str__(self):
-        return str(self.value)
-
-
-class RunCommandWithRetryExeception(Exception):
-    def __init__(self, value):
-        self.value = value
-        self.event = Event(Description=value, EventType='error', module=type(self).__name__)
-
-    def __str__(self):
-        return str(self.value)
-
-
-class DateException(Exception):
-    def __init__(self, value):
-        self.value = value
-
-    def __str__(self):
-        return str(self.value)
-
-
-class Runpppexceptioncoordconflict(RunPPPException):
-    pass
-
-
-class Runpppexceptiontoofewacceptedobs(RunPPPException):
-    pass
-
-
-class Runpppexceptionnan(RunPPPException):
-    pass
-
-
-class Runpppexceptionzeroprocepochs(RunPPPException):
-    pass
-
-
-class Runpppexceptioneoperror(RunPPPException):
-    pass
-
-
-class Productsexceptionunreasonabledate(ProductsException):
-    pass
-
-
-class Rinexexceptionbadfile(RinexException):
-    pass
-
-
-class Rinexexceptionsingleepoch(RinexException):
-    pass
-
-
-class Rinexexceptionnoautocoord(RinexException):
-    pass
-
-
-class Stationinfoheightcodenotfound(StationInfoException):
-    pass
-
-
-class Clkexception(ProductsException):
-    pass
-
-
 class EOPException(ProductsException):
     def __init__(self, value):
         self.value = value
@@ -169,26 +56,6 @@ class EOPException(ProductsException):
 
     def __str__(self):
         return str(self.value)
-
-
-class Sp3exception(ProductsException):
-    pass
-
-
-class Brdcexception(ProductsException):
-    pass
-
-
-def required_length(nmin, nmax):
-    class RequiredLength(argparse.Action):
-        def __call__(self, parser, args, values, option_string=None):
-            if not nmin <= len(values) <= nmax:
-                msg = 'argument "{f}" requires between {nmin} and {nmax} arguments'.format(
-                    f=self.dest, nmin=nmin, nmax=nmax)
-                raise argparse.ArgumentTypeError(msg)
-            setattr(args, self.dest, values)
-
-    return RequiredLength
 
 
 def parse_crinex_rinex_filename(filename):
@@ -341,53 +208,6 @@ def copy_file(src, dst):
                     raise
 
 
-def move_new(src, dst):
-    """
-    Moves a file from path src to path dst.
-    If a file already exists at dst, it will not be overwritten, but:
-     * If it is the same as the source file, do nothing
-     * If it is different to the source file, pick a new name for the copy that
-       is distinct and unused, then copy the file there.
-    Returns the path to the new file.
-    """
-    dst = shutil.copyfile(src, dst)
-    os.remove(src)
-    return dst
-
-
-def lg2ct(dn, de, du, lat, lon):
-    n = dn.size
-
-    R = rotlg2ct(lat, lon, n)
-
-    dxdydz = numpy.column_stack((numpy.column_stack((dn, de)), du))
-
-    RR = numpy.reshape(R[0, :, :], (3, n))
-    dx = numpy.sum(numpy.multiply(RR, dxdydz.transpose()), axis=0)
-    RR = numpy.reshape(R[1, :, :], (3, n))
-    dy = numpy.sum(numpy.multiply(RR, dxdydz.transpose()), axis=0)
-    RR = numpy.reshape(R[2, :, :], (3, n))
-    dz = numpy.sum(numpy.multiply(RR, dxdydz.transpose()), axis=0)
-
-    return dx, dy, dz
-
-
-def rotlg2ct(lat, lon, n=1):
-    R = numpy.zeros((3, 3, n))
-
-    R[0, 0, :] = -numpy.multiply(numpy.sin(numpy.deg2rad(lat)), numpy.cos(numpy.deg2rad(lon)))
-    R[1, 0, :] = -numpy.multiply(numpy.sin(numpy.deg2rad(lat)), numpy.sin(numpy.deg2rad(lon)))
-    R[2, 0, :] = numpy.cos(numpy.deg2rad(lat))
-    R[0, 1, :] = -numpy.sin(numpy.deg2rad(lon))
-    R[1, 1, :] = numpy.cos(numpy.deg2rad(lon))
-    R[2, 1, :] = numpy.zeros((1, n))
-    R[0, 2, :] = numpy.multiply(numpy.cos(numpy.deg2rad(lat)), numpy.cos(numpy.deg2rad(lon)))
-    R[1, 2, :] = numpy.multiply(numpy.cos(numpy.deg2rad(lat)), numpy.sin(numpy.deg2rad(lon)))
-    R[2, 2, :] = numpy.sin(numpy.deg2rad(lat))
-
-    return R
-
-
 def ecef2lla(ecef_arr):
     # convert ECEF coordinates to LLA
     # test data : test_coord = [2297292.91, 1016894.94, -5843939.62]
@@ -477,64 +297,6 @@ def print_columns(l):
         sys.stdout.write('\n')
 
 
-def process_stnlist(cnn, stnlist_in, print_summary=True):
-    if len(stnlist_in) == 1 and os.path.isfile(stnlist_in[0]):
-        print((' >> Station list read from file: ' + stnlist_in[0]))
-        stnlist_in = [line.strip() for line in open(stnlist_in[0])]
-
-    stnlist = []
-
-    if len(stnlist_in) == 1 and stnlist_in[0] == 'all':
-        # all stations
-        rs = cnn.query('SELECT * FROM stations WHERE "NetworkCode" NOT LIKE \'?%%\' '
-                       'ORDER BY "NetworkCode", "StationCode"')
-
-        for rstn in rs.dictresult():
-            stnlist += [{'NetworkCode': rstn['NetworkCode'], 'StationCode': rstn['StationCode']}]
-
-    else:
-        for stn in stnlist_in:
-            rs = None
-            if '.' in stn and '-' not in stn:
-                # a net.stnm given
-                if stn.split('.')[1] == 'all':
-                    # all stations from a network
-                    rs = cnn.query('SELECT * FROM stations WHERE "NetworkCode" = \'%s\' AND '
-                                   '"NetworkCode" NOT LIKE \'?%%\' ORDER BY "NetworkCode", "StationCode"'
-                                   % (stn.split('.')[0]))
-
-                else:
-                    rs = cnn.query(
-                        'SELECT * FROM stations WHERE "NetworkCode" NOT LIKE \'?%%\' AND "NetworkCode" = \'%s\' '
-                        'AND "StationCode" = \'%s\' ORDER BY "NetworkCode", "StationCode"'
-                        % (stn.split('.')[0], stn.split('.')[1]))
-
-            elif '.' not in stn and '-' not in stn:
-                # just a station name
-                rs = cnn.query(
-                    'SELECT * FROM stations WHERE "NetworkCode" NOT LIKE \'?%%\' AND '
-                    '"StationCode" = \'%s\' ORDER BY "NetworkCode", "StationCode"' % stn)
-
-            if rs is not None:
-                for rstn in rs.dictresult():
-                    if {'NetworkCode': rstn['NetworkCode'], 'StationCode': rstn['StationCode']} not in stnlist:
-                        stnlist += [{'NetworkCode': rstn['NetworkCode'], 'StationCode': rstn['StationCode']}]
-
-    # deal with station removals (-)
-    for stn in [stn.replace('-', '') for stn in stnlist_in if '-' in stn]:
-        # if netcode not given, remove everybody with that station code
-        if '.' in stn.lower():
-            stnlist = [stnl for stnl in stnlist if stnl['NetworkCode'] + '.' + stnl['StationCode'] != stn.lower()]
-        else:
-            stnlist = [stnl for stnl in stnlist if stnl['StationCode'] != stn.lower()]
-
-    if print_summary:
-        print(' >> Selected station list:')
-        print_columns([item['NetworkCode'] + '.' + item['StationCode'] for item in stnlist])
-
-    return stnlist
-
-
 def get_norm_year_str(year):
     # mk 4 digit year
     try:
@@ -573,7 +335,7 @@ def get_norm_doy_str(doy):
 
 def test_node(check_gamit_tables=None, software_sync=(), cfg_file='gnss_data.cfg') -> str:
     # test node: function that makes sure that all required packages and tools are present in the nodes
-
+    return 'hello', 'bye'
     def check_tab_file(tabfile, date):
 
         if os.path.isfile(tabfile):
@@ -591,15 +353,16 @@ def test_node(check_gamit_tables=None, software_sync=(), cfg_file='gnss_data.cfg
         return []
 
     # BEFORE ANYTHING! check the python version
+    print('Testing node\n')
     version = sys.version_info
     if version.major < 3:
         return ' -- {}: Incorrect Python version: {}.{}.{}. Recommended version > 3'.format(platform.node(),
                                                                                             version.major,
                                                                                             version.minor,
                                                                                             version.micro)
+    # Check that parallel gamit is installed.
 
     # start importing the modules needed
-
     try:
         if len(software_sync) > 0:
             # synchronize directories listed in the src and dst arguments
@@ -756,20 +519,6 @@ def test_node(check_gamit_tables=None, software_sync=(), cfg_file='gnss_data.cfg
     return ' -- %s: Test passed!' % (platform.node())
 
 
-def setup(modules):
-    """
-    function to import modules in the nodes
-    :return: 0
-    """
-    for module in modules:
-        module_obj = __import__(module)
-        # create a global object containing our module
-        globals()[module] = module_obj
-        print(' >> Importing module %s' % module)
-
-    return 0
-
-
 def check_year(year):
     # to check for wrong dates in RinSum
 
@@ -783,98 +532,6 @@ def check_year(year):
         year = int(year) + 2000
 
     return year
-
-
-def create_unzip_script(run_file_path):
-    # temporary script to uncompress o.Z files
-    # requested by RS issue #13
-    try:
-        run_file = open(run_file_path, 'w')
-    except (OSError, IOError):
-        raise Exception('could not open file ' + run_file_path)
-
-    contents = """#!/ArchiveService/csh -f
-        # set default mode
-        set out_current = 0
-        set del_input = 0
-        unset verbose
-        set ovrewrite = 0
-
-        set PROGRAM = CRX2RNX
-
-        unset noclobber
-
-        # check options
-        foreach var ($argv[*])
-        switch ($var)
-        case '-c':
-        set out_current = 1
-        shift; breaksw
-        case '-d':
-        set del_input = 1
-        shift; breaksw
-        case '-f':
-        set ovrewrite = 1
-        shift; breaksw
-        case '-v':
-        set verbose = 1
-        shift; breaksw
-        default:
-        break
-        endsw
-        end
-
-
-        # process files
-        foreach file ($argv[*])
-
-        # make command to be issued and name of output file
-        set file2 = $file
-        set ext   = $file:e
-        if ( $out_current ) set file2 = $file2:t
-        if( $ext == Z || $ext == gz ) set file2 = $file2:r
-        if( $file2 =~ *.??[oO] ) then
-        set file2 = `echo $file2 | sed -e 's/d$/o/' -e 's/D$/O/' `
-        else if( $file2 !~ *.??[oOnNgGlLpPhHbBmMcC] || ! ($ext == Z || $ext == gz) ) then
-        # This is not a compressed RINEX file ... skip it
-        continue
-        endif
-        set file_save = $file2
-
-        # check if the output file is preexisting
-        if ( -e "$file_save" && ! $ovrewrite ) then
-        echo "The file $file_save already exists. Overwrite?(y/n,default:n)"
-        if ( $< !~ [yY] ) continue
-        endif
-
-        # issue the command
-        if( $file =~ *.??[oO] ) then
-            cat $file - > $file_save
-        else if( $file =~ *.??[oO].Z || $file =~ *.??[oO].gz ) then
-          file $file | grep -q "Zip"
-          if ( "$status" == "0" ) then
-             unzip -p $file - > $file_save
-          else
-             file $file | grep -q "ASCII"
-             if ( "$status" == "0" ) then
-                cat $file > $file_save
-             else
-                zcat $file > $file_save
-             endif
-          endif
-        else
-        zcat $file > $file_save
-        endif
-
-        # remove the input file
-        if ( $status == 0 && $del_input ) rm $file
-
-        end
-    """
-    run_file.write(contents)
-    run_file.close()
-
-    os.system('chmod +x ' + run_file_path)
 
 
 def yeardoy2fyear(year, doy, hour=12, minute=0, second=0):
@@ -1041,18 +698,27 @@ def mjd2date(mjd):
     return int(year), int(month), int(day)
 
 
-def parse_stninfo(stninfo_datetime):
-    sdate = stninfo_datetime.split()
+def run_cmd(cmd: str, time_out, cwd=os.getcwd(), cat_file=None):
+    """
+    :param cmd:
+    :return:
+    """
 
-    if int(sdate[2]) > 23:
-        sdate[2] = '23'
-        sdate[3] = '59'
-        sdate[4] = '59'
+    async def run(cmd):
+        proc = await asyncio.create_subprocess_shell(
+            cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE)
 
-    if int(sdate[0]) == 9999:
-        return None, None, None, None, None
-    else:
-        return int(sdate[0]), int(sdate[1]), int(sdate[2]), int(sdate[3]), int(sdate[4])
+        stdout, stderr = await proc.communicate()
+
+        print(f'[{cmd!r} exited with {proc.returncode}]')
+        if stdout:
+            print(f'[stdout]\n{stdout.decode()}')
+        if stderr:
+            print(f'[stderr]\n{stderr.decode()}')
+
+    asyncio.run(run(cmd))
 
 
 class Date(object):
@@ -1374,7 +1040,6 @@ class OrbitalProduct(object):
             if ext is not None:
                 shutil.copyfile(archive_file_path + ext, os.path.join(copyto, self.filename + ext))
                 self.file_path = os.path.join(copyto, self.filename)
-
                 cmd = RunCommand('gunzip -f ' + self.file_path + ext, 15)
                 try:
                     cmd.run_shell()
@@ -2048,42 +1713,37 @@ class Connection:
     database, class methods should be used to interact with the database.  The goal is to abstract all the SQL commands
     so we can deal with the errors here instead of out in the wild.
     """
-    __slots__ = ['active_transaction', 'options', 'conn',
-                 'table_cursor']
 
-    def __init__(self, configfile='gnss_data.cfg'):
+    __slots__ = ['conn',
+                 'logger']
 
-        self.options = {'hostname': 'localhost',
-                        'username': 'postgres',
-                        'password': '',
-                        'database': 'gnss_data'}
-        self.conn = None
-        self.active_transaction = False
-        # parse session config file
-        config = configparser.ConfigParser()
-        with open(configfile) as cf:
-            config.read_file(cf)
-        # get the database config
-        for key in config['postgres']:
-            self.options[key] = config.get('postgres', key)
-        connect_dsn = 'dbname={} host={} user={} password={}'.format(self.options['database'],
-                                                                     self.options['hostname'],
-                                                                     self.options['username'],
-                                                                     self.options['password'])
-        # open connection to server
+    def __init__(self, config, parent_logger='archive'):
+
+        # Open connection to server
+        connect_dsn = None
         try:
+            self.logger = logging.getLogger('.'.join([parent_logger, 'gpys.Connection']))
+            self.logger.debug('Initializing Connection object.')
+            self.conn = None
+            connect_dsn = 'dbname={} host={} user={} password={}'.format(config['database'],
+                                                                         config['hostname'],
+                                                                         config['username'],
+                                                                         config['password'])
             self.conn = psycopg2.connect(connect_dsn)
+            self.logger.debug('Connection established: {}'.format(self.conn.dsn))
+            self.insert('executions', {'script': parent_logger})
         except Exception as e:
-            raise e
+            self.logger.error('Uncaught exception: {}'.format(e))
+            sys.exit(1)
+        finally:
+            del connect_dsn, config, parent_logger
 
     def __del__(self):
-        try:
+        if self.conn:
             self.conn.close()
-        except Exception as e:
-            print(e)
-            pass
+            self.logger.debug('Connection closed: {}'.format(self.conn.dsn))
 
-    def _execute_wrapper(self, sql_statement, values=None, retval=False, return_dict=False):
+    def _execute_wrapper(self, sql_statement, values=None, retval=False, return_dict=True):
         """
         Deal with all the actual database interactions here and deal with the related error possibilities.
         :param sql_statement: A composable object.
@@ -2115,7 +1775,8 @@ class Connection:
                         return curs.fetchall()
             self.conn.commit()
         except Exception as e:
-            raise DBErrInsert(e)
+            self.logger.error('Uncaught exception: {}'.format(e))
+            sys.exit(1)
 
     def insert(self, table, record: dict):
         x = sql.SQL('{}').format(sql.Identifier(table))
@@ -2274,24 +1935,23 @@ class Connection:
         return self._execute_wrapper(full_statement, [v for v in where_dict.values()], retval=True)
 
 
-class RinexStruct:
+class RinexArchive:
 
-    def __init__(self, cnn, cfg_file='gnss_data.cfg'):
-
-        self.cnn = cnn
-
-        # read the structure definition table
-        self.levels = cnn.load_tankstruct()
-
-        self.keys = cnn.load_table('keys')
-
-        # read the station and network tables
-        self.networks = cnn.load_table('networks')
-
-        self.stations = cnn.load_table('stations')
-
-        self.config = ReadOptions(cfg_file)
-        self.archiveroot = None
+    def __init__(self, archiveoptions, parent_logger='module'):
+        try:
+            self.logger = logging.getLogger('.'.join([parent_logger, 'RinexArchive']))
+            # Read the structure definition table
+            self.logger.debug('Begin RinexArchive initialization.')
+            self.levels = archiveoptions.conn.load_tankstruct()
+            self.keys = archiveoptions.conn.load_table('keys')
+            # Read the station and network tables
+            self.networks = archiveoptions.conn.load_table('networks')
+            self.stations = archiveoptions.conn.load_table('stations')
+            self.options = archiveoptions
+            self.logger.debug('RinexArchive initialization complete')
+        except Exception as e:
+            self.logger.error('Uncaught exception: {}'.format(e))
+            sys.exit(1)
 
     def insert_rinex(self, record=None, rinexobj=None):
         """
@@ -2498,15 +2158,18 @@ class RinexStruct:
 
         return
 
-    @staticmethod
-    def parse_crinex_filename(filename):
+    def parse_crinex_filename(self, filename):
         # parse a crinex filename
-        sfile = re.findall(r'(\w{4})(\d{3})(\w{1})\.(\d{2})([d])\.[Z]$', filename)
+        try:
+            sfile = re.findall(r'(\w{4})(\d{3})(\w{1})\.(\d{2})([d])\.[Z]$', filename)
 
-        if sfile:
-            return sfile[0]
-        else:
-            return []
+            if sfile:
+                return sfile[0]
+            else:
+                return None
+        except Exception as e:
+            self.logger.error('Uncaught exception: {}'.format(e))
+            sys.exit(1)
 
     @staticmethod
     def parse_rinex_filename(filename):
@@ -2518,35 +2181,32 @@ class RinexStruct:
         else:
             return []
 
-    def scan_archive_struct(self, rootdir, progress_bar=None):
-
-        self.archiveroot = rootdir
-
-        rnx = []
-        path2rnx = []
-        fls = []
-        for path, _, files in scandir.walk(rootdir):
-            for file in files:
-                if progress_bar is not None:
-                    progress_bar.set_postfix(crinex=os.path.join(path, file).rsplit(rootdir + '/')[1])
-                    progress_bar.update()
-
-                # DDG issue #15: match the name of the file to a valid rinex filename
-                if self.parse_crinex_filename(file):
-                    # only add valid rinex compressed files
-                    fls.append(file)
-                    rnx.append(os.path.join(path, file).rsplit(rootdir + '/')[1])
-                    path2rnx.append(os.path.join(path, file))
-
-                else:
-                    if file.endswith('DS_Store') or file[0:2] == '._':
-                        # delete the stupid mac files
-                        try:
-                            os.remove(os.path.join(path, file))
-                        except Exception:
-                            exit()
-
-        return rnx, path2rnx, fls
+    def scan_archive_struct(self, rootdir: str) -> list:
+        """
+        Recursive member method of RinexArcvhive that searches through the given rootdir
+        to find files matching a compressed rinex file e.g. ending with d.Z.  The method
+        self.scan_archive_struct() is used to determine the file type.
+        :param rootdir:
+        :return:
+        """
+        try:
+            self.logger.debug('Reading data contained in {} folder.'.format(rootdir))
+            file = []
+            with os.scandir(rootdir) as it:
+                for entry in it:
+                    if os.path.isdir(entry.path):
+                        file.extend(self.scan_archive_struct(entry.path))
+                    # DDG issue #15: match the name of the file to a valid rinex filename
+                    elif self.parse_crinex_filename(entry.name):
+                        # only add valid rinex compressed files
+                        file.append(entry)
+                    else:
+                        self.logger.debug('Found invalid file in {}: {}'.format(rootdir, entry.name))
+            self.logger.debug('Found {} files in {}.'.format(len(file), rootdir))
+            return file
+        except Exception as e:
+            self.logger.error('Uncaught Exception: {}'.format(e))
+            sys.exit(1)
 
     def scan_archive_struct_stninfo(self, rootdir):
 
@@ -2555,20 +2215,19 @@ class RinexStruct:
 
         stninfo = []
         path2stninfo = []
-        for path, dirs, files in scandir.walk(rootdir):
-            for file in files:
-                if file.endswith(".info"):
+        with os.scandir(rootdir) as directory:
+            for entry in directory:
+                if entry.name.endswith(".info"):
                     # only add valid rinex compressed files
-                    stninfo.append(os.path.join(path, file).rsplit(rootdir + '/')[1])
-                    path2stninfo.append(os.path.join(path, file))
+                    stninfo.append(entry.path)
+                    path2stninfo.append(entry.path)
                 else:
-                    if file.endswith('DS_Store') or file[0:2] == '._':
+                    if entry.name.endswith('DS_Store') or entry.name[0:2] == '._':
                         # delete the stupid mac files
                         try:
-                            os.remove(os.path.join(path, file))
+                            os.remove(entry.path)
                         except Exception:
-                            exit()
-
+                            sys.exit()
         return stninfo, path2stninfo
 
     def build_rinex_path(self, network_code, station_code, observation_year, observation_doy,
@@ -2744,205 +2403,93 @@ class GetBrdcOrbits(OrbitalProduct):
 
 
 class JobServer:
-    # TODO: Make this into a subclass of the dispy jobcluster
 
-    def __init__(self, config, check_gamit_tables=None, software_sync=(), cfg_file='gnss_data.cfg'):
+    def __init__(self, options, parent_logger='archive'):
         """
         initialize the jobserver
         :param config: pyOptions.ReadOptions instance
         :param check_gamit_tables: check or not the tables in GAMIT
         :param software_sync: list of strings with remote and local paths of software to be synchronized
         """
-        self.cfg_file = cfg_file
-        self.check_gamit_tables = check_gamit_tables
-        self.software_sync = software_sync
-
-        self.nodes = None
-        self.result = None
-        self.jobs = None
-        self.run_parallel = config.options['parallel']
-        self.verbose = False
-        self.close = False
-
-        # vars to store the http_server and the progress bar (if needed)
-        self.progress_bar = None
-        self.http_server = None
-        self.callback = None
-        self.function = None
-        self.modules = None
-
-        print(" ==== Starting JobServer(dispy) ====")
-
-        # check that the run_parallel option is activated
-        if config.options['parallel']:
-            if config.options['node_list'] is None:
-                # no explicit list, find all
-                servers = ['*']
-            else:
-                # use the provided explicit list of nodes
-                if config.options['node_list'].strip() == '':
-                    servers = ['*']
-                else:
-                    servers = [_f for _f in list(config.options['node_list'].split(',')) if _f]
-
-            # initialize the cluster
-            # TODO: The correct IP address isn't resolved on my Mac so it's hardcoded here.
-            self.cluster = dispy.JobCluster(test_node, servers,
-                                            recover_file='pg.dat',
-                                            ip_addr=servers)
-            result = self.cluster.submit(cfg_file=cfg_file)
-
-            # wait for all nodes
-            time.sleep(DELAY)
-
-            stop = False
-
-            for r in result:
-                if 'Test passed!' not in r:
-                    print(r)
-                    stop = True
-
-            if stop:
-                print(' >> Errors were encountered during initialization. Check messages.')
-                # terminate execution if problems were found
-                self.cluster.close()
-                sys.exit()
-
-            self.cluster.close()
-        else:
-            print(' >> Parallel processing deactivated by user')
-            r = test_node(check_gamit_tables=check_gamit_tables, cfg_file=cfg_file)
-            if 'Test passed!' not in r:
-                raise FileNotFoundError('\n{}\n >> Errors were encountered during '
-                                        'initialization. Check messages.'.format(r))
-
-    def check_cluster(self, status, node):
-
-        if status == dispy.DispyNode.Initialized:
-            print(' -- Checking node %s (%i CPUs)...' % (node.name, node.avail_cpus))
-            # test node to make sure everything works
-            self.cluster.send_file(self.cfg_file, node)
-
-            j = self.cluster.submit_node(node, self.check_gamit_tables, self.software_sync)
-
-            self.cluster.wait()
-
-            self.result.append(j)
-
-            self.nodes.append(node)
-
-    def create_cluster(self, function, deps=(), callback=None, progress_bar=None, verbose=False, modules=()):
-
-        self.nodes = []
-        self.jobs = []
-        self.callback = callback
-        self.function = function
-        self.verbose = verbose
-        self.close = True
-
-        if self.run_parallel:
-            self.cluster = dispy.JobCluster(function, self.nodes, list(deps), callback, self.cluster_status,
-                                            pulse_interval=60, setup=functools.partial(setup, modules),
-                                            loglevel=dispy.logger.CRITICAL, reentrant=True)
-
-            self.http_server = dispy.httpd.DispyHTTPServer(self.cluster, poll_sec=2)
-
-            # wait for all nodes to be created
-            time.sleep(DELAY)
-
-        self.progress_bar = progress_bar
-
-    def submit(self, *args):
-        """
-        function to submit jobs to dispy. If run_parallel == False, the jobs are executed
-        :param args:
-        :return:
-        """
-        if self.run_parallel:
-            self.jobs.append(self.cluster.submit(*args))
-        else:
-            # if no parallel was invoked, execute the procedure manually
-            if self.callback is not None:
-                job = dispy.DispyJob(args, (), ())
-                try:
-                    job.result = self.function(*args)
-                    # TODO: Get the error to go into the events database.
-                    if self.progress_bar is not None:
-                        self.progress_bar.update()
-                except Exception as e:
-                    job.exception = e
-                self.callback(job)
-            else:
-                self.function(*args)
-
-    def wait(self):
-        """
-        wrapped function to wait for cluster execution
-        :return: none
-        """
-        if self.run_parallel:
-            tqdm.write(' -- Waiting for jobs to finish...')
-            try:
-                self.cluster.wait()
-                # let the process trigger cluster_status before letting the calling proc close the progress bar
-                time.sleep(DELAY)
-            except KeyboardInterrupt:
-                for job in self.jobs:
-                    if job.status in (dispy.DispyJob.Running, dispy.DispyJob.Created):
-                        self.cluster.cancel(job)
-                self.cluster.shutdown()
-
-    def close_cluster(self):
-        if self.run_parallel and self.close:
-            tqdm.write('')
-            self.http_server.shutdown()
-            self.cleanup()
-
-    def cluster_status(self, status, node, job):
-
-        # update the status in the http_server
-        self.http_server.cluster_status(self.http_server._clusters[self.cluster.name], status, node, job)
-
-        if status == dispy.DispyNode.Initialized:
-            tqdm.write(' -- Node %s initialized with %i CPUs' % (node.name, node.avail_cpus))
-            # test node to make sure everything works
-            self.cluster.send_file(self.cfg_file, node)
-            self.nodes.append(node)
-            return
-
-        if job is not None:
-            if status == dispy.DispyJob.Finished and self.verbose:
-                tqdm.write(' -- Job %i finished successfully' % job.id)
-
-            elif status == dispy.DispyJob.Abandoned:
-                # always print abandoned jobs
-                tqdm.write(' -- Job %04i (%s) was reported as abandoned at node %s -> resubmitting'
-                           % (job.id, str(job.args), node.name))
-
-            elif status == dispy.DispyJob.Created and self.verbose:
-                tqdm.write(' -- Job %i has been created' % job.id)
-
-            elif status == dispy.DispyJob.Terminated:
-                tqdm.write(' -- Job %i has been terminated' % job.id)
-
-            if status in (dispy.DispyJob.Finished, dispy.DispyJob.Terminated) and self.progress_bar is not None:
-                self.progress_bar.update()
-
-    def cleanup(self):
-
-        if self.run_parallel and self.close:
-            self.cluster.print_status()
-            self.cluster.close()
-            self.close = False
+        self.head_logger = logging.getLogger('.'.join([parent_logger, 'gpys.JobServer']))
+        self.options = options
+        self.cluster = None
+        self.tested = False
+        self.cluster_test()
+        if self.tested is False:
+            raise ConnectionError('Connection failed in JobServer.__init__')
 
     def __del__(self):
-        self.cleanup()
+        try:
+            self.head_logger.debug('Attempting to shut down the cluster.')
+            if isinstance(self.cluster, dispy.JobCluster):
+                self.cluster.shutdown()
+                self.head_logger.debug('Cluster successfully shut down.')
+            else:
+                self.head_logger.debug('Cluster was not started.')
+        except Exception as e:
+            self.head_logger.error('Uncaught Exception: {}'.format(e))
+            sys.exit(1)
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.cleanup()
+    def connect(self, compute, setup=None):
+        try:
+            self.head_logger.debug('Testing out the cluster.')
+            self.cluster = dispy.JobCluster(compute,
+                                            ip_addr=self.options['head_node'],
+                                            setup=setup,
+                                            ping_interval=int(self.options['ping_interval']),
+                                            pulse_interval=6,
+                                            loglevel=logging.DEBUG)
+            for node in self.options['node_list']:
+                self.cluster.discover_nodes(node)
+                self.head_logger.debug('Waiting {} seconds.'.format(2*int(self.options['ping_interval'])))
+                time.sleep(2*int(self.options['ping_interval']))
 
-    def __enter__(self):
-        return self
+        except ConnectionError as e:
+            self.head_logger.error(e, exc_info=sys.exc_info())
+            sys.exit(1)
+        except Exception as e:
+            self.head_logger.error('Uncaught Exception: {}'.format(e))
+            sys.exit(1)
+
+    def cluster_test(self):
+        j, tend, tstart = None, None, None
+        try:
+            self.head_logger.debug('Testing out the cluster.')
+
+            def compute():
+                time.sleep(0.1)
+                return socket.gethostname()
+
+            self.connect(compute)
+
+            jobs = []
+            for node in self.options['node_list']:
+                self.head_logger.debug('Sending job to {}'.format(node))
+                job = self.cluster.submit_job_id_node('InitialTest-{}'.format(node), node)
+                jobs.append(job)
+            if None in jobs:
+                raise ConnectionError('Error while submitting job')
+            tstart = time.time()
+            while not self.cluster.wait():
+                time.sleep(0.1)
+            tend = time.time()
+            self.head_logger.debug('Jobs took {:.4} seconds.'.format(tend-tstart))
+            for j in jobs:
+                self.head_logger.debug('Node worked! {}.'.format(j.result))
+            self.head_logger.debug('Started a Dispy job and it worked :D')
+            self.tested = True
+        except ConnectionError as e:
+            self.head_logger.error(e, exc_info=sys.exc_info())
+            sys.exit(1)
+        except Exception as e:
+            self.head_logger.error('Uncaught Exception: {}'.format(e))
+            sys.exit(1)
+        finally:
+            self.head_logger.debug('Shutting down cluster.')
+            if isinstance(self.cluster, dispy.JobCluster):
+                self.cluster.shutdown()
+            del j, tend, tstart
 
 
 class OceanLoading:
@@ -3034,7 +2581,11 @@ class ReadOptions:
     Class that deals with reading in the default configuration file gnss_data.cfg
     """
 
-    def __init__(self, configfile):
+    def __init__(self,
+                 configfile='gnss_data.cfg', parent_logger='archive'):
+        # Initialize the logger.
+        logger = logging.getLogger('.'.join([parent_logger, 'gpys.ReadOptions']))
+        logger.debug('Initializing ReadOptions object from {}'.format(configfile))
 
         self.options = {'path': None,
                         'repository': None,
@@ -3062,43 +2613,116 @@ class ReadOptions:
                         'ppp_remote_local': (),
                         'gg': None}
 
-        config = configparser.ConfigParser()
-        with open(configfile) as fp:
-            config.read_file(fp)
+        fp, p, config, section = None, None, None, None
+        try:
+            # Read in the config file.
+            logger.debug('Checking config_file: {}'.format(configfile))
+            config = configparser.ConfigParser()
+            with open(configfile) as fp:
+                config.read_file(fp)
 
-        # get the archive config
-        for section in config.sections():
-            for key in config[section]:
-                self.options[key] = config[section][key]
+            # Parse the sections into the options dict.
+            for section in config.sections():
+                for key in config[section]:
+                    self.options[key] = config[section][key]
 
-        del config
-        # frames and dates
-        frames = [item.strip() for item in self.options['frames'].split(',')]
-        atx = [item.strip() for item in self.options['atx'].split(',')]
+            logger.debug('{} read into program, now checking file paths.'.format(configfile))
+            paths = [self.options['path'], self.options['repository'], self.options['brdc'],
+                     self.options['sp3'], self.options['gg'], self.options['grdtab'], self.options['otlgrid'],
+                     self.options['ppp_path'], self.options['ppp_exe'], self.options['atx']]
+            for p in paths:
+                logger.debug('Checking {}'.format(Path(p).parent))
+                if not Path(p).parent.exists():
+                    raise FileNotFoundError
 
-        self.Frames = []
+        except FileNotFoundError:
+            logger.error('FileNotFoundError: {}'.format(p), exc_info=sys.exc_info())
+            sys.exit(1)
+        except Exception as e:
+            logger.error('Uncaught exception: {}.'.format(e), exc_info=sys.exc_info(), stack_info=True)
+            sys.exit(1)
+        finally:
+            del fp, p, section
+        logger.debug('Parent directories are okay, some of the files might not exist though.')
 
-        for frame, atx in zip(frames, atx):
-            date = process_date(self.options[frame.lower()].split(','))
-            self.Frames += [{'name': frame, 'atx': atx, 'dates':
-                (Date(year=date[0].year, doy=date[0].doy, hour=0, minute=0, second=0),
-                 Date(year=date[1].year, doy=date[1].doy, hour=23, minute=59, second=59))}]
+        # Frames and dates
+        frame, atx = None, None
+        try:
+            logger.debug('Building the reference frames.')
+            frames = [item.strip() for item in self.options['frames'].split(',')]
+            atx = [item.strip() for item in self.options['atx'].split(',')]
 
-        self.options['frames'] = self.Frames
-        self.repository_data_in = os.path.join(self.options['repository'], 'data_in')
-        self.repository_data_in_retry = os.path.join(self.options['repository'], 'data_in_retry')
-        self.repository_data_reject = os.path.join(self.options['repository'], 'data_rejected')
+            self.Frames = []
 
-        self.sp3types = [self.options['sp3_type_1'], self.options['sp3_type_2'], self.options['sp3_type_3']]
-        self.sp3types = [sp3type for sp3type in self.sp3types if sp3type is not None]
+            for frame, atx in zip(frames, atx):
+                date = process_date(self.options[frame.lower()].split(','))
+                self.Frames += [{'name': frame,
+                                 'atx': atx,
+                                 'dates': (Date(year=date[0].year, doy=date[0].doy, hour=0, minute=0, second=0),
+                                           Date(year=date[1].year, doy=date[1].doy, hour=23, minute=59, second=59))
+                                 }
+                                ]
+                self.options['frames'] = self.Frames
 
-        # alternative sp3 types
-        self.sp3altrn = [self.options['sp3_altr_1'], self.options['sp3_altr_2'], self.options['sp3_altr_3']]
-        self.sp3altrn = [sp3alter for sp3alter in self.sp3altrn if sp3alter is not None]
-        if self.options['parallel'] == 'True':
-            self.options['parallel'] = True
-        else:
-            self.options['parallel'] = False
+            logger.debug('Reference frames built.')
+
+        except KeyError:
+            logger.error('The frames were not correctly defined in the config file {}'.format(configfile),
+                         exc_info=sys.exc_info())
+            sys.exit(1)
+        except Exception as e:
+            logger.error('Uncaught exception: {}.'.format(e), exc_info=sys.exc_info(), stack_info=True)
+            sys.exit(1)
+        finally:
+            del frame, atx
+
+        try:
+            logger.debug('Creating some properties for ease of use.')
+            self.data_in = Path(self.options['repository']) / Path('data_in')
+            self.data_in_retry = Path(self.options['repository']) / Path('data_in_retry')
+            self.data_reject = Path(self.options['repository']) / Path('data_rejected')
+
+            os.makedirs(self.data_in, exist_ok=True)
+            os.makedirs(self.data_in_retry, exist_ok=True)
+            os.makedirs(self.data_reject, exist_ok=True)
+
+            self.sp3types = [self.options['sp3_type_1'], self.options['sp3_type_2'], self.options['sp3_type_3']]
+            self.sp3types = [sp3type for sp3type in self.sp3types if sp3type is not None]
+
+            # alternative sp3 types
+            self.sp3altrn = [self.options['sp3_altr_1'], self.options['sp3_altr_2'], self.options['sp3_altr_3']]
+            self.sp3altrn = [sp3alter for sp3alter in self.sp3altrn if sp3alter is not None]
+            if self.options['parallel'] == 'True':
+                self.options['parallel'] = True
+            else:
+                self.options['parallel'] = False
+            self.options['node_list'] = self.options['node_list'].strip(' ').split(',')
+        except KeyError as e:
+            logger.error(e)
+            sys.exit(1)
+        except OSError as e:
+            logger.error(e)
+            sys.exit(1)
+        except Exception as e:
+            logger.error(e)
+            sys.exit(1)
+
+        # TODO: Move cluster initialization to its own class.
+        logger.debug('Testing JobServer connection.')
+        try:
+            JobServer(self.options).cluster_test()
+        except Exception as e:
+            logger.error('Uncaught Exception: {}'.format(e))
+            sys.exit(1)
+        logger.debug('JobServer connected.')
+        logger.debug('Check out the database connection.')
+        try:
+            self.conn = Connection(self.options, parent_logger=parent_logger)
+        except Exception as e:
+            logger.error('Uncaught Exception: {}'.format(e))
+            sys.exit(1)
+        logger.debug('Database connection established.')
+        logger.debug('Config sucessfully read in.')
 
 
 class PPPSpatialCheck:
@@ -5332,7 +4956,7 @@ class GetSp3Orbits(OrbitalProduct):
         return self
 
 
-class shell_cmd(threading.Thread):
+class ShellCmd(threading.Thread):
     """
     This class is implemented in order to run shell scripts and external programs.
     """
@@ -5404,15 +5028,14 @@ class RunCommand:
         self.cat_file = cat_file
 
     def run_shell(self):
-        while True:
-            with shell_cmd(self.cmd, self.cwd, self.cat_file) as cmd:
-                try:
-                    cmd.start()
-                    cmd.join(timeout=self.time_out)
-                    # remove non-ASCII chars
-                    if cmd.stderr is not None:
-                        cmd.stderr = ''.join([i if ord(i) < 128 else ' ' for i in cmd.stderr])
-                    return str(cmd.stdout), str(cmd.stderr)
-                except Exception as e:
-                    print(e)
-                    sys.exit()
+        with ShellCmd(self.cmd, self.cwd, self.cat_file) as cmd:
+            try:
+                cmd.start()
+                cmd.join(timeout=self.time_out)
+                # remove non-ASCII chars
+                if cmd.stderr is not None:
+                    cmd.stderr = ''.join([i if ord(i) < 128 else ' ' for i in cmd.stderr])
+                return str(cmd.stdout), str(cmd.stderr)
+            except Exception as e:
+                print(e)
+                sys.exit()

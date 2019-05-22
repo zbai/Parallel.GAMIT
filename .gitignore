@@ -109,3 +109,4 @@ gnss_data.cfg
 debug.cfg
 test_files/
 snapshots/
+exe/
