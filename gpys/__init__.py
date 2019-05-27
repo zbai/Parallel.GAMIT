@@ -22,7 +22,6 @@ import psycopg2
 from collections import defaultdict
 from tqdm import tqdm
 from psycopg2 import sql
-import logging
 from decimal import Decimal
 import dispy
 import asyncio
@@ -37,25 +36,7 @@ TYPE_RINEX = 1
 TYPE_RINEZ = 2
 TYPE_CRINEX = 3
 
-gpys_logger = logging.getLogger('gpys')
-
-
-class ProductsException(Exception):
-    def __init__(self, value):
-        self.value = value
-        self.event = Event(Description=value, EventType='error', module=type(self).__name__)
-
-    def __str__(self):
-        return str(self.value)
-
-
-class EOPException(ProductsException):
-    def __init__(self, value):
-        self.value = value
-        self.event = Event(Description=value, EventType='error', module=type(self).__name__)
-
-    def __str__(self):
-        return str(self.value)
+logger = logging.getLogger('gpys')
 
 
 def parse_crinex_rinex_filename(filename):
@@ -333,192 +314,6 @@ def get_norm_doy_str(doy):
     return doy
 
 
-def test_node(check_gamit_tables=None, software_sync=(), cfg_file='gnss_data.cfg') -> str:
-    # test node: function that makes sure that all required packages and tools are present in the nodes
-    return 'hello', 'bye'
-    def check_tab_file(tabfile, date):
-
-        if os.path.isfile(tabfile):
-            # file exists, check contents
-            with open(tabfile) as luntab:
-                lines = luntab.readlines()
-                tabdate = Date(mjd=lines[-1].split()[0])
-                if tabdate < date:
-                    return ' -- %s: Last entry in %s is %s but processing %s' \
-                           % (platform.node(), tabfile, tabdate.yyyyddd(), date.yyyyddd())
-
-        else:
-            return ' -- %s: Could not find file %s' % (platform.node(), tabfile)
-
-        return []
-
-    # BEFORE ANYTHING! check the python version
-    print('Testing node\n')
-    version = sys.version_info
-    if version.major < 3:
-        return ' -- {}: Incorrect Python version: {}.{}.{}. Recommended version > 3'.format(platform.node(),
-                                                                                            version.major,
-                                                                                            version.minor,
-                                                                                            version.micro)
-    # Check that parallel gamit is installed.
-
-    # start importing the modules needed
-    try:
-        if len(software_sync) > 0:
-            # synchronize directories listed in the src and dst arguments
-
-            for source_dest in software_sync:
-                if isinstance(source_dest, str) and ',' in source_dest:
-                    s = source_dest.split(',')[0].strip()
-                    d = source_dest.split(',')[1].strip()
-
-                    print('    -- Synchronizing %s -> %s' % (s, d))
-
-                    updated = dirsync.sync(s, d, 'sync', purge=True, create=True)
-
-                    for f in updated:
-                        print('    -- Updated %s' % f)
-
-    except Exception:
-        return ' -- %s: Problem found while synchronizing software:\n%s ' % (platform.node(), traceback.format_exc())
-
-    # continue with a test SQL connection
-    # make sure that the gnss_data.cfg is present
-    try:
-        Connection(cfg_file)
-    except Exception:
-        return ' -- %s: Problem found while connecting to postgres:\n%s ' % (platform.node(), traceback.format_exc())
-
-    # make sure we can create the production folder
-    try:
-        test_dir = os.path.join('production/node_test')
-        os.makedirs(test_dir, exist_ok=True)
-    except Exception:
-        return ' -- %s: Could not create production folder:\n%s ' % (platform.node(), traceback.format_exc())
-
-    # test
-    try:
-        config = ReadOptions(cfg_file)
-
-        # check that all paths exist and can be reached
-        if not os.path.exists(config.options['path']):
-            return ' -- %s: Could not reach archive path %s' % (platform.node(), config.options['path'])
-
-        if not os.path.exists(config.options['repository']):
-            return ' -- %s: Could not reach repository path %s' % (platform.node(), config.options['repository'])
-
-        # pick a test date to replace any possible parameters in the config file
-        date = Date(year=2010, doy=1)
-    except Exception:
-        return ' -- %s: Problem while reading config file and/or testing archive access:\n%s' \
-               % (platform.node(), traceback.format_exc())
-
-    try:
-        GetBrdcOrbits(config.options['brdc'], date, test_dir)
-    except Exception:
-        return ' -- %s: Problem while testing the broadcast ephemeris archive (%s) access:\n%s' \
-               % (platform.node(), config.options['brdc'], traceback.format_exc())
-
-    try:
-        GetSp3Orbits(config.options['sp3'], date, config.sp3types, test_dir)
-    except Exception:
-        return ' -- %s: Problem while testing the sp3 orbits archive (%s) access:\n%s' \
-               % (platform.node(), config.options['sp3'], traceback.format_exc())
-
-    # check that all executables and GAMIT bins are in the path
-    # TODO: Determine which of these programs we can convert into pure python.
-    list_of_prgs = ['crz2rnx', 'crx2rnx', 'rnx2crx', 'rnx2crz', 'RinSum', 'teqc', 'svdiff', 'svpos', 'tform',
-                    'sh_rx2apr', 'doy', 'RinEdit', 'sed', 'compress']
-
-    for prg in list_of_prgs:
-        out = shutil.which(prg)
-        if not out:
-            return ' -- %s: Could not find path to %s' % (platform.node(), prg)
-
-    # check grdtab and ppp from the config file
-    if not os.path.isfile(config.options['grdtab']):
-        return ' -- %s: Could not find grdtab in %s' % (platform.node(), config.options['grdtab'])
-
-    if not os.path.isfile(config.options['otlgrid']):
-        return ' -- %s: Could not find otlgrid in %s' % (platform.node(), config.options['otlgrid'])
-
-    if not os.path.isfile(config.options['ppp_exe']):
-        return ' -- %s: Could not find ppp_exe in %s' % (platform.node(), config.options['ppp_exe'])
-
-    if not os.path.isfile(os.path.join(config.options['ppp_path'], 'gpsppp.stc')):
-        return ' -- %s: Could not find gpsppp.stc in %s' % (platform.node(), config.options['ppp_path'])
-
-    if not os.path.isfile(os.path.join(config.options['ppp_path'], 'gpsppp.svb_gps_yrly')):
-        return ' -- %s: Could not find gpsppp.svb_gps_yrly in %s' % (platform.node(), config.options['ppp_path'])
-
-    if not os.path.isfile(os.path.join(config.options['ppp_path'], 'gpsppp.flt')):
-        return ' -- %s: Could not find gpsppp.flt in %s' % (platform.node(), config.options['ppp_path'])
-
-    if not os.path.isfile(os.path.join(config.options['ppp_path'], 'gpsppp.stc')):
-        return ' -- %s: Could not find gpsppp.stc in %s' % (platform.node(), config.options['ppp_path'])
-
-    if not os.path.isfile(os.path.join(config.options['ppp_path'], 'gpsppp.met')):
-        return ' -- %s: Could not find gpsppp.met in %s' % (platform.node(), config.options['ppp_path'])
-
-    for frame in config.options['frames']:
-        if not os.path.isfile(frame['atx']):
-            return ' -- %s: Could not find atx in %s' % (platform.node(), frame['atx'])
-
-    if check_gamit_tables is not None:
-        # check the gamit tables if not none
-
-        date = check_gamit_tables[0]
-        eop = check_gamit_tables[1]
-        # TODO: Change this so it's not hardwired into the home directory anymore
-        tables = os.path.join(config.options['gg'], 'tables')
-
-        if not os.path.isdir(config.options['gg']):
-            return ' -- %s: Could not GAMIT installation dir (gg)' % (platform.node())
-
-        if not os.path.isdir(tables):
-            return ' -- %s: Could not GAMIT tables dir (gg)' % (platform.node())
-
-        # luntab
-        luntab = os.path.join(tables, 'luntab.' + date.yyyy() + '.J2000')
-
-        result = check_tab_file(luntab, date)
-
-        if result:
-            return result
-
-        # soltab
-        soltab = os.path.join(tables, 'soltab.' + date.yyyy() + '.J2000')
-
-        result = check_tab_file(soltab, date)
-
-        if result:
-            return result
-
-        # ut
-        ut = os.path.join(tables, 'ut1.' + eop)
-
-        result = check_tab_file(ut, date)
-
-        if result:
-            return result
-
-        # leapseconds
-
-        # vmf1
-
-        # pole
-        pole = os.path.join(tables, 'pole.' + eop)
-
-        result = check_tab_file(pole, date)
-
-        if result:
-            return result
-
-        # fes_cmc consistency
-
-    return ' -- %s: Test passed!' % (platform.node())
-
-
 def check_year(year):
     # to check for wrong dates in RinSum
 
@@ -696,29 +491,6 @@ def mjd2date(mjd):
     year = b * 100. + d - 4800. + math.floor(m / 10.)
 
     return int(year), int(month), int(day)
-
-
-def run_cmd(cmd: str, time_out, cwd=os.getcwd(), cat_file=None):
-    """
-    :param cmd:
-    :return:
-    """
-
-    async def run(cmd):
-        proc = await asyncio.create_subprocess_shell(
-            cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE)
-
-        stdout, stderr = await proc.communicate()
-
-        print(f'[{cmd!r} exited with {proc.returncode}]')
-        if stdout:
-            print(f'[stdout]\n{stdout.decode()}')
-        if stderr:
-            print(f'[stderr]\n{stderr.decode()}')
-
-    asyncio.run(run(cmd))
 
 
 class Date(object):
@@ -1935,649 +1707,6 @@ class Connection:
         return self._execute_wrapper(full_statement, [v for v in where_dict.values()], retval=True)
 
 
-class RinexArchive:
-
-    def __init__(self, archiveoptions, parent_logger='module'):
-        try:
-            self.logger = logging.getLogger('.'.join([parent_logger, 'RinexArchive']))
-            # Read the structure definition table
-            self.logger.debug('Begin RinexArchive initialization.')
-            self.levels = archiveoptions.conn.load_tankstruct()
-            self.keys = archiveoptions.conn.load_table('keys')
-            # Read the station and network tables
-            self.networks = archiveoptions.conn.load_table('networks')
-            self.stations = archiveoptions.conn.load_table('stations')
-            self.options = archiveoptions
-            self.logger.debug('RinexArchive initialization complete')
-        except Exception as e:
-            self.logger.error('Uncaught exception: {}'.format(e))
-            sys.exit(1)
-
-    def insert_rinex(self, record=None, rinexobj=None):
-        """
-        Insert a RINEX record and file into the database and archive. If only record is provided, only insert into db
-        If only rinexobj is provided, then RinexRecord of rinexobj is used for the insert. If both are given, then
-        RinexRecord overrides the passed record.
-        :param record: a RinexRecord dictionary to make the insert to the db
-        :param rinexobj: the pyRinex object containing the file being processed
-        :return: True if insertion was successful. False if no insertion was done.
-        """
-
-        if record is None and rinexobj is None:
-            raise ValueError('insert_rinex exception: both record and rinexobj cannot be None.')
-
-        if rinexobj is not None:
-            record = rinexobj.record
-
-        copy_succeeded = False
-        archived_crinex = ''
-
-        # check if record exists in the database
-        if not self.get_rinex_record(NetworkCode=record['NetworkCode'],
-                                     StationCode=record['StationCode'],
-                                     ObservationYear=record['ObservationYear'],
-                                     ObservationDOY=record['ObservationDOY'],
-                                     Interval=record['Interval'],
-                                     Completion=float('%.3f' % record['Completion'])):
-            # no record, proceed
-
-            # check if we need to perform any rinex operations. We might be inserting a new record, but it may just be
-            # a ScanRinex op where we don't copy the file into the archive
-            if rinexobj is not None:
-                # is the rinex object correctly named?
-                rinexobj.apply_file_naming_convention()
-                # update the record to the (possible) new name
-                record['Filename'] = rinexobj.rinex
-
-            try:
-                self.cnn.insert('rinex', record)
-
-                if rinexobj is not None:
-                    # a rinexobj was passed, copy it into the archive.
-
-                    path2archive = os.path.join(self.config.options['path'],
-                                                self.build_rinex_path(record['NetworkCode'], record['StationCode'],
-                                                                      record['ObservationYear'],
-                                                                      record['ObservationDOY'],
-                                                                      with_filename=False, rinexobj=rinexobj))
-
-                    # copy fixed version into the archive
-                    archived_crinex = rinexobj.compress_local_copyto(path2archive)
-                    copy_succeeded = True
-                    # get the rinex filename to update the database
-                    rnx = rinexobj.to_format(os.path.basename(archived_crinex), TYPE_RINEX)
-
-                    if rnx != rinexobj.rinex:
-                        # update the table with the filename (always force with step)
-                        self.cnn.query('UPDATE rinex SET "Filename" = \'%s\' '
-                                       'WHERE "NetworkCode" = \'%s\' '
-                                       'AND "StationCode" = \'%s\' '
-                                       'AND "ObservationYear" = %i '
-                                       'AND "ObservationDOY" = %i '
-                                       'AND "Interval" = %i '
-                                       'AND "Completion" = %.3f '
-                                       'AND "Filename" = \'%s\'' %
-                                       (rnx,
-                                        record['NetworkCode'],
-                                        record['StationCode'],
-                                        record['ObservationYear'],
-                                        record['ObservationDOY'],
-                                        record['Interval'],
-                                        record['Completion'],
-                                        record['Filename']))
-
-                    event = Event(Description='A new RINEX was added to the archive: %s' % record['Filename'],
-                                  NetworkCode=record['NetworkCode'],
-                                  StationCode=record['StationCode'],
-                                  Year=record['ObservationYear'],
-                                  DOY=record['ObservationDOY'])
-                else:
-                    event = Event(Description='Archived CRINEX file %s added to the database.' %
-                                              record['Filename'],
-                                  NetworkCode=record['NetworkCode'],
-                                  StationCode=record['StationCode'],
-                                  Year=record['ObservationYear'],
-                                  DOY=record['ObservationDOY'])
-
-                self.cnn.insert_event(event)
-
-            except Exception:
-                self.cnn.rollback_transac()
-
-                if rinexobj and copy_succeeded:
-                    # transaction rolled back due to error. If file made into the archive, delete it.
-                    os.remove(archived_crinex)
-
-                raise
-            return True
-        else:
-            # record already existed
-            return False
-
-    def remove_rinex(self, record, move_to_dir=None):
-        # function to remove a file from the archive
-        # should receive a rinex record
-        # if move_to is None, file is deleted
-        # otherwise, moves file to specified location
-        try:
-            self.cnn.begin_transac()
-            # propagate the deletes
-            # check if this rinex file is the file that was processed and used for solutions
-            rs = self.cnn.query(
-                'SELECT * FROM rinex_proc WHERE "NetworkCode" = \'%s\' AND "StationCode" = \'%s\' AND '
-                '"ObservationYear" = %i AND "ObservationDOY" = %i'
-                % (record['NetworkCode'], record['StationCode'],
-                   record['ObservationYear'], record['ObservationDOY']))
-
-            if rs.ntuples() > 0:
-                self.cnn.query(
-                    'DELETE FROM gamit_soln WHERE "NetworkCode" = \'%s\' AND "StationCode" = \'%s\' AND '
-                    '"Year" = %i AND "DOY" = %i'
-                    % (record['NetworkCode'], record['StationCode'],
-                       record['ObservationYear'], record['ObservationDOY']))
-
-                self.cnn.query(
-                    'DELETE FROM ppp_soln WHERE "NetworkCode" = \'%s\' AND "StationCode" = \'%s\' AND '
-                    '"Year" = %i AND "DOY" = %i'
-                    % (record['NetworkCode'], record['StationCode'],
-                       record['ObservationYear'], record['ObservationDOY']))
-
-            # get the filename
-            rinex_path = self.build_rinex_path(record['NetworkCode'], record['StationCode'],
-                                               record['ObservationYear'], record['ObservationDOY'],
-                                               filename=record['Filename'])
-
-            rinex_path = os.path.join(self.Config.archive_path, rinex_path)
-
-            # delete the rinex record
-            self.cnn.query(
-                'DELETE FROM rinex WHERE "NetworkCode" = \'%s\' AND "StationCode" = \'%s\' AND '
-                '"ObservationYear" = %i AND "ObservationDOY" = %i AND "Filename" = \'%s\''
-                % (record['NetworkCode'], record['StationCode'], record['ObservationYear'],
-                   record['ObservationDOY'], record['Filename']))
-
-            if os.path.isfile(rinex_path):
-                if move_to_dir:
-
-                    filename = shutil.move(rinex_path, os.path.join(move_to_dir, os.path.basename(rinex_path)))
-                    description = 'RINEX %s was removed from the database and archive. ' \
-                                  'File moved to %s. See next events for reason.' % (record['Filename'], filename)
-                else:
-
-                    os.remove(rinex_path)
-                    description = 'RINEX %s was removed from the database and archive. ' \
-                                  'File was deleted. See next events for reason.' % (record['Filename'])
-
-            else:
-                description = 'RINEX %s was removed from the database and archive. File was NOT found in the archive ' \
-                              'so no deletion was performed. See next events for reason.' % (record['Filename'])
-
-            # insert an event
-            event = Event(
-                Description=description,
-                NetworkCode=record['NetworkCode'],
-                StationCode=record['StationCode'],
-                EventType='info',
-                Year=record['ObservationYear'],
-                DOY=record['ObservationDOY'])
-
-            self.cnn.insert_event(event)
-
-            self.cnn.commit_transac()
-        except Exception:
-            self.cnn.rollback_transac()
-            raise
-
-    def get_rinex_record(self, **kwargs):
-        """
-        Retrieve a single or multiple records from the rinex table given a set parameters. If parameters are left empty,
-        it wil return all records matching the specified criteria. Each parameter acts like a filter, narrowing down the
-        records returned by the function. The default behavior is to use tables rinex or rinex_proc depending on the
-        provided parameters. E.g. if Interval, Completion and Filename are all left blank, the function will return the
-        records using rinex_proc. Otherwise, the rinex table will be used.
-        :return: a dictionary will the records matching the provided parameters
-        """
-
-        if any(param in ['Interval', 'Completion', 'Filename'] for param in list(kwargs.keys())):
-            table = 'rinex'
-        else:
-            table = 'rinex_proc'
-
-        return self.cnn.load_table_matching(table, kwargs)
-
-    def check_directory_struct(self, ArchivePath, NetworkCode, StationCode, date):
-
-        path = self.build_rinex_path(NetworkCode, StationCode, date.year, date.doy, False)
-
-        try:
-            if not os.path.isdir(os.path.join(ArchivePath, path)):
-                os.makedirs(os.path.join(ArchivePath, path))
-        except OSError:
-            # race condition: two prcesses trying to create the same folder
-            pass
-
-        return
-
-    def parse_crinex_filename(self, filename):
-        # parse a crinex filename
-        try:
-            sfile = re.findall(r'(\w{4})(\d{3})(\w{1})\.(\d{2})([d])\.[Z]$', filename)
-
-            if sfile:
-                return sfile[0]
-            else:
-                return None
-        except Exception as e:
-            self.logger.error('Uncaught exception: {}'.format(e))
-            sys.exit(1)
-
-    @staticmethod
-    def parse_rinex_filename(filename):
-        # parse a rinex filename
-        sfile = re.findall(r'(\w{4})(\d{3})(\w{1})\.(\d{2})([o])$', filename)
-
-        if sfile:
-            return sfile[0]
-        else:
-            return []
-
-    def scan_archive_struct(self, rootdir: str) -> list:
-        """
-        Recursive member method of RinexArcvhive that searches through the given rootdir
-        to find files matching a compressed rinex file e.g. ending with d.Z.  The method
-        self.scan_archive_struct() is used to determine the file type.
-        :param rootdir:
-        :return:
-        """
-        try:
-            self.logger.debug('Reading data contained in {} folder.'.format(rootdir))
-            file = []
-            with os.scandir(rootdir) as it:
-                for entry in it:
-                    if os.path.isdir(entry.path):
-                        file.extend(self.scan_archive_struct(entry.path))
-                    # DDG issue #15: match the name of the file to a valid rinex filename
-                    elif self.parse_crinex_filename(entry.name):
-                        # only add valid rinex compressed files
-                        file.append(entry)
-                    else:
-                        self.logger.debug('Found invalid file in {}: {}'.format(rootdir, entry.name))
-            self.logger.debug('Found {} files in {}.'.format(len(file), rootdir))
-            return file
-        except Exception as e:
-            self.logger.error('Uncaught Exception: {}'.format(e))
-            sys.exit(1)
-
-    def scan_archive_struct_stninfo(self, rootdir):
-
-        # same as scan archive struct but looks for station info files
-        self.archiveroot = rootdir
-
-        stninfo = []
-        path2stninfo = []
-        with os.scandir(rootdir) as directory:
-            for entry in directory:
-                if entry.name.endswith(".info"):
-                    # only add valid rinex compressed files
-                    stninfo.append(entry.path)
-                    path2stninfo.append(entry.path)
-                else:
-                    if entry.name.endswith('DS_Store') or entry.name[0:2] == '._':
-                        # delete the stupid mac files
-                        try:
-                            os.remove(entry.path)
-                        except Exception:
-                            sys.exit()
-        return stninfo, path2stninfo
-
-    def build_rinex_path(self, network_code, station_code, observation_year, observation_doy,
-                         with_filename=True, filename=None, rinexobj=None):
-        """
-        Function to get the location in the archive of a rinex file. It has two modes of operation:
-        1) retrieve an existing rinex file, either specific or the rinex for processing
-        (most complete, largest interval) or a specific rinex file (already existing in the rinex table).
-        2) To get the location of a potential file (probably used for injecting a new file in the archive. No this mode,
-        filename has no effect.
-        :param network_code: NetworkCode of the station being retrieved
-        :param station_code: StationCode of the station being retrieved
-        :param observation_year: Year of the rinex file being retrieved
-        :param observation_doy: DOY of the rinex file being retrieved
-        :param with_filename: if set, returns a path including the filename. Otherwise, just returns the path
-        :param filename: name of a specific file to search in the rinex table
-        :param rinexobj: a pyRinex object to pull the information from (to fill the achive keys).
-        :return: a path with or without filename
-        """
-
-        if not rinexobj:
-            # not an insertion (user wants the rinex path of existing file)
-            # build the levels struct
-            sql_list = []
-            for level in self.levels:
-                sql_list.append('"' + level['rinex_col_in'] + '"')
-
-            sql_list.append('"Filename"')
-
-            sql_string = ", ".join(sql_list)
-
-            if filename:
-                if self.parse_crinex_filename(filename):
-                    filename = filename.replace('d.Z', 'o')
-
-                # if filename is set, user requesting a specific file: query rinex table
-                rs = self.cnn.query('SELECT ' + sql_string + ' FROM rinex WHERE "NetworkCode" = \'' +
-                                    network_code + '\' AND "StationCode" = \'' + station_code +
-                                    '\' AND "ObservationYear" = ' + str(observation_year) + ' AND "ObservationDOY" = ' +
-                                    str(observation_doy) + ' AND "Filename" = \'' + filename + '\'')
-            else:
-                # if filename is NOT set, user requesting a the processing file: query rinex_proc
-                rs = self.cnn.query(
-                    'SELECT ' + sql_string + ' FROM rinex_proc WHERE "NetworkCode" = \'' + network_code +
-                    '\' AND "StationCode" = \'' + station_code + '\' AND "ObservationYear" = ' + str(
-                        observation_year) + ' AND "ObservationDOY" = ' + str(observation_doy))
-
-            if rs.ntuples() != 0:
-                field = rs.dictresult()[0]
-                keys = []
-                for level in self.levels:
-                    keys.append(str(field[level['rinex_col_in']]).zfill(level['TotalChars']))
-
-                if with_filename:
-                    # database stores rinex, we want crinez
-                    retval = os.sep.join(keys) + os.sep + \
-                             field['Filename'].replace(field['Filename'].split('.')[-1],
-                                                       field['Filename'].split('.')[-1].replace('o', 'd.Z'))
-                    if retval[0] == os.path.sep:
-                        return retval[1:]
-                    else:
-                        return retval
-
-                else:
-                    return os.sep.join(keys)
-            else:
-                return None
-        else:
-            # new file (get the path where it's supposed to go)
-            pathlist = []
-            for n, key in enumerate(self.levels['rinex_col_in']):
-                pathlist.append(str(rinexobj.record[key]).zfill(self.levels['TotalChars'][n]))
-            path = os.sep.join(pathlist)
-
-            valid, _ = self.parse_archive_keys(os.path.join(path, rinexobj.crinez), self.levels['KeyCode'])
-
-            if valid:
-                if with_filename:
-                    return os.path.join(path, rinexobj.crinez)
-                else:
-                    return path
-            else:
-                raise ValueError('Invalid path result: %s' % path)
-
-    def parse_archive_keys(self, path, key_filter=()):
-        """
-        Checks the path to make sure that the levels (e.g. NetworkCode) correspond to the correct naming convetions
-        defined in the "keys" table of the database.
-        :param path: The path to parse for correctness
-        :param key_filter: Optional parameter such that only path levels listed in the key_filter are returned.
-        :return: Path is correct (bool), Dictionary with key value pairs (dict)
-        """
-        try:
-            pathparts = path.split(os.sep)
-            filename = os.path.basename(path)
-
-            # check the number of levels in pathparts against the number of expected levels
-            # subtract one for the filename
-            if len(pathparts) - 1 != len(self.levels['KeyCode']):
-                return False, {}
-
-            if not filename.endswith('.info'):
-                fileparts = self.parse_crinex_filename(filename)
-            else:
-                # parsing a station info file, fill with dummy the doy and year
-                fileparts = ('dddd', '1', '0', '80')
-
-            if fileparts:
-                keys = dict()
-
-                # fill in all the possible keys using the crinex file info
-                keys['station'] = fileparts[0]
-                keys['doy'] = int(fileparts[1])
-                keys['session'] = fileparts[2]
-                keys['year'] = int(fileparts[3])
-                keys['network'] = 'rnx'
-                # Correct the database keys entries such that they can correctly be used to generate a file structure.
-                # now look in the different levels to match more data (or replace filename keys)
-
-                # At this point the pathparts list is already made up of strings that correspond to the database entries
-                # so there doesn't seem to be a need to double check them and run error handling.
-
-                # check date is valid and also fill day and month keys
-                date = Date(year=keys['year'], doy=keys['doy'])
-                keys['day'] = date.day
-                keys['month'] = date.month
-                return True, {key: keys[key] for key in list(keys.keys()) if key in key_filter}
-            else:
-                return False, {}
-
-        except Exception:
-            return False, {}
-
-
-class GetBrdcOrbits(OrbitalProduct):
-
-    def __init__(self, brdc_archive, date, copyto, no_cleanup=False):
-
-        self.brdc_archive = brdc_archive
-        self.brdc_path = None
-        self.no_cleanup = no_cleanup
-
-        # try both zipped and unzipped n files
-        self.brdc_filename = 'brdc' + str(date.doy).zfill(3) + '0.' + str(date.year)[2:4] + 'n'
-
-        try:
-            super().__init__(self.brdc_archive, date, self.brdc_filename, copyto)
-            self.brdc_path = self.file_path
-
-        except Productsexceptionunreasonabledate:
-            raise
-        except ProductsException:
-            raise Brdcexception(
-                'Could not find the broadcast ephemeris file for ' + str(date.year) + ' ' + str(date.doy))
-
-    def cleanup(self):
-        if self.brdc_path and not self.no_cleanup:
-            # delete files
-            if os.path.isfile(self.brdc_path):
-                os.remove(self.brdc_path)
-
-        return
-
-    def __del__(self):
-        self.cleanup()
-        return
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.cleanup()
-
-    def __enter__(self):
-        return self
-
-
-class JobServer:
-
-    def __init__(self, options, parent_logger='archive'):
-        """
-        initialize the jobserver
-        :param config: pyOptions.ReadOptions instance
-        :param check_gamit_tables: check or not the tables in GAMIT
-        :param software_sync: list of strings with remote and local paths of software to be synchronized
-        """
-        self.head_logger = logging.getLogger('.'.join([parent_logger, 'gpys.JobServer']))
-        self.options = options
-        self.cluster = None
-        self.tested = False
-        self.cluster_test()
-        if self.tested is False:
-            raise ConnectionError('Connection failed in JobServer.__init__')
-
-    def __del__(self):
-        try:
-            self.head_logger.debug('Attempting to shut down the cluster.')
-            if isinstance(self.cluster, dispy.JobCluster):
-                self.cluster.shutdown()
-                self.head_logger.debug('Cluster successfully shut down.')
-            else:
-                self.head_logger.debug('Cluster was not started.')
-        except Exception as e:
-            self.head_logger.error('Uncaught Exception: {} {}'.format(type(e), e))
-            sys.exit(1)
-
-    def connect(self, compute, setup=None):
-        try:
-            self.head_logger.debug('Testing out the cluster.')
-            self.cluster = dispy.JobCluster(compute,
-                                            ip_addr=self.options['head_node'],
-                                            setup=setup,
-                                            ping_interval=int(self.options['ping_interval']),
-                                            pulse_interval=6,
-                                            loglevel=self.head_logger.getEffectiveLevel())
-            for node in self.options['node_list']:
-                self.cluster.discover_nodes(node)
-                self.head_logger.debug('Waiting {} seconds.'.format(2*int(self.options['ping_interval'])))
-                time.sleep(2*int(self.options['ping_interval']))
-
-        except ConnectionError as e:
-            self.head_logger.error(e, exc_info=sys.exc_info())
-            sys.exit(1)
-        except Exception as e:
-            self.head_logger.error('Uncaught Exception: {} {}'.format(type(e), e))
-            sys.exit(1)
-
-    def cluster_test(self):
-        j, tend, tstart = None, None, None
-        try:
-            self.head_logger.debug('Testing out the cluster.')
-
-            def compute():
-                time.sleep(0.1)
-                return socket.gethostname()
-
-            self.connect(compute)
-
-            jobs = []
-            for node in self.options['node_list']:
-                self.head_logger.debug('Sending job to {}'.format(node))
-                job = self.cluster.submit_job_id_node('InitialTest-{}'.format(node), node)
-                jobs.append(job)
-            if None in jobs:
-                raise ConnectionError('Error while submitting job.  '
-                                      'The server may not be '
-                                      'started on {}.'.format(self.options['node_list'][jobs.index(None)]))
-            tstart = time.time()
-            while not self.cluster.wait():
-                time.sleep(0.1)
-            tend = time.time()
-            self.head_logger.debug('Jobs took {:.4} seconds.'.format(tend-tstart))
-            for j in jobs:
-                self.head_logger.debug('Node worked! {}.'.format(j.result))
-            self.head_logger.debug('Started a Dispy job and it worked :D')
-            self.tested = True
-        except ConnectionError as e:
-            self.head_logger.error(e)
-            sys.exit(1)
-        except Exception as e:
-            self.head_logger.error('Uncaught Exception: {} {}'.format(type(e), e))
-            sys.exit(1)
-        finally:
-            self.head_logger.debug('Shutting down cluster.')
-            if isinstance(self.cluster, dispy.JobCluster):
-                self.cluster.shutdown()
-            del j, tend, tstart
-
-
-class OceanLoading:
-
-    def __init__(self, station_code, grdtab, otlgrid, x=None, y=None, z=None):
-
-        self.x = None
-        self.y = None
-        self.z = None
-
-        self.rootdir = os.path.join('production', 'otl_calc')
-        # generate a unique id for this instance
-        self.rootdir = os.path.join(self.rootdir, str(uuid.uuid4()))
-        self.StationCode = station_code
-        os.makedirs(self.rootdir, exist_ok=True)
-
-        # verify of link to otl.grid exists
-        if not os.path.isfile(os.path.join(self.rootdir, 'otl.grid')):
-            # should be configurable
-            try:
-                os.symlink(otlgrid, os.path.join(self.rootdir, 'otl.grid'))
-            except Exception as e:
-                raise OTLException(e)
-
-        if not os.path.isfile(grdtab):
-            raise OTLException('grdtab could not be found at the specified location: ' + grdtab)
-        else:
-            self.grdtab = grdtab
-
-        if not (x is None and y is None and z is None):
-            self.x = x
-            self.y = y
-            self.z = z
-        return
-
-    def calculate_otl_coeff(self, x=None, y=None, z=None):
-
-        if not self.x and (x is None or y is None or z is None):
-            raise OTLException('Cartesian coordinates not initialized and not provided in calculate_otl_coef')
-        else:
-            if not self.x:
-                self.x = x
-            if not self.y:
-                self.y = y
-            if not self.z:
-                self.z = z
-
-            cmd = RunCommand('{} {} {} {} {}'.format(self.grdtab, self.x, self.y, self.z, self.StationCode),
-                             5, self.rootdir)
-            out, err = cmd.run_shell()
-
-            if err or os.path.isfile(os.path.join(self.rootdir, 'GAMIT.fatal')) and not os.path.isfile(
-                    os.path.join(self.rootdir, 'harpos.' + self.StationCode)):
-                if err:
-                    raise OTLException('grdtab returned an error: ' + err)
-                else:
-                    with open(os.path.join(self.rootdir, 'GAMIT.fatal')) as fileio:
-                        raise OTLException('grdtab returned an error:\n' + fileio.read())
-            else:
-                # open otl file
-                with open(os.path.join(self.rootdir, 'harpos.' + self.StationCode)) as fileio:
-                    return fileio.read()
-
-    def __del__(self):
-        if os.path.isfile(os.path.join(self.rootdir, 'GAMIT.status')):
-            os.remove(os.path.join(self.rootdir, 'GAMIT.status'))
-
-        if os.path.isfile(os.path.join(self.rootdir, 'GAMIT.fatal')):
-            os.remove(os.path.join(self.rootdir, 'GAMIT.fatal'))
-
-        if os.path.isfile(os.path.join(self.rootdir, 'grdtab.out')):
-            os.remove(os.path.join(self.rootdir, 'grdtab.out'))
-
-        if os.path.isfile(os.path.join(self.rootdir, 'harpos.' + self.StationCode)):
-            os.remove(os.path.join(self.rootdir, 'harpos.' + self.StationCode))
-
-        if os.path.isfile(os.path.join(self.rootdir, 'otl.grid')):
-            os.remove(os.path.join(self.rootdir, 'otl.grid'))
-
-        if os.path.isfile(os.path.join(self.rootdir, 'ufile.' + self.StationCode)):
-            os.remove(os.path.join(self.rootdir, 'ufile.' + self.StationCode))
-
-        if os.path.isdir(self.rootdir):
-            os.rmdir(self.rootdir)
-
-
 class ReadOptions:
     """
     Class that deals with reading in the default configuration file gnss_data.cfg
@@ -2592,7 +1721,6 @@ class ReadOptions:
         self.options = {'path': None,
                         'repository': None,
                         'parallel': False,
-                        'cups': None,
                         'node_list': None,
                         'brdc': None,
                         'sp3_type_1': None,
@@ -2708,14 +1836,16 @@ class ReadOptions:
         except Exception as e:
             logger.error(e)
             sys.exit(1)
-
-        logger.debug('Testing JobServer connection.')
-        try:
-            JobServer(self.options).cluster_test()
-        except Exception as e:
-            logger.error('Uncaught Exception: {} {}'.format(type(e), e))
-            sys.exit(1)
-        logger.debug('JobServer connected.')
+        if self.options['parallel']:
+            logger.debug('Testing JobServer connection.')
+            try:
+                JobServer(self.options).cluster_test()
+            except Exception as e:
+                logger.error('Uncaught Exception: {} {}'.format(type(e), e))
+                sys.exit(1)
+            logger.debug('JobServer connected.')
+        else:
+            logger.debug('Running in serial.')
         logger.debug('Check out the database connection.')
         try:
             self.conn = Connection(self.options, parent_logger=parent_logger)
@@ -2724,6 +1854,284 @@ class ReadOptions:
             sys.exit(1)
         logger.debug('Database connection established.')
         logger.debug('Config sucessfully read in.')
+
+
+class RinexArchive(object):
+
+    def __init__(self, archiveoptions):
+        try:
+            # Read the structure definition table
+            self.levels = archiveoptions.conn.load_tankstruct()
+            self.keys = archiveoptions.conn.load_table('keys')
+            # Read the station and network tables
+            self.networks = archiveoptions.conn.load_table('networks')
+            self.stations = archiveoptions.conn.load_table('stations')
+        except Exception as e:
+            print('Uncaught Exception: {} {}'.format(type(e), e))
+            sys.exit(1)
+
+    @staticmethod
+    def parse_crinex_filename(filename):
+        # parse a crinex filename
+        try:
+            sfile = re.findall(r'(\w{4})(\d{3})(\w{1})\.(\d{2})([d])\.[Z]$', filename)
+            if sfile:
+                return sfile[0]
+            else:
+                return None
+        except Exception as e:
+            print('Uncaught exception: {} {}'.format(type(e), e))
+            sys.exit(1)
+
+    @staticmethod
+    def parse_rinex_filename(filename):
+        # parse a rinex filename
+        sfile = re.findall(r'(\w{4})(\d{3})(\w{1})\.(\d{2})([o])$', filename)
+
+        if sfile:
+            return sfile[0]
+        else:
+            return []
+
+    def scan_archive_struct(self, rootdir: str) -> list:
+        """
+        Recursive member method of RinexArcvhive that searches through the given rootdir
+        to find files matching a compressed rinex file e.g. ending with d.Z.  The method
+        self.scan_archive_struct() is used to determine the file type.
+        :param rootdir:
+        :return:
+        """
+        try:
+            file = []
+            with os.scandir(rootdir) as it:
+                for entry in it:
+                    if os.path.isdir(entry.path):
+                        file.extend(self.scan_archive_struct(entry.path))
+                    # DDG issue #15: match the name of the file to a valid rinex filename
+                    elif self.parse_crinex_filename(entry.name):
+                        # only add valid rinex compressed files
+                        file.append(entry)
+            return file
+        except Exception as e:
+            print('Uncaught Exception: {} {}'.format(type(e), e))
+            sys.exit(1)
+
+
+class GetBrdcOrbits(OrbitalProduct):
+
+    def __init__(self, brdc_archive, date, copyto, no_cleanup=False):
+
+        self.brdc_archive = brdc_archive
+        self.brdc_path = None
+        self.no_cleanup = no_cleanup
+
+        # try both zipped and unzipped n files
+        self.brdc_filename = 'brdc' + str(date.doy).zfill(3) + '0.' + str(date.year)[2:4] + 'n'
+
+        try:
+            super().__init__(self.brdc_archive, date, self.brdc_filename, copyto)
+            self.brdc_path = self.file_path
+
+        except Productsexceptionunreasonabledate:
+            raise
+        except ProductsException:
+            raise Brdcexception(
+                'Could not find the broadcast ephemeris file for ' + str(date.year) + ' ' + str(date.doy))
+
+    def cleanup(self):
+        if self.brdc_path and not self.no_cleanup:
+            # delete files
+            if os.path.isfile(self.brdc_path):
+                os.remove(self.brdc_path)
+
+        return
+
+    def __del__(self):
+        self.cleanup()
+        return
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.cleanup()
+
+    def __enter__(self):
+        return self
+
+
+class JobServer:
+
+    def __init__(self, options, parent_logger='archive'):
+        """
+        initialize the jobserver
+        :param config: pyOptions.ReadOptions instance
+        :param check_gamit_tables: check or not the tables in GAMIT
+        :param software_sync: list of strings with remote and local paths of software to be synchronized
+        """
+        self.head_logger = logging.getLogger('.'.join([parent_logger, 'gpys.JobServer']))
+        self.options = options
+        self.cluster = None
+        self.tested = False
+        self.cluster_test()
+        if self.tested is False:
+            raise ConnectionError('Connection failed in JobServer.__init__')
+
+    def __del__(self):
+        try:
+            self.head_logger.debug('Attempting to shut down the cluster.')
+            if isinstance(self.cluster, dispy.JobCluster):
+                self.cluster.shutdown()
+                self.head_logger.debug('Cluster successfully shut down.')
+            else:
+                self.head_logger.debug('Cluster was not started.')
+        except Exception as e:
+            self.head_logger.error('Uncaught Exception: {} {}'.format(type(e), e))
+            sys.exit(1)
+
+    def connect(self, compute, setup=None):
+        try:
+            self.head_logger.debug('Testing out the cluster.')
+            self.cluster = dispy.JobCluster(compute,
+                                            ip_addr=self.options['head_node'],
+                                            setup=setup,
+                                            ping_interval=int(self.options['ping_interval']),
+                                            pulse_interval=6,
+                                            loglevel=self.head_logger.getEffectiveLevel())
+            for node in self.options['node_list']:
+                self.cluster.discover_nodes(node)
+                self.head_logger.debug('Waiting {} seconds.'.format(2*int(self.options['ping_interval'])))
+                time.sleep(2*int(self.options['ping_interval']))
+        except ConnectionError as e:
+            self.head_logger.error(e, exc_info=sys.exc_info())
+            sys.exit(1)
+        except Exception as e:
+            self.head_logger.error('Uncaught Exception: {} {}'.format(type(e), e))
+            sys.exit(1)
+
+    def cluster_test(self):
+        j, tend, tstart = None, None, None
+        try:
+            self.head_logger.debug('Testing out the cluster.')
+
+            def compute():
+                time.sleep(0.1)
+                return socket.gethostname()
+
+            self.connect(compute)
+
+            jobs = []
+            for node in self.options['node_list']:
+                self.head_logger.debug('Sending job to {}'.format(node))
+                job = self.cluster.submit_job_id_node('InitialTest-{}'.format(node), node)
+                jobs.append(job)
+            if None in jobs:
+                raise ConnectionError('Error while submitting job.  '
+                                      'The server may not be '
+                                      'started on {}.'.format(self.options['node_list'][jobs.index(None)]))
+            tstart = time.time()
+            while not self.cluster.wait():
+                time.sleep(0.1)
+            tend = time.time()
+            self.head_logger.debug('Jobs took {:.4} seconds.'.format(tend-tstart))
+            for j in jobs:
+                self.head_logger.debug('Node worked! {}.'.format(j.result))
+            for node in self.options['node_list']:
+                self.head_logger.debug('Sending files to {}.'.format(node))
+            self.head_logger.debug('Started a Dispy job and it worked :D')
+            self.tested = True
+        except ConnectionError as e:
+            self.head_logger.error(e)
+            sys.exit(1)
+        except Exception as e:
+            self.head_logger.error('Uncaught Exception: {} {}'.format(type(e), e))
+            sys.exit(1)
+        finally:
+            self.head_logger.debug('Shutting down cluster.')
+            if isinstance(self.cluster, dispy.JobCluster):
+                self.cluster.shutdown()
+            del j, tend, tstart
+
+
+class OceanLoading:
+
+    def __init__(self, station_code, grdtab, otlgrid, x=None, y=None, z=None):
+
+        self.x = None
+        self.y = None
+        self.z = None
+
+        self.rootdir = os.path.join('production', 'otl_calc')
+        # generate a unique id for this instance
+        self.rootdir = os.path.join(self.rootdir, str(uuid.uuid4()))
+        self.StationCode = station_code
+        os.makedirs(self.rootdir, exist_ok=True)
+
+        # verify of link to otl.grid exists
+        if not os.path.isfile(os.path.join(self.rootdir, 'otl.grid')):
+            # should be configurable
+            try:
+                os.symlink(otlgrid, os.path.join(self.rootdir, 'otl.grid'))
+            except Exception as e:
+                raise OTLException(e)
+
+        if not os.path.isfile(grdtab):
+            raise OTLException('grdtab could not be found at the specified location: ' + grdtab)
+        else:
+            self.grdtab = grdtab
+
+        if not (x is None and y is None and z is None):
+            self.x = x
+            self.y = y
+            self.z = z
+        return
+
+    def calculate_otl_coeff(self, x=None, y=None, z=None):
+
+        if not self.x and (x is None or y is None or z is None):
+            raise OTLException('Cartesian coordinates not initialized and not provided in calculate_otl_coef')
+        else:
+            if not self.x:
+                self.x = x
+            if not self.y:
+                self.y = y
+            if not self.z:
+                self.z = z
+
+            cmd = RunCommand('{} {} {} {} {}'.format(self.grdtab, self.x, self.y, self.z, self.StationCode),
+                             5, self.rootdir)
+            out, err = cmd.run_shell()
+
+            if err or os.path.isfile(os.path.join(self.rootdir, 'GAMIT.fatal')) and not os.path.isfile(
+                    os.path.join(self.rootdir, 'harpos.' + self.StationCode)):
+                if err:
+                    raise OTLException('grdtab returned an error: ' + err)
+                else:
+                    with open(os.path.join(self.rootdir, 'GAMIT.fatal')) as fileio:
+                        raise OTLException('grdtab returned an error:\n' + fileio.read())
+            else:
+                # open otl file
+                with open(os.path.join(self.rootdir, 'harpos.' + self.StationCode)) as fileio:
+                    return fileio.read()
+
+    def __del__(self):
+        if os.path.isfile(os.path.join(self.rootdir, 'GAMIT.status')):
+            os.remove(os.path.join(self.rootdir, 'GAMIT.status'))
+
+        if os.path.isfile(os.path.join(self.rootdir, 'GAMIT.fatal')):
+            os.remove(os.path.join(self.rootdir, 'GAMIT.fatal'))
+
+        if os.path.isfile(os.path.join(self.rootdir, 'grdtab.out')):
+            os.remove(os.path.join(self.rootdir, 'grdtab.out'))
+
+        if os.path.isfile(os.path.join(self.rootdir, 'harpos.' + self.StationCode)):
+            os.remove(os.path.join(self.rootdir, 'harpos.' + self.StationCode))
+
+        if os.path.isfile(os.path.join(self.rootdir, 'otl.grid')):
+            os.remove(os.path.join(self.rootdir, 'otl.grid'))
+
+        if os.path.isfile(os.path.join(self.rootdir, 'ufile.' + self.StationCode)):
+            os.remove(os.path.join(self.rootdir, 'ufile.' + self.StationCode))
+
+        if os.path.isdir(self.rootdir):
+            os.rmdir(self.rootdir)
 
 
 class PPPSpatialCheck:
