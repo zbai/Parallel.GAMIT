@@ -1,3 +1,9 @@
+"""
+Contains a few classes that make organizing the executable scripts easier.  Most repetative tasks will get migrated into
+this module.
+TODO: Add an executable version checker. I suspect that different compilers will give different PPP results.
+TODO: Add docstrings around try blocks.
+"""
 import configparser
 import logging
 import os
@@ -248,11 +254,14 @@ class Connection:
 class ReadOptions:
     """
     Class that deals with reading in the default configuration file gnss_data.cfg
+    TODO: Clean up some of the uneccesary parts.
     """
 
-    def __init__(self,
-                 configfile='gnss_data.cfg', parent_logger='archive'):
-        # Initialize the logger.
+    def __init__(self, configfile='gnss_data.cfg', parent_logger='archive'):
+        """-------------------------------------------------------------------------------------------------------------
+        Initialize the logger.
+        TODO: Add an option for which QC program to use (TEQC or RinSum)
+        """
         rologger = logging.getLogger('.'.join([parent_logger, 'gpys.ReadOptions']))
         rologger.debug('Initializing ReadOptions object from {}'.format(configfile))
         conn = None
@@ -280,41 +289,40 @@ class ReadOptions:
                         'ppp_exe': None,
                         'ppp_remote_local': (),
                         'gg': None}
-
+        """-------------------------------------------------------------------------------------------------------------
+        Read in the config file.
+        Parse the sections into the options dict.
+        Check that paths exist.
+        """
         fp, p, config, section = None, None, None, None
         try:
-            # Read in the config file.
-            rologger.debug('Checking config_file: {}'.format(configfile))
+            rologger.debug(f'Checking config_file: {configfile}')
             config = configparser.ConfigParser()
             with open(configfile) as fp:
                 config.read_file(fp)
-
-            # Parse the sections into the options dict.
             for section in config.sections():
                 for key in config[section]:
                     self.options[key] = config[section][key]
-
-            rologger.debug('{} read into program, now checking file paths.'.format(configfile))
+            rologger.debug(f'{configfile} read into program, now checking file paths.')
             paths = [self.options['path'], self.options['repository'], self.options['brdc'],
-                     self.options['sp3'], self.options['gg'],
-                     self.options['ppp_path'], self.options['atx']]
+                     self.options['sp3'], self.options['working_dir']]
             for p in paths:
-                rologger.debug('Checking {}'.format(Path(p).parent))
+                rologger.debug(f'Checking {Path(p)}')
                 if not Path(p).parent.exists():
                     raise FileNotFoundError
-
-        except FileNotFoundError:
-            rologger.error('FileNotFoundError: {}'.format(p), exc_info=sys.exc_info())
+        except FileNotFoundError as e:
+            rologger.error(f'FileNotFoundError: {e}')
             sys.exit(1)
         except Exception as e:
-            rologger.error('Uncaught Exception: {} {}'.format(type(e), e), exc_info=sys.exc_info(), stack_info=True)
+            rologger.error(f'Uncaught Exception {type(e)} {e}')
             sys.exit(1)
         finally:
             del fp, p, section
         rologger.debug('Parent directories are okay, some of the files might not exist though.')
-
-        # Frames and dates
-        # TODO: Implement the frames.
+        """-------------------------------------------------------------------------------------------------------------
+        Frames and dates
+        TODO: Implement the frames.
+        """
         frame, atx = None, None
         try:
             rologger.debug('Building the reference frames.')
@@ -324,11 +332,14 @@ class ReadOptions:
                            exc_info=sys.exc_info())
             sys.exit(1)
         except Exception as e:
-            rologger.error('Uncaught Exception: {} {}'.format(type(e), e), exc_info=sys.exc_info(), stack_info=True)
+            rologger.error(f'Uncaught Exception {type(e)} {e}')
             sys.exit(1)
         finally:
             del frame, atx
-
+        """-------------------------------------------------------------------------------------------------------------
+        Assign variables based on options.
+        Alternative sp3 types
+        """
         try:
             rologger.debug('Creating some properties for ease of use.')
             self.data_in = Path(self.options['repository']) / Path('data_in')
@@ -339,9 +350,6 @@ class ReadOptions:
             os.makedirs(self.data_reject, exist_ok=True)
             self.sp3types = [self.options['sp3_type_1'], self.options['sp3_type_2'], self.options['sp3_type_3']]
             self.sp3types = [sp3type for sp3type in self.sp3types if sp3type is not None]
-            # alternative sp3 types
-            self.sp3altrn = [self.options['sp3_altr_1'], self.options['sp3_altr_2'], self.options['sp3_altr_3']]
-            self.sp3altrn = [sp3alter for sp3alter in self.sp3altrn if sp3alter is not None]
             if self.options['parallel'] == 'True':
                 self.options['parallel'] = True
             else:
@@ -354,23 +362,26 @@ class ReadOptions:
             rologger.error(e)
             sys.exit(1)
         except Exception as e:
-            rologger.error(e)
+            rologger.error(f'Uncaught Exception {type(e)} {e}')
             sys.exit(1)
         if self.options['parallel']:
             rologger.debug('Testing JobServer connection.')
             try:
                 JobServer(self.options).cluster_test()
             except Exception as e:
-                rologger.error('Uncaught Exception: {} {}'.format(type(e), e))
+                rologger.error(f'Uncaught Exception {type(e)} {e}')
                 sys.exit(1)
             rologger.debug('JobServer connected.')
         else:
             rologger.debug('Running in serial.')
+        """-------------------------------------------------------------------------------------------------------------
+        PostgreSQL connection.
+        """
         rologger.debug('Check out the database connection.')
         try:
             conn = Connection(self.options, parent_logger=parent_logger)
         except Exception as e:
-            rologger.error('Uncaught Exception: {} {}'.format(type(e), e))
+            rologger.error(f'Uncaught Exception {type(e)} {e}')
             sys.exit(1)
         finally:
             del conn
@@ -378,8 +389,11 @@ class ReadOptions:
         rologger.debug('Config sucessfully read in.')
 
 
-class RinexArchive(object):
-
+class RinexArchive:
+    """
+    Loads what is in the archive already.
+    TODO: Clean up some of the uneccesary parts.
+    """
     def __init__(self, archiveoptions: ReadOptions):
         try:
             conn = Connection(archiveoptions.options)

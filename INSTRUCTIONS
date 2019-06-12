@@ -1,0 +1,47 @@
+archive/__init__.py:
+Required directory structure where working_dir is defined in the cfg file (it's a good idea to use /tmp)
+----------------------------
+working_dir/
+├── dependencies/
+│   ├── crx2rnx*
+│   ├── gpsppp.svb_gnss_yrly
+│   ├── gpsppp.trf
+│   ├── igs14_1992_plus.atx
+│   ├── ppp*
+│   └── teqc*
+└── production/
+----------------------------
+Archive structure:
+path/
+├── archive/
+├── orbits/
+│   ├── brdc/
+│   │   └── <year>
+│   └── igs/
+│       └── <gpsweek>
+└── repository/
+    ├── data_in/
+    ├── data_in_retry/
+    └── data_rejected/
+----------------------------
+
+test.py:
+The testing script to help debug functions and classes.  The classes are split up into the script that they call.
+gpys is implicitly tested via the archive routines.
+Current required directory structure:
+-----------------------
+test.py
+test_files/
+├── pfsdir
+│   ├── archive
+│   ├── orbits
+│   │   ├── brdc
+│   │   │   └── <year>
+│   │   └── igs
+│   │       └── <gpsweek>
+│   └── repository
+│       └── data_in
+└── tmpdir
+    └── dependencies
+-----------------------
+
