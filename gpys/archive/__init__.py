@@ -6,7 +6,6 @@ Required directory structure:
 
 Used to add RINEX files to the archive.
 TODO: Read parse_data_in output into the postgres table.
-TODO: Add more docstrings around the try blocks.
 TODO: Add else statements to the end of try blocks.
 TODO: Sort the data_in list so that it does the days in order.
 TODO: Add some error checking to the subprocess runs.
@@ -25,7 +24,6 @@ import dispy
 import threading
 import os
 
-
 # Globals
 lower_bound, upper_bound = 50, 100                  # Lower and upper limits to the number of pending jobs.
 jobs_cond = threading.Condition()                   # The condition lock used to limit the number of jobs submitted.
@@ -37,6 +35,9 @@ status = {'Created': dispy.DispyJob.Created,
           'Abandoned': dispy.DispyJob.Abandoned,
           'Cancelled': dispy.DispyJob.Cancelled}    # Used to shorten some if statements.
 loglevel = None                                     # Allows for consistent logging levels.
+form = logging.Formatter('%(asctime)-15s %(name)-50s %(levelname)-5s:%(lineno)4s %(message)s',
+                         '%Y-%m-%d %H:%M:%S')       # Logging format
+strform = '%(asctime)-15s %(name)-50s %(levelname)-5s:%(lineno)4s %(message)s'
 
 
 def node_setup() -> int:
@@ -44,6 +45,11 @@ def node_setup() -> int:
     Placeholder if in the future using a setup function is deemed to be useful.
     :return:
     """
+    import logging
+    global nodeloglevel, nodeform
+    nodeform = logging.Formatter('%(asctime)-15s %(name)-50s %(levelname)-5s:%(lineno)4s %(message)s',
+                                 '%Y-%m-%d %H:%M:%S')
+    nodeloglevel = logging.DEBUG
     return 0
 
 
@@ -68,7 +74,6 @@ def parse_data_in(filepath: str, config, n: int) -> dict:
     10. Parse the PPP .sum file.
 
     TODO: Add file existence checking before PPP run?
-    TODO: Figure out what kind of command we can use here to quit the function on an exception.
     TODO: Implement the OTL correction either using grdtab during processing or
           http://holt.oso.chalmers.se/loading/hfo.html after the stations are added to the database.
     TODO: Find a newer version of the .svb_gps_yrly PPP file.
@@ -77,7 +82,22 @@ def parse_data_in(filepath: str, config, n: int) -> dict:
     :param filepath: Path to the RINEX we're working on.
     :param config: gpys.ReadOptions object containing parameters from the .cfg file.
     :param n: The job number.
-    :return: Dictionary containing the parameters used during the run as well as the results.
+    :return: Dictionary containing the parameters used during the run as well as the results with the following keys:
+             ofile:             Path object of the original file in data_in
+             file:              Path object to the location of the file in the production folder
+             start_date:        Date of the RINEX as determined by TEQC +qc
+             name:              4-character name of the station as determined by TEQC +qc
+             orbit:             Path object for the broadcast orbit file.
+             completion:        The percentage completion as a string between 0-100 as reported by TEQC
+             teqc_xyz:          3-element list with strings representing the X, Y and Z  coordinates found by TEQC
+             sp3path:           Path object to the precise orbit file in the production folder for the current
+                                day of the RINEX.
+             nextsp3path:       Same as sp3path but for the next day's precise orbit file.
+             ppp_input_string:  The string read into PPP via STDIN.
+             pppcoords:         3-element list containing float values for the ITRF X, Y and Z.
+             latlonh:           3-element list containing float values for the ITRF latitude, longitude and height.
+             pppref:            String representing the ITRF datum as reported by the PPP summary file.
+             completed:         Bool that is False if any exception was raised during the operation of this function.
     """
     import logging
     import socket
@@ -88,20 +108,38 @@ def parse_data_in(filepath: str, config, n: int) -> dict:
     import subprocess
     import sys
 
+    ntimeout = 60
+
     def fileopts(orig_file: Path) -> Path:
         """
+        First determine which compression was used by invoking UNIX `file`
         Remove the .Z suffix
         Change the internal path suffix to o from d
         Raise exception if the last letter in the extention doesn't match [sp]3, [cl]k, [##]n, [##]o
         :param orig_file:
         :return:
         """
+        nodelogger.debug('Determining which compression was used:')
+        compression_string = subprocess.run(f'file {orig_file.name} | cut -d\  -f2',
+                                            shell=True,
+                                            timeout=ntimeout,
+                                            stdout=subprocess.PIPE,
+                                            stderr=subprocess.STDOUT,
+                                            encoding='utf-8').stdout.strip()
+        if compression_string in ['gzip']:
+            compression = 'gunzip'
+        elif compression_string in ["compress'd"]:
+            compression = 'uncompress'
+        else:
+            raise Exception(f"Uncrecognized compression: {compression_string}"
+                            f" ['file', {orig_file.name}, '|', 'cut', '-d ', '-f2']")
+        crx2rnx = Path(os.sep.join([config.options['working_dir'], 'dependencies', 'crx2rnx']))
         if orig_file.suffix in '.Z':
             nodelogger.debug(f'Decompressing {orig_file.name}')
-            subprocess.run(['uncompress', '-f', orig_file.name])
+            subprocess.run([compression, '-f', orig_file.name], check=True, timeout=ntimeout)
             orig_file = orig_file.with_suffix('')
         if orig_file.match('*.??d'):
-            subprocess.run(['crx2rnx', '-f', orig_file])
+            subprocess.run([str(crx2rnx), '-f', orig_file], check=True, timeout=ntimeout)
             os.remove(orig_file.as_posix())
             orig_file = orig_file.with_suffix(orig_file.suffix.replace('d', 'o'))
         if orig_file.suffix[-1] not in ['3', 'k', 'n', 'o']:
@@ -109,7 +147,7 @@ def parse_data_in(filepath: str, config, n: int) -> dict:
         return orig_file
 
     # Globals
-    global loglevel
+    global nodeloglevel, nodeform
     # Internal variable set up and definition for later reference.
     nodelogger = None               # Internal logger for the function.
     ofile = None                    # Original file converted to a pathlib.Path object.
@@ -134,7 +172,7 @@ def parse_data_in(filepath: str, config, n: int) -> dict:
     clkpath = None                  # Same but for the clk files
     nextclkpath = None              # Ditto, next day though.
     pppref = None                   # The reference frame that PPP uses, sometimes it swaps between IGS14 and IGb08
-    mincompletion = 90              # Integer representing the percentage of completion (# of obs/total possible obs)
+    complete = True
     """Set_Logger-------------------------------------------------------------------------------------------------------
     Set up the logger internal to parse_data_in in order to make debugging any problems much easier.  Also convert the 
     string filepath into a pathlib.Path.
@@ -145,17 +183,17 @@ def parse_data_in(filepath: str, config, n: int) -> dict:
     try:
         ofile = Path(filepath)
         nodelogger = logging.getLogger(f'parse_data_in.{n}')
-        nodelogger.setLevel(loglevel)
+        nodelogger.setLevel(nodeloglevel)
         nodestream = logging.StreamHandler()
-        nodestream.setFormatter(logging.Formatter('%(asctime)-15s %(name)-25s %(levelname)s -'
-                                                  ' %(threadName)s %(message)s',
-                                                  '%Y-%m-%d %H:%M:%S'))
+        nodestream.setFormatter(nodeform)
         nodestream.setLevel(loglevel)
         nodelogger.addHandler(nodestream)
         nodelogger.debug(f'Logger setup on {socket.gethostname()}.')
         rinex_dict['ofile'] = ofile
     except Exception as e:
         print(f'Exception raised during logger setup {type(e)} {e}', file=sys.stderr)
+        print(f'{globals()}', file=sys.stderr)
+        complete = False
     """Create_Production_Folder-----------------------------------------------------------------------------------------
     First create a pathlib.Path object that sets the working directory for the remainder of the function.  The working
     directory is defined in the config read by the main program.  The production/job# folder is created in that working
@@ -173,7 +211,6 @@ def parse_data_in(filepath: str, config, n: int) -> dict:
         nodelogger.debug(f'Created folder: {prodpath.name}')
         shutil.copy(str(ofile), str(prodpath))
         file = prodpath / ofile.name
-        file = fileopts(file)
         nodelogger.debug(f'Working with {file.name}')
         nodelogger.debug('Created paths to dependencies.')
         teqc = Path(os.sep.join([config.options['working_dir'], 'dependencies', 'teqc']))
@@ -182,11 +219,16 @@ def parse_data_in(filepath: str, config, n: int) -> dict:
         trffile = Path(os.sep.join([config.options['working_dir'], 'dependencies', 'gpsppp.trf']))
         svbfile = Path(os.sep.join([config.options['working_dir'], 'dependencies', 'gpsppp.svb_gnss_yrly']))
         nodelogger.debug(f'Using {teqc}, {atxfile}, {ppp}')
+        file = fileopts(file)
         for f in [atxfile, trffile, svbfile]:
             shutil.copy(str(f), str(prodpath))
         rinex_dict['file'] = file
+    except PermissionError as e:
+        nodelogger.error(f'Permission error: {type(e)} {e}')
+        complete = False
     except Exception as e:
         nodelogger.error(f'Uncaught Exception {type(e)} {e}')
+        complete = False
     """Metadata---------------------------------------------------------------------------------------------------------
     First get the date information from the RINEX file using teqc +meta, then parse out the 'start date & time' field of
     the TEQC metadata record and create some useful date objects.  Since we're already dealing with some dates here we
@@ -204,7 +246,8 @@ def parse_data_in(filepath: str, config, n: int) -> dict:
                                   stdout=subprocess.PIPE,
                                   stderr=subprocess.PIPE,
                                   encoding='utf-8',
-                                  check=True)
+                                  check=True,
+                                  timeout=ntimeout)
         start_date = [x for x in metadata.stdout.splitlines() if 'start date & time:' in x][0]
         start_date = [int(x) for x in start_date.partition(':')[-1].strip().partition(' ')[0].split('-')]
         start_date = dt.date(start_date[0], start_date[1], start_date[2])
@@ -230,8 +273,10 @@ def parse_data_in(filepath: str, config, n: int) -> dict:
         rinex_dict['name'] = name
     except FileNotFoundError as e:
         nodelogger.error(f'Make sure that TEQC is on system path and executable: {type(e)} {e}')
+        complete = False
     except Exception as e:
         nodelogger.error(f'Uncaught Exception {type(e)} {e}')
+        complete = False
     """BRDC-------------------------------------------------------------------------------------------------------------
     Move the BRDC orbit into the production/job# folder for the next step where we run teqc, without the broadcast
     orbits we only get qc lite instead of qc full.
@@ -247,8 +292,10 @@ def parse_data_in(filepath: str, config, n: int) -> dict:
         rinex_dict['orbit'] = orbit
     except AttributeError as e:
         nodelogger.error(f'A variable was incorrectly assigned, did a previous block fail?: {type(e)} {e}')
+        complete = False
     except Exception as e:
         nodelogger.error(f'Uncaught Exception {type(e)} {e}')
+        complete = False
     """QC---------------------------------------------------------------------------------------------------------------
     Finally, something other than file operations!
     Run teqc with the QC flags (+qc), no qc file (+q) with the specific orbit file (-nav), no GLONASS (-R), 
@@ -270,7 +317,8 @@ def parse_data_in(filepath: str, config, n: int) -> dict:
                                    stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE,
                                    check=True,
-                                   encoding='utf-8').stdout.splitlines()
+                                   encoding='utf-8',
+                                   timeout=ntimeout).stdout.splitlines()
         completion = qcresults[-1].split(' ')
         completion = [x for x in completion if x != '']
         completion = completion[-4]
@@ -279,8 +327,10 @@ def parse_data_in(filepath: str, config, n: int) -> dict:
         rinex_dict['teqc_xyz'] = teqc_xyz
     except AttributeError as e:
         nodelogger.error(f'A variable was incorrectly assigned, did a previous block fail?: {type(e)} {e}')
+        complete = False
     except Exception as e:
         nodelogger.error(f'Uncaught Exception {type(e)} {e}')
+        complete = False
     """IGS file operations----------------------------------------------------------------------------------------------
     Big for loop in a try statement... Cycle through the types of orbits, if there aren't any orbits available, raise
     an exception.
@@ -300,19 +350,25 @@ def parse_data_in(filepath: str, config, n: int) -> dict:
                 shutil.copy(clkpath, prodpath)
                 shutil.copy(nextsp3path, prodpath)
                 shutil.copy(nextclkpath, prodpath)
+                sp3path = prodpath / sp3path.name
+                clkpath = prodpath / clkpath.name
+                nextsp3path = prodpath / nextsp3path.name
+                nextclkpath = prodpath / nextclkpath.name
                 sp3path = fileopts(sp3path)
                 clkpath = fileopts(clkpath)
                 nextsp3path = fileopts(nextsp3path)
                 nextclkpath = fileopts(nextclkpath)
                 break
             elif sp3type == config.sp3types[-1]:
-                raise Exception("Didn't find any valid orbits.")
+                raise Exception(f"Didn't find any valid orbits in {sp3path.parent}")
         rinex_dict['sp3path'] = sp3path
         rinex_dict['nextsp3path'] = nextsp3path
     except TypeError as e:
         nodelogger.error(f'A variable was incorrectly assigned, did a previous block fail?: {type(e)} {e}')
+        complete = False
     except Exception as e:
         nodelogger.error(f'Uncaught Exception {type(e)} {e}')
+        complete = False
     """PPP file operations----------------------------------------------------------------------------------------------
     Generate the files: gpsppp.def, gpsppp.flt, gpsppp.olc, gpsppp.met, gpsppp.eop, and gpsppp.cmd.  Right now the only
     ones that actually have anything in them are the .def, .cmd, .
@@ -380,6 +436,7 @@ def parse_data_in(filepath: str, config, n: int) -> dict:
         rinex_dict['ppp_input_string'] = ppp_input_string
     except Exception as e:
         nodelogger.error(f'Uncaught Exception {type(e)} {e}')
+        complete = False
     """PPP--------------------------------------------------------------------------------------------------------------
     Pretty basic step here, just run PPP and send the stderr and stdout to /dev/null (trash).  Raise an exception if it
     fails.  Added the encoding parameter as to properly input the ppp_input_string.
@@ -394,12 +451,15 @@ def parse_data_in(filepath: str, config, n: int) -> dict:
                        stdout=subprocess.DEVNULL,
                        stderr=subprocess.DEVNULL,
                        check=True,
-                       encoding='utf-8')
+                       encoding='utf-8',
+                       timeout=ntimeout)
         nodelogger.debug('Done running PPP')
     except FileNotFoundError as e:
         nodelogger.error(f'Make sure that PPP is on system path and executable: {type(e)} {e}')
+        complete = False
     except Exception as e:
         nodelogger.error(f'Uncaught Exception {type(e)} {e}')
+        complete = False
     """Read_SUM---------------------------------------------------------------------------------------------------------
     Load the .sum file that PPP creates into a variable that we can then parse to get all the results.  The .sum file
     isn't usually too big so it shouldn't end up being a memory hog.  The block containing the relevant coordinates is
@@ -427,22 +487,42 @@ def parse_data_in(filepath: str, config, n: int) -> dict:
             pppref = 'IGb08'
         else:
             nodelogger.error(f'Uncaught ValueError {type(e)} {e}')
+            complete = False
     except FileNotFoundError as e:
         nodelogger.error(f"Couldn't find the .sum file, PPP probably failed: {type(e)} {e}")
+        complete = False
     except Exception as e:
         nodelogger.error(f'Uncaught Exception {type(e)} {e}')
+        complete = False
     """Parse .sum into variables----------------------------------------------------------------------------------------
     """
     try:
         resultblock = summary.splitlines()[coordindex[0]:coordindex[1] - 1]
         cartind = resultblock.index(f' CARTESIAN           NAD83(CSRS )     ITRF ({pppref})   Sigma(m) NAD-ITR(m)')
         pppcoords = [float(x.split()[3]) for x in resultblock[cartind + 1:cartind + 4]]
+        ellipend = resultblock.index(f' ELLIPSOIDAL    ')
+        ll = [x.partition(')')[2].strip().split()[3:6] for x in resultblock[ellipend + 1: ellipend + 3]]
+        latlonh = [(abs(float(x[0])) + float(x[1]) / 60 + float(x[2]) / 3600) * float(x[0]) / abs(float(x[0])) for x in ll]
+        height = float(resultblock[ellipend + 3].split()[3])
+        latlonh.append(height)
         nodelogger.debug(f'Got coordinates: {pppcoords}')
         rinex_dict['pppcoords'] = pppcoords
+        rinex_dict['latlonh'] = latlonh
         rinex_dict['pppref'] = pppref
     except Exception as e:
         nodelogger.error(f'Uncaught Exception {type(e)} {e}')
+        complete = False
+    """Delete the production folder-------------------------------------------------------------------------------------
+    """
+    try:
+        if complete:
+            nodelogger.debug(f'No errors found, deleting {prodpath}')
+            shutil.rmtree(prodpath.as_posix())
+    except Exception as e:
+        nodelogger.error(f'Uncaught Exception {type(e)} {e}')
+        complete = False
     '------------------------------------------------------------------------------------------------------------------'
+    rinex_dict['completed'] = complete
     return rinex_dict
 
 
@@ -466,15 +546,28 @@ def callback(job):
             jobs_cond.release()
 
 
-def database_ops(rinex_dict: dict = None):
+def database_ops(rinex_dict: dict = None, options=None):
     """
-    Either locks the file or adds it to an existing record.
+    Compares the information in the rinex_dict object returned by parse_data_in with the information in the database
+    collected by the head node.  Returns an string that indicates what should be done with the file.
+    Possible outcomes:
+    -File is not close to any stations and is locked.
+    -File is close to another station but has a different name and is locked.
+    -File matches the location of another station and has the same name and it has a network code not matching ???,
+    it is moved into the archive.
+
+    Locked files remain in data_in until they are unlocked by adding a network code to the station in the stations table
+    of the database.
     :return:
     """
     import logging
     import socket
+    import gpys
+    # Globals
+    global nodeloglevel, nodeform
 
-    global loglevel
+    # Local variables           Notes:
+    nodelogger = None           # Logger
     """Set_Logger-------------------------------------------------------------------------------------------------------
     Set up the logger internal to parse_data_in in order to make debugging any problems much easier.  Also convert the 
     string filepath into a pathlib.Path.
@@ -484,12 +577,10 @@ def database_ops(rinex_dict: dict = None):
     """
     try:
         nodelogger = logging.getLogger(f"database_ops.{rinex_dict['name']}-{rinex_dict['start_date']}")
-        nodelogger.setLevel(loglevel)
+        nodelogger.setLevel(nodeloglevel)
         nodestream = logging.StreamHandler()
-        nodestream.setFormatter(logging.Formatter('%(asctime)-15s %(name)-25s %(levelname)s -'
-                                                  ' %(threadName)s %(message)s',
-                                                  '%Y-%m-%d %H:%M:%S'))
-        nodestream.setLevel(loglevel)
+        nodestream.setFormatter(nodeform)
+        nodestream.setLevel(nodeloglevel)
         nodelogger.addHandler(nodestream)
         nodelogger.debug(f'Logger setup on {socket.gethostname()}.')
     except Exception as e:
@@ -497,7 +588,17 @@ def database_ops(rinex_dict: dict = None):
     """Check the locks table--------------------------------------------------------------------------------------------
     """
     try:
-        nodelogger.debug('Checking the locks table.')
+        range_checkcnn = gpys.Connection(options, parent_logger=nodelogger.name)
+        nodelogger.debug(f"Looking for stations in the database nearby {rinex_dict['name']}.")
+        nearest = range_checkcnn.spatial_check(rinex_dict['latlonh'][0:2], search_in_new=True)
+        nodelogger.debug(f'Nearest station found: {nearest}')
+    except Exception as e:
+        nodelogger.error(f'Uncaught Exception {type(e)} {e}')
+    try:
+        if not nearest:
+            nodelogger.debug(f"No nearby stations found, adding {rinex_dict['name']} to the stations table")
+        else:
+            nodelogger.debug(f'Found a nearby station: {nearest}')
     except Exception as e:
         nodelogger.error(f'Uncaught Exception {type(e)} {e}')
 
@@ -522,8 +623,15 @@ def main() -> None:
     :return:
     """
     # Add the globals.
-    global pending_jobs, jobs_cond, lower_bound, upper_bound, status, loglevel
+    global pending_jobs, jobs_cond, lower_bound, upper_bound, status, loglevel, strform
+    processed_rinex = list()
     # Local vars.
+    cluster_options = {'ip_addr': None,
+                       'ping_interval': None,
+                       'setup': node_setup,
+                       'callback': callback,
+                       'pulse_interval': 6,
+                       'loglevel': 60}
     try:
         parser = argparse.ArgumentParser(description='Archive operations Main Program')
         parser.add_argument('-purge', '--purge_locks', action='store_true',
@@ -553,20 +661,31 @@ def main() -> None:
             loglevel = logging.INFO
             logger.setLevel(loglevel)
             stream.setLevel(loglevel)
-        form = logging.Formatter('%(asctime)-15s %(name)-25s %(levelname)s - %(threadName)s %(message)s',
-                                 '%Y-%m-%d %H:%M:%S')
         stream.setFormatter(form)
         logger.addHandler(stream)
         logger.debug('Verbose output enabled')
-
         logger.debug(f'Running `{logger_name}` with options: {args}')
-        config = gpys.ReadOptions(args.config_file)
-
-        archive = gpys.RinexArchive(config)
-        retry_files = archive.scan_archive_struct(config.data_in_retry)
-        logger.info(f'Found {len(retry_files)} files in {config.data_in_retry}')
     except Exception as e:
         print(f'Logger failed to set up: {type(e)} {e}', file=sys.stderr)
+        sys.exit(2)
+    """Clear locks table------------------------------------------------------------------------------------------------
+    Remove any files in the locks table that have a network code that doesn't equal ???
+    """
+    try:
+        logger.debug('Reading the config file and archive layout.')
+        config = gpys.ReadOptions(args.config_file)
+        archive = gpys.RinexArchive(config)
+        cluster_options['ip_addr'] = config.options['head_node']
+        cluster_options['ping_interval'] = int(config.options['ping_interval'])
+        retry_files = config.scan_archive_struct(config.data_in_retry)
+        logger.info(f'Found {len(retry_files)} files in {config.data_in_retry}')
+        logger.debug('Clearing locks table')
+        clear_locks_cnn = gpys.Connection(config.options)
+        clear_locks_cnn.update_locks()
+        locked_files = clear_locks_cnn.load_table('locks', ['filename'])
+        del clear_locks_cnn
+    except Exception as e:
+        logger.error(f'Uncaught Exception {type(e)} {e}')
         sys.exit(2)
     """Parse_data_in_retry----------------------------------------------------------------------------------------------
     """
@@ -581,7 +700,12 @@ def main() -> None:
     """
     logger.debug('Filtering out the files that were found in the locks table.')
     try:
-        data_in_files = archive.scan_archive_struct(config.data_in)
+        data_in_files = config.scan_archive_struct(config.data_in)
+        cleared_files = list()
+        if locked_files:
+            for f in data_in_files:
+                if f.name not in locked_files['filename']:
+                    cleared_files.append(f)
         logger.debug('Finished parsing the locks table. List of data_in files built.')
         logger.info(f'Found {len(data_in_files)} file(s)')
     except Exception as e:
@@ -592,22 +716,17 @@ def main() -> None:
         
         Previous errors:
         Using a setup function causes the jobcluster to fail sometimes, not sure what the cause is.
+        To remove any logging by  dispy, set the loglevel >50 as seen at line 125 in the pycos source code.
         """
         logger.debug('Parallel run.')
-        cluster = None
+        parse_data_cluster = None
         job = None
         try:
             jobs = list()
-            cluster = dispy.JobCluster(parse_data_in,
-                                       ip_addr=config.options['head_node'],
-                                       ping_interval=int(config.options['ping_interval']),
-                                       setup=node_setup,
-                                       callback=callback,
-                                       pulse_interval=6,
-                                       loglevel=logger.getEffectiveLevel())
+            parse_data_cluster = dispy.JobCluster(parse_data_in, **cluster_options)
             for n, file in enumerate(data_in_files):
-                logger.debug('Submitting {}, {}'.format(file.path, archive))
-                job = cluster.submit(file.path, config, n)
+                logger.debug(f'Submitting {file.as_posix()}, {archive}')
+                job = parse_data_cluster.submit(file.as_posix(), config, n)
                 jobs.append(job)
                 jobs_cond.acquire()
                 logger.debug(f'Locking thread {threading.get_ident()}...')
@@ -620,7 +739,79 @@ def main() -> None:
                             jobs_cond.wait()
                 jobs_cond.release()
             logger.debug('Waiting for jobs to finish up submission.')
-            cluster.wait()
+            parse_data_cluster.wait()
+            logger.debug(f'{len(jobs)} jobs have been submitted.')
+            for job in jobs:
+                logger.debug(f'Reading Job {job.id}')
+                if job.status in [status['Terminated']]:
+                    logger.error('Job was terminated.')
+                    raise SystemError(job.exception)
+                elif job.status in [status['Finished']]:
+                    logger.info(f'Job {job.id} has finished')
+                    logger.debug(f'STDOUT:\n{job.stdout}')
+                    logger.debug(f'STDERR:\n{job.stderr}')
+                    logger.debug(f'Result:\n{job.result}')
+                    if job.result['completed']:
+                        processed_rinex.append(job.result)
+        except SystemError as e:
+            logger.error(f'Broken code: {e}')
+            logger.error(f'STDERR: {job.stderr}')
+            sys.exit(2)
+        except Exception as e:
+            logger.error(f'Uncaught Exception {type(e)} {e}')
+            sys.exit(2)
+        finally:
+            parse_data_cluster.shutdown()
+    else:
+        """Serial Run---------------------------------------------------------------------------------------------------
+        
+        Previous errors:
+        None
+        """
+        logger.debug('Serial run.')
+        try:
+            for n, file in enumerate(data_in_files):
+                logger.debug(f'Running {file.as_posix()}, Job #{n}')
+                result = parse_data_in(file.as_posix(), config, n)
+                logger.debug(f'{result}')
+                if result['completed']:
+                    processed_rinex.append(result)
+        except Exception as e:
+            logger.error(f'Uncaught Exception {type(e)} {e}')
+            sys.exit(2)
+    """Add to database--------------------------------------------------------------------------------------------------
+    Similar structure to the above PPP section, (serial vs parallel)
+    
+    Previous Errors:
+    """
+    """Serial Run-------------------------------------------------------------------------------------------------------
+
+    Previous errors:
+    None
+    """
+    if config.options['parallel']:
+        logger.debug('Parallel run')
+        jobs = list()
+        job = None
+        pending_jobs = dict()
+        try:
+            database_ops_cluster = dispy.JobCluster(database_ops, **cluster_options)
+            for n, rinex_dict in enumerate(processed_rinex):
+                logger.debug(f'Submitting {rinex_dict}')
+                job = database_ops_cluster.submit(rinex_dict, config.options)
+                jobs.append(job)
+                jobs_cond.acquire()
+                logger.debug(f'Locking thread {threading.get_ident()}...')
+                if job.status in [status['Created'], status['Running']]:
+                    pending_jobs[job.id] = job
+                    if len(pending_jobs) >= upper_bound:
+                        while len(pending_jobs) > lower_bound:
+                            logger.debug(f'More pending_jobs than {lower_bound}, '
+                                         f'waiting for the next jobs_cond.notify.')
+                            jobs_cond.wait()
+                jobs_cond.release()
+            logger.debug('Waiting for jobs to finish up submission.')
+            database_ops_cluster.wait()
             logger.debug(f'{len(jobs)} jobs have been submitted.')
             for job in jobs:
                 logger.debug(f'Reading Job {job.id}')
@@ -640,37 +831,15 @@ def main() -> None:
             logger.error(f'Uncaught Exception {type(e)} {e}')
             sys.exit(2)
         finally:
-            cluster.shutdown()
+            database_ops_cluster.shutdown()
     else:
-        """Serial Run---------------------------------------------------------------------------------------------------
-        
-        Previous errors:
-        None
-        """
-        logger.debug('Serial run.')
         try:
-            for n, file in enumerate(data_in_files):
-                logger.debug(f'Running {file.path}, Job #{n}')
-                result = parse_data_in(file.path, config, n)
-                logger.debug(f'{result}')
+            logger.debug('Serial database_ops run.')
+            for rinex in processed_rinex:
+                database_ops(rinex, config.options)
         except Exception as e:
             logger.error(f'Uncaught Exception {type(e)} {e}')
             sys.exit(2)
-    """Add to database--------------------------------------------------------------------------------------------------
-    Similar structure to the above PPP section, (serial vs parallel)
-    
-    Previous Errors
-    """
-    """Serial Run---------------------------------------------------------------------------------------------------
-
-    Previous errors:
-    None
-    """
-    try:
-        logger.debug('Serial database_ops  run.')
-    except Exception as e:
-        logger.error(f'Uncaught Exception {type(e)} {e}')
-        sys.exit(2)
     logger.info('End of `archive` reached.')
     sys.exit(0)
 

@@ -16,12 +16,19 @@ test_files/
 │       └── data_in
 └── tmpdir
     └── dependencies
+        ├── crx2rnx*
+        ├── gpsppp.svb_gnss_yrly
+        ├── gpsppp.trf
+        ├── igs14_1992_plus.atx
+        ├── ppp*
+        └── teqc*
 -----------------------
 TODO: Copy jobs that failed to /tmp/errors
 TODO: Add logger
 TODO: Add function that does all the file moving.
 TODO: Add better docstrings throughout.
 """
+import gpys
 import unittest
 from gpys.archive import main
 import shutil
@@ -29,7 +36,6 @@ import subprocess
 import os
 from pathlib import Path
 import sys
-
 year, yr, doy, gpsweek, nextgpsweek, orbit, station = '2017', '17', '355', '19804', '19805', 'igr', 'inmn'
 
 
@@ -72,6 +78,12 @@ class ArchiveTest(unittest.TestCase):
             if Path(rm).exists():
                 shutil.rmtree(rm)
         shutil.copytree('test_files/tmpdir_macosx/tmpdir', '/tmp/tmpdir', ignore_dangling_symlinks=True)
+        opts = {'database': 'gnss_data',
+                'hostname': 'localhost',
+                'username': 'postgres',
+                'password': ''}
+        setupcnn = gpys.Connection(opts)
+
 
     def test_serial_singlefile(self) -> None:
         """

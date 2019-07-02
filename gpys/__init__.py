@@ -33,7 +33,7 @@ class Connection:
     __slots__ = ['conn',
                  'logger']
 
-    def __init__(self, config, parent_logger='archive'):
+    def __init__(self, config, parent_logger: str = 'archive'):
 
         # Open connection to server
         connect_dsn = None
@@ -46,22 +46,28 @@ class Connection:
                                                                          config['username'],
                                                                          config['password'])
             self.conn = psycopg2.connect(connect_dsn)
-            self.logger.debug('Connection established: {}'.format(self.conn.dsn))
+            self.logger.debug(f'Connection established: {self.conn.dsn}')
             self.insert('executions', {'script': parent_logger})
         except Exception as e:
-            self.logger.error('Uncaught exception: {}'.format(e))
-            sys.exit(1)
+            self.logger.error(f'Uncaught Exception {type(e)} {e}')
         finally:
             del connect_dsn, config, parent_logger
 
     def __del__(self):
-        if self.conn:
-            self.conn.close()
-            self.logger.debug('Connection closed: {}'.format(self.conn.dsn))
+        try:
+            if self.conn:
+                self.conn.close()
+                self.logger.debug('Connection closed: {}'.format(self.conn.dsn))
+        except Exception as e:
+            self.logger.error(f'Uncaught Exception {type(e)} {e}')
 
-    def _execute_wrapper(self, sql_statement, values=None, retval=False, return_dict=True):
+    def _execute_wrapper(self, sql_statement: sql.Composed = None,
+                         values: list = None,
+                         retval: bool = False,
+                         return_dict: bool = True):
         """
         Deal with all the actual database interactions here and deal with the related error possibilities.
+        TODO: Add how many rows were deleted/updated/inserted to logger.
         :param sql_statement: A composable object.
         :param values: List or tuple of values for the sql statement.
         :param retval: Whether to return a value or not.
@@ -77,6 +83,8 @@ class Connection:
                 if retval:
                     if return_dict:
                         qresults = curs.fetchall()
+                        if not qresults:
+                            return None
                         keys = [name[0] for name in curs.description]
                         d = defaultdict(list)
                         for n, key in enumerate(keys):
@@ -87,168 +95,209 @@ class Connection:
                                     d[key].append(float(rec[n]))
                         return d
                     else:
-
                         return curs.fetchall()
             self.conn.commit()
         except Exception as e:
-            self.logger.error('Uncaught exception: {}'.format(e))
-            sys.exit(1)
+            self.logger.error(f'Uncaught Exception {type(e)} {e}')
 
-    def insert(self, table, record: dict):
-        x = sql.SQL('{}').format(sql.Identifier(table))
-        y = sql.SQL(', ').join([sql.Identifier(key) for key in record.keys()])
-        z = sql.SQL(', ').join(sql.Placeholder() * len(record))
-        insert_statement = sql.SQL("INSERT INTO {0} ({1}) VALUES ({2});").format(x, y, z)
-        self._execute_wrapper(insert_statement, [v for v in record.values()])
+    def insert(self, table: str, record: dict):
+        try:
+            x = sql.SQL('{}').format(sql.Identifier(table))
+            y = sql.SQL(', ').join([sql.Identifier(key) for key in record.keys()])
+            z = sql.SQL(', ').join(sql.Placeholder() * len(record))
+            insert_statement = sql.SQL("INSERT INTO {0} ({1}) VALUES ({2});").format(x, y, z)
+            self._execute_wrapper(insert_statement, [v for v in record.values()])
+        except Exception as e:
+            self.logger.error(f'Uncaught Exception {type(e)} {e}')
 
     def update_locks(self):
+        try:
+            clear_statement = sql.SQL("DELETE FROM locks WHERE {} NOT LIKE {};").format(sql.Identifier('NetworkCode'),
+                                                                                        sql.Placeholder())
+            self._execute_wrapper(clear_statement, ['?%'])
+        except Exception as e:
+            self.logger.error(f'Uncaught Exception {type(e)} {e}')
 
-        clear_statement = sql.SQL("DELETE FROM locks WHERE {} NOT LIKE {};").format(sql.Identifier('NetworkCode'),
-                                                                                    sql.Placeholder())
-        self._execute_wrapper(clear_statement, ('?%',))
-
-    def load_table(self, table):
-        select_statement = sql.SQL("SELECT * FROM {}").format(sql.Identifier(table))
-        return self._execute_wrapper(select_statement, retval=True)
-
-    def clear_locked(self, table):
-
-        clear_statement = sql.SQL("DELETE FROM {} WHERE {} LIKE {};").format(sql.Identifier(table),
-                                                                             sql.Identifier('NetworkCode'),
-                                                                             sql.Placeholder())
-        self._execute_wrapper(clear_statement, ('?%',))
+    def load_table(self, table: str = None, columns: list = None):
+        try:
+            if columns in [None]:
+                select_statement = sql.SQL("SELECT * FROM {}").format(sql.Identifier(table))
+            else:
+                sqlcols = sql.SQL(', ').join([sql.Identifier(x) for x in columns])
+                select_statement = sql.SQL("SELECT {} FROM {}").format(sqlcols, sql.Identifier(table))
+            return self._execute_wrapper(select_statement, retval=True)
+        except Exception as e:
+            self.logger.error(f'Uncaught Exception {type(e)} {e}')
+            return None
 
     def load_tankstruct(self):
-        sql_statement = sql.SQL('SELECT * FROM {0} INNER JOIN {1} '
-                                'USING ({2}) ORDER BY {3}').format(sql.Identifier('rinex_tank_struct'),
-                                                                   sql.Identifier('keys'),
-                                                                   sql.Identifier('KeyCode'),
-                                                                   sql.Identifier('Level'))
-        return self._execute_wrapper(sql_statement, retval=True)
+        try:
+            sql_statement = sql.SQL('SELECT * FROM {0} INNER JOIN {1} '
+                                    'USING ({2}) ORDER BY {3}').format(sql.Identifier('rinex_tank_struct'),
+                                                                       sql.Identifier('keys'),
+                                                                       sql.Identifier('KeyCode'),
+                                                                       sql.Identifier('Level'))
+            return self._execute_wrapper(sql_statement, retval=True)
+        except Exception as e:
+            self.logger.error(f'Uncaught Exception {type(e)} {e}')
+            return None
 
     def insert_event(self, event):
-        event_dict = event.db_dict()
-        y = sql.SQL(', ').join([sql.Identifier(key) for key in event_dict.keys()])
-        z = sql.SQL(', ').join(sql.Placeholder() * len(event_dict))
-        insert_statement = sql.SQL("insert into {0} ({1}) VALUES ({2});").format(sql.Identifier('events'), y, z)
-        self._execute_wrapper(insert_statement, [v for v in event_dict.values()])
+        try:
+            event_dict = event.db_dict()
+            y = sql.SQL(', ').join([sql.Identifier(key) for key in event_dict.keys()])
+            z = sql.SQL(', ').join(sql.Placeholder() * len(event_dict))
+            insert_statement = sql.SQL("insert into {0} ({1}) VALUES ({2});").format(sql.Identifier('events'), y, z)
+            self._execute_wrapper(insert_statement, [v for v in event_dict.values()])
+        except Exception as e:
+            self.logger.error(f'Uncaught Exception {type(e)} {e}')
 
     def print_summary(self, script):
-        script_start = sql.SQL('SELECT MAX({}) AS mx FROM {} WHERE {} = {}').format(sql.Identifier('exec_date'),
-                                                                                    sql.Identifier('executions'),
-                                                                                    sql.Identifier('script'),
-                                                                                    sql.Placeholder())
-        st = self._execute_wrapper(script_start, (script,), retval=True)
+        try:
+            script_start = sql.SQL('SELECT MAX({}) AS mx FROM {} WHERE {} = {}').format(sql.Identifier('exec_date'),
+                                                                                        sql.Identifier('executions'),
+                                                                                        sql.Identifier('script'),
+                                                                                        sql.Placeholder())
+            st = self._execute_wrapper(script_start, [script], retval=True)
+            counter = sql.SQL(
+                'SELECT COUNT(*) AS cc FROM {0} WHERE {1} >= {2} AND {3} = {2}').format(sql.Identifier('events'),
+                                                                                        sql.Identifier('EventDate'),
+                                                                                        sql.Placeholder(),
+                                                                                        sql.Identifier('EventType'))
+            info = self._execute_wrapper(counter, [st[0][0], 'info'], retval=True)
+            erro = self._execute_wrapper(counter, [st[0][0], 'error'], retval=True)
+            warn = self._execute_wrapper(counter, [st[0][0], 'warning'], retval=True)
+            self.logger.info(' >> Summary of events for this run:')
+            self.logger.info(f' -- info    : {info[0][0]}')
+            self.logger.info(f' -- errors  : {erro[0][0]}')
+            self.logger.info(f' -- warnings: {warn[0][0]}')
+        except Exception as e:
+            self.logger.error(f'Uncaught Exception {type(e)} {e}')
 
-        counter = sql.SQL(
-            'SELECT COUNT(*) AS cc FROM {0} WHERE {1} >= {2} AND {3} = {2}').format(sql.Identifier('events'),
-                                                                                    sql.Identifier('EventDate'),
-                                                                                    sql.Placeholder(),
-                                                                                    sql.Identifier('EventType'))
-        info = self._execute_wrapper(counter, (st[0][0], 'info'), retval=True)
-        erro = self._execute_wrapper(counter, (st[0][0], 'error'), retval=True)
-        warn = self._execute_wrapper(counter, (st[0][0], 'warning'), retval=True)
+    def spatial_check(self, vals, search_in_new: bool = False):
+        try:
+            if len(vals) != 2:
+                raise Exception('Incorrect length of values, should be of the format [lat, lon]')
+            if not search_in_new:
+                where_clause = sql.SQL('WHERE {} NOT LIKE {}').format(sql.Identifier('NetworkCode'),
+                                                                      sql.Literal('?%%'))
+            else:
+                where_clause = sql.SQL('')
+            sql_select = sql.SQL(
+                'SELECT {0} FROM (SELECT *, 2*ASIN(SQRT(SIN((RADIANS({1})-RADIANS({2}))/2)^2 + COS(RADIANS({2}))'
+                '* COS(RADIANS({1})) * SIN((RADIANS({1}) - RADIANS({3}))/2)^2))*6371000 AS distance FROM '
+                '{4} {5}) AS st1 LEFT JOIN {4} AS st2 ON st1.{6} = st2.{6} AND st1.{7} = st2.{7} AND '
+                'st1.distance < COALESCE(st2.{8}, 20) WHERE st2.{7} IS NOT NULL').format(
+                sql.SQL(', ').join([sql.SQL('st1.{}').format(sql.Identifier('NetworkCode')),
+                                    sql.SQL('st1.{}').format(sql.Identifier('StationCode')),
+                                    sql.SQL('st1.{}').format(sql.Identifier('StationName')),
+                                    sql.SQL('st1.{}').format(sql.Identifier('DateStart')),
+                                    sql.SQL('st1.{}').format(sql.Identifier('DateEnd')),
+                                    sql.SQL('st1.{}').format(sql.Identifier('auto_x')),
+                                    sql.SQL('st1.{}').format(sql.Identifier('auto_y')),
+                                    sql.SQL('st1.{}').format(sql.Identifier('auto_z')),
+                                    sql.SQL('st1.{}').format(sql.Identifier('Harpos_coeff_otl')),
+                                    sql.SQL('st1.{}').format(sql.Identifier('lat')),
+                                    sql.SQL('st1.{}').format(sql.Identifier('lon')),
+                                    sql.SQL('st1.{}').format(sql.Identifier('height')),
+                                    sql.SQL('st1.{}').format(sql.Identifier('max_dist')),
+                                    sql.SQL('st1.{}').format(sql.Identifier('dome')),
+                                    sql.SQL('st1.distance')]),
+                sql.Placeholder(),
+                sql.Identifier('lat'),
+                sql.Identifier('lon'),
+                sql.Identifier('stations'),
+                where_clause,
+                sql.Identifier('StationCode'),
+                sql.Identifier('NetworkCode'),
+                sql.Identifier('max_dist'))
+            return self._execute_wrapper(sql_select, [vals[0], vals[0], vals[1]], retval=True)
+        except Exception as e:
+            self.logger.error(f'Uncaught Exception {type(e)} {e}')
+            return None
 
-        print(' >> Summary of events for this run:')
-        print(' -- info    : %i' % info[0][0])
-        print(' -- errors  : %i' % erro[0][0])
-        print(' -- warnings: %i' % warn[0][0])
-
-    def spatial_check(self, vals, search_in_new=False):
-        if not search_in_new:
-            where_clause = sql.SQL('WHERE {} NOT LIKE {}').format(sql.Identifier('NetworkCode'),
-                                                                  sql.Literal('?%%'))
-        else:
-            where_clause = sql.SQL('')
-        sql_select = sql.SQL(
-            'SELECT {0} FROM (SELECT *, 2*ASIN(SQRT(SIN((RADIANS({1})-RADIANS({2}))/2)^2 + COS(RADIANS({2}))'
-            '* COS(RADIANS({1})) * SIN((RADIANS({1}) - RADIANS({3}))/2)^2))*6371000 AS distance FROM '
-            '{4} {5}) AS st1 LEFT JOIN {4} AS st2 ON st1.{6} = st2.{6} AND st1.{7} = st2.{7} AND '
-            'st1.distance < COALESCE(st2.{8}, 20) WHERE st2.{7} IS NOT NULL').format(
-            sql.SQL(', ').join([sql.SQL('st1.{}').format(sql.Identifier('NetworkCode')),
-                                sql.SQL('st1.{}').format(sql.Identifier('StationCode')),
-                                sql.SQL('st1.{}').format(sql.Identifier('StationName')),
-                                sql.SQL('st1.{}').format(sql.Identifier('DateStart')),
-                                sql.SQL('st1.{}').format(sql.Identifier('DateEnd')),
-                                sql.SQL('st1.{}').format(sql.Identifier('auto_x')),
-                                sql.SQL('st1.{}').format(sql.Identifier('auto_y')),
-                                sql.SQL('st1.{}').format(sql.Identifier('auto_z')),
-                                sql.SQL('st1.{}').format(sql.Identifier('Harpos_coeff_otl')),
-                                sql.SQL('st1.{}').format(sql.Identifier('lat')),
-                                sql.SQL('st1.{}').format(sql.Identifier('lon')),
-                                sql.SQL('st1.{}').format(sql.Identifier('height')),
-                                sql.SQL('st1.{}').format(sql.Identifier('max_dist')),
-                                sql.SQL('st1.{}').format(sql.Identifier('dome')),
-                                sql.SQL('st1.distance')]),
-            sql.Placeholder(),
-            sql.Identifier('lat'),
-            sql.Identifier('lon'),
-            sql.Identifier('stations'),
-            where_clause,
-            sql.Identifier('StationCode'),
-            sql.Identifier('NetworkCode'),
-            sql.Identifier('max_dist'))
-        return self._execute_wrapper(sql_select, vals, retval=True)
-
-    def nearest_station(self, vals, search_in_new=False):
-        if not search_in_new:
-            where_clause = sql.SQL('WHERE {} NOT LIKE {}').format(sql.Identifier('NetworkCode'),
-                                                                  sql.Literal('?%%'))
-        else:
-            where_clause = sql.SQL('')
-        sql_select = sql.SQL(
-            'SELECT * FROM (SELECT *, 2*ASIN(SQRT(SIN((RADIANS({0})-RADIANS({1}))/2)^2 + COS(RADIANS({1}))'
-            '* COS(RADIANS({0})) * SIN((RADIANS({0}) - RADIANS({2}))/2)^2))*6371000 AS distance FROM '
-            '{3} {4}) AS dd ORDER BY distance').format(
-            sql.Placeholder(),
-            sql.Identifier('lat'),
-            sql.Identifier('lon'),
-            sql.Identifier('stations'),
-            where_clause)
-        return self._execute_wrapper(sql_select, vals, retval=True)
+    def nearest_station(self, vals, search_in_new: bool = False):
+        """
+        Sorts all stations by  distance from the given [lat, lon] in the vals variable, always returns a station unless
+        the database is empty.
+        :param vals: list with format [lattitude, longitude] in decimal degrees
+        :param search_in_new: Whether to also search stations that are not yet assigned to a network.
+        :return: A single entry from the stations table of the database.
+        TODO: Make sure that it returns just one entry.
+        """
+        try:
+            if len(vals) != 2:
+                raise Exception('Incorrect length of values, should be of the format [lat, lon]')
+            if not search_in_new:
+                where_clause = sql.SQL('WHERE {} NOT LIKE {}').format(sql.Identifier('NetworkCode'),
+                                                                      sql.Literal('?%%'))
+            else:
+                where_clause = sql.SQL('')
+            sql_select = sql.SQL(
+                'SELECT * FROM (SELECT *, 2*ASIN(SQRT(SIN((RADIANS({0})-RADIANS({1}))/2)^2 + COS(RADIANS({1}))'
+                '* COS(RADIANS({0})) * SIN((RADIANS({0}) - RADIANS({2}))/2)^2))*6371000 AS distance FROM '
+                '{3} {4}) AS dd ORDER BY distance').format(
+                sql.Placeholder(),
+                sql.Identifier('lat'),
+                sql.Identifier('lon'),
+                sql.Identifier('stations'),
+                where_clause)
+            return self._execute_wrapper(sql_select, [vals[0], vals[0], vals[1]], retval=True)
+        except Exception as e:
+            self.logger.error(f'Uncaught Exception {type(e)} {e}')
+            return None
 
     def similar_locked(self, vals):
-        sql_select = sql.SQL(
-            'SELECT * FROM (SELECT *, 2*ASIN(SQRT(SIN((RADIANS({0})-RADIANS({1}))/2)^2 + COS(RADIANS({1}))'
-            '* COS(RADIANS({0})) * SIN((RADIANS({0}) - RADIANS({2}))/2)^2))*6371000 AS distance FROM '
-            '{3} WHERE {4} LIKE {5} AND {6} LIKE {0}) AS dd WHERE distance <= 100').format(
-            sql.Placeholder(),
-            sql.Identifier('lat'),
-            sql.Identifier('lon'),
-            sql.Identifier('stations'),
-            sql.Identifier('NetworkCode'),
-            sql.Literal('?%%'),
-            sql.Identifier('StationCode'))
+        try:
+            sql_select = sql.SQL(
+                'SELECT * FROM (SELECT *, 2*ASIN(SQRT(SIN((RADIANS({0})-RADIANS({1}))/2)^2 + COS(RADIANS({1}))'
+                '* COS(RADIANS({0})) * SIN((RADIANS({0}) - RADIANS({2}))/2)^2))*6371000 AS distance FROM '
+                '{3} WHERE {4} LIKE {5} AND {6} LIKE {0}) AS dd WHERE distance <= 100').format(
+                sql.Placeholder(),
+                sql.Identifier('lat'),
+                sql.Identifier('lon'),
+                sql.Identifier('stations'),
+                sql.Identifier('NetworkCode'),
+                sql.Literal('?%%'),
+                sql.Identifier('StationCode'))
+            return self._execute_wrapper(sql_select, vals, retval=True)
+        except Exception as e:
+            self.logger.error(f'Uncaught Exception {type(e)} {e}')
+            return None
 
-        return self._execute_wrapper(sql_select, vals, retval=True)
+    def update(self, table: str = None, row: dict = None, record: dict = None):
+        try:
+            a = sql.SQL('{}').format(sql.Identifier(table))
+            b = sql.SQL(', ').join([sql.Identifier(key) for key in record.keys()])
+            c = sql.SQL(', ').join(sql.Placeholder() * len(record))
+            d = sql.SQL(', ').join([sql.Identifier(key) for key in row.keys()])
+            e = sql.SQL(', ').join(sql.Placeholder() * len(row))
+            insert_statement = sql.SQL("UPDATE {0} SET ({1}) = ({2}) WHERE ({3}) LIKE ({4})").format(a, b, c, d, e)
+            vals = []
+            for v in record.values():
+                vals.append(v)
+            for v in row.values():
+                vals.append(v)
+            self._execute_wrapper(insert_statement, vals)
+        except Exception as e:
+            self.logger.error(f'Uncaught Exception {type(e)} {e}')
 
-    def update(self, table: str, row: dict, record: dict):
-        a = sql.SQL('{}').format(sql.Identifier(table))
-        b = sql.SQL(', ').join([sql.Identifier(key) for key in record.keys()])
-        c = sql.SQL(', ').join(sql.Placeholder() * len(record))
-        d = sql.SQL(', ').join([sql.Identifier(key) for key in row.keys()])
-        e = sql.SQL(', ').join(sql.Placeholder() * len(row))
-        insert_statement = sql.SQL("UPDATE {0} SET ({1}) = ({2}) WHERE ({3}) LIKE ({4})").format(a, b, c, d, e)
-        vals = []
-        for v in record.values():
-            vals.append(v)
-        for v in row.values():
-            vals.append(v)
+    def load_table_matching(self, table: str = None, where_dict: dict = None):
+        try:
+            select_statement = sql.SQL("SELECT * FROM {}").format(sql.Identifier(table))
+            where_statement = sql.SQL("WHERE")
+            if len(where_dict) > 1:
+                like_statement = sql.SQL(' AND ').join(
+                    [sql.SQL(f'{sql.Identifier(k)} = {sql.Placeholder()}') for k in where_dict.keys()])
+            else:
+                like_statement = [sql.SQL(f'{sql.Identifier(k)} LIKE {sql.Placeholder()}') for k in where_dict.keys()]
+                like_statement = like_statement[0]
 
-        self._execute_wrapper(insert_statement, vals)
-
-    def load_table_matching(self, table: str, where_dict: dict):
-        select_statement = sql.SQL("SELECT * FROM {}").format(sql.Identifier(table))
-        where_statement = sql.SQL("WHERE")
-        if len(where_dict) > 1:
-            like_statement = sql.SQL(' AND ').join(
-                [sql.SQL(f'{sql.Identifier(k)} = {sql.Placeholder()}') for k in where_dict.keys()])
-        else:
-            like_statement = [sql.SQL(f'{sql.Identifier(k)} LIKE {sql.Placeholder()}') for k in where_dict.keys()]
-            like_statement = like_statement[0]
-
-        full_statement = sql.SQL(' ').join([select_statement, where_statement, like_statement])
-        return self._execute_wrapper(full_statement, [v for v in where_dict.values()], retval=True)
+            full_statement = sql.SQL(' ').join([select_statement, where_statement, like_statement])
+            return self._execute_wrapper(full_statement, [v for v in where_dict.values()], retval=True)
+        except Exception as e:
+            self.logger.error(f'Uncaught Exception {type(e)} {e}')
+            return None
 
 
 class ReadOptions:
@@ -388,6 +437,44 @@ class ReadOptions:
         rologger.debug('Database connection established.')
         rologger.debug('Config sucessfully read in.')
 
+    def scan_archive_struct(self, rootdir = None) -> list:
+        """
+        Recursive member method of RinexArcvhive that searches through the given rootdir
+        to find files matching a compressed rinex file e.g. ending with d.Z.  The method
+        self.scan_archive_struct() is used to determine the file type.
+        :param rootdir:
+        :return:
+        """
+        try:
+            if rootdir in [None]:
+                rootdir = self.options['repository']
+            file = []
+            with os.scandir(rootdir) as it:
+                for entry in it:
+                    entry = Path(entry.path)
+                    if entry.is_dir():
+                        file.extend(self.scan_archive_struct(entry.path))
+                    # DDG issue #15: match the name of the file to a valid rinex filename
+                    elif self.parse_crinex_filename(entry.name):
+                        # only add valid rinex compressed files
+                        file.append(entry)
+            return file
+        except Exception as e:
+            print(f'Uncaught Exception: {type(e)} {e}')
+
+    @staticmethod
+    def parse_crinex_filename(filename):
+        # parse a crinex filename
+        try:
+            sfile = re.findall(r'(\w{4})(\d{3})(\w{1})\.(\d{2})([d])\.[Z]$', filename)
+            if sfile:
+                return sfile[0]
+            else:
+                return None
+        except Exception as e:
+            print('Uncaught exception: {} {}'.format(type(e), e))
+            sys.exit(1)
+
 
 class RinexArchive:
     """
@@ -409,19 +496,6 @@ class RinexArchive:
             sys.exit(1)
 
     @staticmethod
-    def parse_crinex_filename(filename):
-        # parse a crinex filename
-        try:
-            sfile = re.findall(r'(\w{4})(\d{3})(\w{1})\.(\d{2})([d])\.[Z]$', filename)
-            if sfile:
-                return sfile[0]
-            else:
-                return None
-        except Exception as e:
-            print('Uncaught exception: {} {}'.format(type(e), e))
-            sys.exit(1)
-
-    @staticmethod
     def parse_rinex_filename(filename):
         # parse a rinex filename
         sfile = re.findall(r'(\w{4})(\d{3})(\w{1})\.(\d{2})([o])$', filename)
@@ -431,76 +505,40 @@ class RinexArchive:
         else:
             return []
 
-    def scan_archive_struct(self, rootdir: str) -> list:
-        """
-        Recursive member method of RinexArcvhive that searches through the given rootdir
-        to find files matching a compressed rinex file e.g. ending with d.Z.  The method
-        self.scan_archive_struct() is used to determine the file type.
-        :param rootdir:
-        :return:
-        """
-        try:
-            file = []
-            with os.scandir(rootdir) as it:
-                for entry in it:
-                    if os.path.isdir(entry.path):
-                        file.extend(self.scan_archive_struct(entry.path))
-                    # DDG issue #15: match the name of the file to a valid rinex filename
-                    elif self.parse_crinex_filename(entry.name):
-                        # only add valid rinex compressed files
-                        file.append(entry)
-            return file
-        except Exception as e:
-            print('Uncaught Exception: {} {}'.format(type(e), e))
-            sys.exit(1)
-
 
 class JobServer:
 
     def __init__(self, options, parent_logger='archive'):
         """
-        Initialize the JobServer
-        :param options: pyOptions.ReadOptions instance
+        Initialize the the dispy scheduler and test the connection to the expected nodes.
+        :param options: gpys.ReadOptions instance
         :param parent_logger: Name of the function creating a new instance of JobServer
         """
         self.head_logger = logging.getLogger('.'.join([parent_logger, 'gpys.JobServer']))
-        self.options = options
-        self.cluster = None
+        self.cluster_options = {'ip_addr': options['head_node'],
+                                'ping_interval': int(options['ping_interval']),
+                                'pulse_interval': 6,
+                                'loglevel': 60}
+        self.workers = options['node_list']
         self.tested = False
         self.cluster_test()
         if self.tested is False:
             raise ConnectionError('Connection failed in JobServer.__init__')
 
-    def __del__(self):
-        try:
-            self.head_logger.debug('Attempting to shut down the cluster.')
-            if isinstance(self.cluster, dispy.JobCluster):
-                self.cluster.shutdown()
-                self.head_logger.debug('Cluster successfully shut down.')
-            else:
-                self.head_logger.debug('Cluster was not started.')
-        except Exception as e:
-            self.head_logger.error('Uncaught Exception: {} {}'.format(type(e), e))
-            sys.exit(1)
-
-    def connect(self, compute, setup=None):
+    def _connect(self, compute):
         try:
             self.head_logger.debug('Testing out the cluster.')
-            self.cluster = dispy.JobCluster(compute,
-                                            ip_addr=self.options['head_node'],
-                                            setup=setup,
-                                            ping_interval=int(self.options['ping_interval']),
-                                            pulse_interval=6,
-                                            loglevel=self.head_logger.getEffectiveLevel())
-            for node in self.options['node_list']:
-                self.cluster.discover_nodes(node)
-                self.head_logger.debug('Waiting {} seconds.'.format(2*int(self.options['ping_interval'])))
-                time.sleep(2*int(self.options['ping_interval']))
+            cluster = dispy.JobCluster(compute, **self.cluster_options)
+            for node in self.workers:
+                cluster.discover_nodes(node)
+                self.head_logger.debug('Waiting {} seconds.'.format(2*int(self.cluster_options['ping_interval'])))
+                time.sleep(2*int(self.cluster_options['ping_interval']))
+            return cluster
         except ConnectionError as e:
             self.head_logger.error(e, exc_info=sys.exc_info())
             sys.exit(1)
         except Exception as e:
-            self.head_logger.error('Uncaught Exception: {} {}'.format(type(e), e))
+            self.head_logger.error(f'Uncaught Exception: {type(e)} {e}')
             sys.exit(1)
 
     def cluster_test(self):
@@ -512,36 +550,36 @@ class JobServer:
                 time.sleep(0.1)
                 return socket.gethostname()
 
-            self.connect(compute)
+            cluster = self._connect(compute)
 
             jobs = []
-            for node in self.options['node_list']:
+            for node in self.workers:
                 self.head_logger.debug('Sending job to {}'.format(node))
-                job = self.cluster.submit_job_id_node('InitialTest-{}'.format(node), node)
+                job = cluster.submit_job_id_node('InitialTest-{}'.format(node), node)
                 jobs.append(job)
             if None in jobs:
                 raise ConnectionError('Error while submitting job.  '
                                       'The server may not be '
-                                      'started on {}.'.format(self.options['node_list'][jobs.index(None)]))
+                                      'started on {}.'.format(self.cluster_options['node_list'][jobs.index(None)]))
             tstart = time.time()
-            while not self.cluster.wait():
+            while not cluster.wait():
                 time.sleep(0.1)
             tend = time.time()
             self.head_logger.debug('Jobs took {:.4} seconds.'.format(tend-tstart))
             for j in jobs:
-                self.head_logger.debug('Node worked! {}.'.format(j.result))
-            for node in self.options['node_list']:
-                self.head_logger.debug('Sending files to {}.'.format(node))
+                self.head_logger.debug(f'Node worked! {j.result}.')
+            for node in self.workers:
+                self.head_logger.debug(f'Sending files to {node}.')
             self.head_logger.debug('Started a Dispy job and it worked :D')
             self.tested = True
         except ConnectionError as e:
             self.head_logger.error(e)
             sys.exit(1)
         except Exception as e:
-            self.head_logger.error('Uncaught Exception: {} {}'.format(type(e), e))
+            self.head_logger.error(f'Uncaught Exception: {type(e)} {e}')
             sys.exit(1)
         finally:
             self.head_logger.debug('Shutting down cluster.')
-            if isinstance(self.cluster, dispy.JobCluster):
-                self.cluster.shutdown()
+            if isinstance(cluster, dispy.JobCluster):
+                cluster.shutdown()
             del j, tend, tstart
