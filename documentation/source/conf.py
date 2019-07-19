@@ -16,18 +16,25 @@
 # import sys
 # sys.path.insert(0, os.path.abspath('.'))
 
-
+import os
+import sys
+sys.path.insert(0, os.path.abspath('../../gpys'))
+sys.path.insert(0, os.path.abspath('../../gpys/archive'))
+sys.path.insert(0, os.path.abspath('../..'))
 # -- Project information -----------------------------------------------------
 
 project = u'gpys'
-copyright = u'2019, Demian Gomez'
-author = u'Demian Gomez'
+copyright = u'2019, Peter Matheny'
+author = u'Peter Matheny'
 
 # The short X.Y version
 version = u''
 # The full version, including alpha/beta/rc tags
 release = u''
 
+# Custom options
+
+manpages_url = 'https://manpages.debian.org/{path}'
 
 # -- General configuration ---------------------------------------------------
 
@@ -41,7 +48,12 @@ release = u''
 extensions = [
     'sphinx.ext.todo',
     'sphinx.ext.mathjax',
+    'sphinx.ext.autodoc',
+    'sphinx.ext.intersphinx'
 ]
+
+intersphinx_mapping = {'python': ('https://docs.python.org/3.6',
+                                  None)}
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']

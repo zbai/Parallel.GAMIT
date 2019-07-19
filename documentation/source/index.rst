@@ -1,13 +1,20 @@
-.. Parallel.GAMIT documentation master file, created by
-   sphinx-quickstart on Tue Apr  9 11:16:15 2019.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
 
-Welcome to Parallel.GAMIT's documentation!
+gpys documentation
 ==========================================
 
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
 
-   startingdoc
+   installation
+   setup
+   usage
+   archive
+   gpys
+
+--------
+Overview
+--------
+
+gpys is designed to make the management of RINEX files from many stations easier.
+Once the RINEX files are loaded into a PostgreSQL database, both their PPP and GAMIT solutions can be determined.

@@ -72,7 +72,7 @@ class Connection:
         :param values: List or tuple of values for the sql statement.
         :param retval: Whether to return a value or not.
         :param return_dict: Return it as a dictionary or not.
-        :return: Returns either a list of tuples containing the results or a dictionary.
+        :return: Returns either a list of tuples containing the results or a dictionary or None.
         """
         try:
             with self.conn.cursor() as curs:
@@ -80,6 +80,8 @@ class Connection:
                     curs.execute(sql_statement, values)
                 else:
                     curs.execute(sql_statement)
+                self.logger.debug(f'{curs.query}')
+                self.logger.debug(f'{curs.statusmessage}')
                 if retval:
                     if return_dict:
                         qresults = curs.fetchall()
@@ -131,6 +133,22 @@ class Connection:
             return None
 
     def load_tankstruct(self):
+        """
+        Determines the archive structure based on the two tables, rinex_tank_struct and keys.  Returns a dictionary with
+        the following keys:
+
+        **KeyCode**: (*list(str)*) Property of a file e.g. 'network' or 'doy'.
+
+        **Level**: (*list(int)*) The heirachy for the properties, the first entry will be the highest level in the
+        archive.
+
+        **TotalChars**: (*list(int)*) The number of characters in the keycode.
+
+        .. todo:: Finish adding all the different columns returned by this function, rinex_col_out, rinex_col_in and
+        isnumeric.
+
+        :return:
+        """
         try:
             sql_statement = sql.SQL('SELECT * FROM {0} INNER JOIN {1} '
                                     'USING ({2}) ORDER BY {3}').format(sql.Identifier('rinex_tank_struct'),
@@ -175,6 +193,17 @@ class Connection:
             self.logger.error(f'Uncaught Exception {type(e)} {e}')
 
     def spatial_check(self, vals, search_in_new: bool = False):
+        """
+        Used to find the nearest station to a given RINEX file.  It only goes out to a range of 20 meters or the value
+        listed in the max_dist column of the stations table.  It will return None if there are no matching stations
+        and if there is a match a defaultdict(list) object containing every column from the stations table in addition
+        to the distance between the RINEX and the given stations entry.  The distance calculation is performed using the
+        haversine formula.
+        :param vals: List with the lattitude as the first element and the longitude as the second.
+        :param search_in_new: Whether to search in networks matching ??? or not.
+        :return: defaultdict(list) with the following keys, NetworkCode, StationCode, StationName, DateStart, DateEnd,
+        auto_x, auto_y, auto_z, Harpos_coeff_otl, lat, lon, height, max_dist, dome, distance.
+        """
         try:
             if len(vals) != 2:
                 raise Exception('Incorrect length of values, should be of the format [lat, lon]')
@@ -306,7 +335,7 @@ class ReadOptions:
     TODO: Clean up some of the uneccesary parts.
     """
 
-    def __init__(self, configfile='gnss_data.cfg', parent_logger='archive'):
+    def __init__(self, configfile: str = 'gnss_data.cfg', parent_logger: str = 'archive'):
         """-------------------------------------------------------------------------------------------------------------
         Initialize the logger.
         TODO: Add an option for which QC program to use (TEQC or RinSum)
@@ -337,11 +366,14 @@ class ReadOptions:
                         'height_codes': None,
                         'ppp_exe': None,
                         'ppp_remote_local': (),
-                        'gg': None}
-        """-------------------------------------------------------------------------------------------------------------
+                        'gg': None,
+                        'uppper_bound': 10000,
+                        'lower_bound': 9000}
+        """
         Read in the config file.
         Parse the sections into the options dict.
         Check that paths exist.
+        
         """
         fp, p, config, section = None, None, None, None
         try:
@@ -352,13 +384,7 @@ class ReadOptions:
             for section in config.sections():
                 for key in config[section]:
                     self.options[key] = config[section][key]
-            rologger.debug(f'{configfile} read into program, now checking file paths.')
-            paths = [self.options['path'], self.options['repository'], self.options['brdc'],
-                     self.options['sp3'], self.options['working_dir']]
-            for p in paths:
-                rologger.debug(f'Checking {Path(p)}')
-                if not Path(p).parent.exists():
-                    raise FileNotFoundError
+            rologger.debug(f'{configfile} read into program.')
         except FileNotFoundError as e:
             rologger.error(f'FileNotFoundError: {e}')
             sys.exit(1)
@@ -429,6 +455,9 @@ class ReadOptions:
         rologger.debug('Check out the database connection.')
         try:
             conn = Connection(self.options, parent_logger=parent_logger)
+            rinex_struct = conn.load_tankstruct()
+            self.rinex_struct = rinex_struct['KeyCode']
+            rologger.debug(f'Loaded archive structure: {self.rinex_struct}')
         except Exception as e:
             rologger.error(f'Uncaught Exception {type(e)} {e}')
             sys.exit(1)
@@ -521,9 +550,6 @@ class JobServer:
                                 'loglevel': 60}
         self.workers = options['node_list']
         self.tested = False
-        self.cluster_test()
-        if self.tested is False:
-            raise ConnectionError('Connection failed in JobServer.__init__')
 
     def _connect(self, compute):
         try:
