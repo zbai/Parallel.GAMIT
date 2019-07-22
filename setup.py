@@ -15,7 +15,7 @@ if __name__ == '__main__':
     setup(
         name='gpys',
         version=f'0.0.post{date}',
-        packages=['gpys', 'gpys.archive'],
+        packages=['gpys', 'archive'],
         url='https://github.com/demiangomez/Parallel.GAMIT',
         license='',
         author='Demian Gomez & Peter Matheny',
