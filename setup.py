@@ -22,5 +22,5 @@ if __name__ == '__main__':
         author_email='',
         description='',
         install_requires=['dispy', 'psycopg2'],
-        entry_points={'console_scripts': ['archive = gpys.archive:main']}
+        entry_points={'console_scripts': ['archive = archive:main']}
     )
