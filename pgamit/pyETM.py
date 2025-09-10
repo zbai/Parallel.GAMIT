@@ -1231,8 +1231,9 @@ class CoSeisJump(Jump):
         self.nr = relaxation.shape[0]
         self.p.relaxation = relaxation
 
-        logger.info('Geo jump -> Adding jump on %s type: %s; Mag: %.1f; Action: %s; Fit: %s'
-                    % (self.date.yyyyddd(), type_dict[dtype], magnitude, action, 'T' if self.fit else 'F'))
+        logger.info('Geo jump -> Adding jump on %s type: %s; relax: %s; Mag: %.1f; Action: %s; Fit: %s'
+                    % (self.date.yyyyddd(), type_dict[dtype], str(relaxation),
+                       magnitude, action, 'T' if self.fit else 'F'))
 
         # DDG: New feature -> include a postseismic relaxation to remove from the data before performing the fit
         # if post-seismic component is passed, then subtract from the data (this step is done in __init__).
@@ -1301,13 +1302,22 @@ class CoSeisJump(Jump):
 
         if np.any(hl):
             if self.p.jump_type == CO_SEISMIC_JUMP_DECAY:
+                # get condition number
+                A = np.column_stack((ht, hl))
+                cond_num = np.log10(np.linalg.cond(A.transpose() @ A))
+                if cond_num > 5:
+                    logger.info(prYellow('CO_SEISMIC_JUMP_DECAY condition number: %.1f' % cond_num))
+                else:
+                    logger.info('CO_SEISMIC_JUMP_DECAY condition number: %.1f' % cond_num)
                 return np.column_stack((ht, hl))
 
             elif self.p.jump_type == CO_SEISMIC_DECAY:
                 # if decay only, return hl
                 return hl
-
-        # @todo possible bug returning None?
+            else:
+                return np.array([])
+        else:
+            return np.array([])
 
     def __str__(self):
         return Jump.__str__(self) + ', relax=' + str(self.p.relaxation)

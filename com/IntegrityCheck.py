@@ -33,6 +33,8 @@ from pgamit import pyStationInfo
 from pgamit import pyArchiveStruct
 from pgamit import pyPPP
 from pgamit import Utils
+from pgamit import pyRinexName
+from pgamit.pyRinexName import RinexNameFormat
 from pgamit.Utils import (process_date, ecef2lla, parse_atx_antennas,
                           determine_frame, station_list_help, add_version_argument)
 from pgamit import pyJobServer
@@ -645,7 +647,13 @@ def RenameStation(cnn, NetworkCode, StationCode, DestNetworkCode, DestStationCod
                 src_path = os.path.split(os.path.join(archive_path, src_file_path))[0]
                 src_file = os.path.split(os.path.join(archive_path, src_file_path))[1]
 
-                dest_file = src_file.replace(StationCode, DestStationCode)
+                # PROBLEM DETECTED (solved Sep 10 2025): old code handles only RINEX 2 filenames
+                # 1) station code might be uppercase in the filename in RINEX 3
+                # 2) dest_file.replace('d.Z', 'o') only works for RINEX 2
+                rinex_name = RinexNameFormat(src_file)
+                # rename station
+                rinex_name.StationCode = DestStationCode
+                dest_file = rinex_name.to_rinex_format(pyRinexName.TYPE_CRINEZ)
 
                 date = pyDate.Date(year=int(src_rinex['ObservationYear']),
                                    doy=int(src_rinex['ObservationDOY']))
@@ -657,7 +665,8 @@ def RenameStation(cnn, NetworkCode, StationCode, DestNetworkCode, DestStationCod
                         'UPDATE rinex SET "NetworkCode" = \'%s\', "StationCode" = \'%s\', "Filename" = \'%s\' '
                         'WHERE "NetworkCode" = \'%s\' AND "StationCode" = \'%s\' AND "ObservationYear" = %i AND '
                         '"ObservationDOY" = %i AND "Filename" = \'%s\''
-                        % (DestNetworkCode, DestStationCode, dest_file.replace('d.Z', 'o'), NetworkCode,
+                        % (DestNetworkCode, DestStationCode,
+                           rinex_name.to_rinex_format(pyRinexName.TYPE_RINEX, no_path=True), NetworkCode,
                            StationCode, src_rinex['ObservationYear'], src_rinex['ObservationDOY'],
                            src_rinex['Filename']))
 
@@ -692,7 +701,7 @@ def RenameStation(cnn, NetworkCode, StationCode, DestNetworkCode, DestStationCod
 
                     # now insert record for new RINEX in station
                     event = pyEvents.Event(Description='A new RINEX was added to the archive: %s'
-                                                       % dest_file.replace('d.Z', 'o'),
+                                                       % rinex_name.to_rinex_format(pyRinexName.TYPE_RINEX, no_path=True),
                                            NetworkCode=DestNetworkCode,
                                            StationCode=DestStationCode,
                                            Year=int(date.year),
