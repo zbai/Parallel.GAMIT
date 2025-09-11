@@ -7,8 +7,10 @@ Author: Demian D. Gomez
 
 import os
 import re
+import warnings
 
 # app
+from pgamit import pyDate
 from pgamit.pyDate import Date
 from pgamit.pyEvents import Event
 
@@ -157,8 +159,8 @@ class RinexNameFormat(object):
             self.month = self.date.month
             self.day   = self.date.day
 
-        except Exception as e:
-            raise RinexNameException(e)
+        except pyDate.pyDateException as e:
+            raise Exception('Date expection: ' + str(e) + ' when processing file ' + filename)
 
     def identify_rinex_type(self, filename):
 
@@ -214,9 +216,11 @@ class RinexNameFormat(object):
     def split_filename(self, filename):
 
         if self.version < 3:
-            sfile = re.findall(r'(\w{4})(\d{3})(\w)\.(\d{2})([doOD](?:.gz|.Z)?)$', filename)
+            sfile = re.findall(r'(\w{4})(\d{3})(\w*)\.(\d{2})([doOD](?:.gz|.Z)?)$', filename)
 
             if sfile:
+                if len(sfile[0][2]) > 1:
+                    warnings.warn('Malformed RINEX 2 name: session name is longer than 1 character!')
                 return sfile[0]
             else:
                 raise RinexNameException('Invalid filename format: %s for rinex version %s' %

@@ -1001,15 +1001,17 @@ def export_station(cnn, stnlist, pyArchive, archive_path, dataless):
         with zipfile.ZipFile('%s.%s.zip' % (NetworkCode, StationCode),
                              "w", zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
             for rnx in rinex_lst:
-
+                # update bar first to provide more information
+                pbar2.set_postfix(Date='%4.0f %03.0f' % (rnx['ObservationYear'], rnx['ObservationDOY']))
+                pbar2.update()
                 # make a copy of each file
                 rnx_path = pyArchive.build_rinex_path(NetworkCode     = NetworkCode,
                                                       StationCode     = StationCode,
                                                       ObservationYear = rnx['ObservationYear'],
                                                       ObservationDOY  = rnx['ObservationDOY'],
                                                       filename        = rnx['Filename'])
-                tqdm.write(' -- Adding %s observation date %s %s filename %s'
-                           % (stationID(rnx), rnx['ObservationYear'], rnx['ObservationDOY'], rnx_path))
+                # tqdm.write(' -- Adding %s observation date %4.0f %03.0f filename %s'
+                #            % (stationID(rnx), rnx['ObservationYear'], rnx['ObservationDOY'], rnx_path))
                 try:
                     if not dataless:
                         # only copy the files if dataless == False
@@ -1021,34 +1023,14 @@ def export_station(cnn, stnlist, pyArchive, archive_path, dataless):
                 except IOError:
                     tqdm.write(' -- Warning! File not found in archive: %s' % (os.path.join(archive_path, rnx_path)))
 
-                pbar2.set_postfix(Date='%s %03s' % (rnx['ObservationYear'],
-                                                    rnx['ObservationDOY']))
-                pbar2.update()
-
             export_dic['files'] = len(rinex_dict)
             export_dic['rinex'] = rinex_dict
-
-            # big json file
-            #station_json = os.path.join(dest, '%s.%s.json') % (NetworkCode, StationCode)
-            #with file_open(station_json, 'w') as file:
-            #    json.dump(export_dic, file, indent=4, sort_keys=True, cls=Encoder)
 
             with zf.open( '%s.%s.json' % (NetworkCode, StationCode), 'w') as json_file:
                 data_bytes = json.dumps(export_dic, indent=4, sort_keys=True, cls=Encoder).encode('utf-8')
                 json_file.write(data_bytes)
 
         pbar2.close()
-        # make the zip file with the station
-        #with zipfile.ZipFile('%s.%s.zip' % (NetworkCode, StationCode),
-        #                     "w", zipfile.ZIP_DEFLATED, allowZip64=True) as zf:
-        #    for root, _, filenames in os.walk(dest):
-        #        for name in filenames:
-        #            name = os.path.normpath(os.path.join(root, name))
-        #            zf.write(name, os.path.basename(name))
-
-        # shutil.rmtree(dest)
-
-
     pbar1.close()
 
 
