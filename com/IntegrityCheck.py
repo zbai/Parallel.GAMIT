@@ -700,8 +700,10 @@ def RenameStation(cnn, NetworkCode, StationCode, DestNetworkCode, DestStationCod
                     cnn.insert_event(event)
 
                     # now insert record for new RINEX in station
-                    event = pyEvents.Event(Description='A new RINEX was added to the archive: %s'
-                                                       % rinex_name.to_rinex_format(pyRinexName.TYPE_RINEX, no_path=True),
+                    event = pyEvents.Event(Description='A new RINEX (%s) was merged to the archive from %s.%s'
+                                                       % (rinex_name.to_rinex_format(pyRinexName.TYPE_RINEX,
+                                                                                     no_path=True),
+                                                          NetworkCode, StationCode),
                                            NetworkCode=DestNetworkCode,
                                            StationCode=DestStationCode,
                                            Year=int(date.year),

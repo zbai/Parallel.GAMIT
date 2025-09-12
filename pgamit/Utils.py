@@ -755,33 +755,6 @@ def get_platform_id():
     return '.'.join((uname[0], uname[2], uname[4]))
     
 
-# @todo this function is not used, remove it?
-def get_processor_count():
-    # ok, lets get some operating system info
-    uname = os.uname()[0].lower()
-            
-    if uname == 'linux':
-        # open the system file and read the lines
-        nstr = sum(l.strip().replace('\t','').split(':')[0] == 'core id'
-                   for l in file_readlines('/proc/cpuinfo'))
-            
-    elif uname == 'darwin':
-        nstr = subprocess.Popen(['sysctl','-n','hw.ncpu'],stdout=subprocess.PIPE).communicate()[0];
-    else:
-        raise UtilsException('Unrecognized/Unsupported operating system');  
-    
-    # try to turn the process response into an integer
-    try:
-        num_cpu = int(nstr)
-    except:
-        # nothing else we can do here
-        return None
-        
-    # that's all folks
-    # return the number of PHYSICAL CORES, not the logical number (usually double)
-    return num_cpu/2
-    
-    
 def human_readable_time(secs):
     
     # start with work time in seconds

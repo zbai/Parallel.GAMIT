@@ -124,14 +124,21 @@ class RinexStruct(object):
                                         record['Completion'],
                                         record['Filename']))
 
-                    event = pyEvents.Event(Description = 'A new RINEX was added to the archive: %s' % record['Filename'],
+                    event = pyEvents.Event(Description = 'A new RINEX was added to the archive, filename %s, interval '
+                                                         '%i, and completion %.3f'
+                                                         % (record['Filename'],
+                                                            record['Interval'],
+                                                            record['Completion']),
                                            NetworkCode = record['NetworkCode'],
                                            StationCode = record['StationCode'],
                                            Year        = record['ObservationYear'],
                                            DOY         = record['ObservationDOY'])
                 else:
-                    event = pyEvents.Event(Description = 'Archived CRINEX file %s added to the database.' %
-                                                       record['Filename'],
+                    event = pyEvents.Event(Description = 'Archived CRINEX file %s added to the database interval '
+                                                         '%i, and completion %.3f'
+                                                         % (record['Filename'],
+                                                            record['Interval'],
+                                                            record['Completion']),
                                            NetworkCode = record['NetworkCode'],
                                            StationCode = record['StationCode'],
                                            Year        = record['ObservationYear'],
