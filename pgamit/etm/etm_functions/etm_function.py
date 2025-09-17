@@ -1,24 +1,49 @@
 # base_function.py
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional, List
+from dataclasses import dataclass, field
+from typing import Dict, Any, Optional, List, Tuple
+from datetime import datetime
 import numpy as np
 
+from etm.core.etm_config import JumpType
 # app
-from pgamit.etm.etm_config import ParameterVector
-from pgamit.etm.etm_config import ETMConfig
-from pgamit.etm.solution_data import SolutionData
+from etm.core.etm_config import ETMConfig
+
+@dataclass
+class ParameterVector:
+    # station and solution identification
+    NetworkCode: str
+    StationCode: str
+    # Parameter storage
+    frequencies: np.ndarray = field(default_factory=lambda: np.array([]))
+    params: List[np.ndarray] = field(default_factory=lambda: [np.array([]), np.array([]), np.array([])])
+    sigmas: List[np.ndarray] = field(default_factory=lambda: [np.array([]), np.array([]), np.array([])])
+    covar: List[np.ndarray] = field(default_factory=lambda: [np.array([]), np.array([]), np.array([])])
+
+    soln: str = 'ppp'
+    stack: str = 'ppp'
+    object: str = ''
+    metadata: Optional[str] = None
+    hash: int = 0
+    jump_date: datetime = datetime(1980, 1, 1)
+    jump_type: JumpType = JumpType.UNDETERMINED
+    t_ref: float = 0
+
 
 class EtmFunction(ABC):
     """Enhanced base class for all ETM function objects"""
 
-    def __init__(self, solution_data: SolutionData, config: ETMConfig, **kwargs):
+    def __init__(self, config: ETMConfig,
+                 metadata: Optional[str] = 'Generic ETM function',
+                 **kwargs):
+
         self.p = ParameterVector(config.network_code, config.station_code)
         self.config = config
 
         # Core identification
-        # @ todo: remove solution data and add to config: no real need for solution data in etm functions
-        self.p.soln = solution_data.type
-        self.p.stack = solution_data.stack_name
+        self.p.soln = config.solution.soln
+        self.p.stack = config.solution.stack_name
+        self.p.metadata = metadata
 
         # Function properties
         self.param_count = 0
@@ -51,11 +76,19 @@ class EtmFunction(ABC):
         """Recompute hash value for change detection"""
         pass
 
-    def eval(self, override_params: np.ndarray = np.array([])):
-        if override_params:
-            return self.design @ override_params
+    def eval(self, component: int,
+             override_time_vector: np.ndarray = None,
+             override_params: np.ndarray = None):
+
+        if override_time_vector is not None:
+            design = self.get_design_ts(override_time_vector)
         else:
-            return self.design @ self.p.params
+            design = self.design
+
+        if override_params is not None:
+            return design @ override_params[component]
+        else:
+            return design @ self.p.params[component]
 
     def load_parameters(self, params: np.ndarray, sigmas: np.ndarray, **kwargs) -> None:
         """Load estimated parameters and their uncertainties"""
@@ -73,6 +106,10 @@ class EtmFunction(ABC):
             # From database - direct assignment
             self.p.params = params
             self.p.sigmas = sigmas
+
+    @abstractmethod
+    def print_parameters(self) -> Tuple[list, list, list]:
+        pass
 
     def validate_parameters(self) -> List[str]:
         """Validate parameter values and return issues"""

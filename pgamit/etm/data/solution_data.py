@@ -6,13 +6,16 @@ Author: Demian D. Gomez
 
 # solution_data.py
 from abc import ABC, abstractmethod
-from typing import List, Optional, Tuple
+from typing import List, Optional
 import numpy as np
+import logging
+
+logger = logging.getLogger(__name__)
 
 # app
 from pgamit import pyDate
-from pgamit.Utils import crc32, stationID
-from pgamit.etm.etm_config import ETMConfig
+from pgamit.Utils import crc32
+from etm.core.etm_config import ETMConfig
 
 
 class SolutionData(ABC):
@@ -27,7 +30,7 @@ class SolutionData(ABC):
         self.solutions: int = 0
         self.completion: float = 0.0
         self.hash: int = 0
-        self.type: str = ""
+        self.soln: str = ""
         self.stack_name: str = ""
         self.project: str = ""
 
@@ -35,8 +38,8 @@ class SolutionData(ABC):
         self.x: np.ndarray = np.array([])
         self.y: np.ndarray = np.array([])
         self.z: np.ndarray = np.array([])
-        self.time: np.ndarray = np.array([])
-        self.mjd: np.ndarray = np.array([])
+        self.time_vector: np.ndarray = np.array([])
+        self.time_vector_mjd: np.ndarray = np.array([])
         self.date: List[pyDate.Date] = []
 
         # Reference coordinates
@@ -54,10 +57,11 @@ class SolutionData(ABC):
         self.gaps: np.ndarray = np.array([])
 
         # Time series for plotting
-        self.ts: np.ndarray = np.array([])
-        self.mjds: np.ndarray = np.array([])
-        self.ts_ns: np.ndarray = np.array([])  # no solution epochs
-        self.ts_blu: np.ndarray = np.array([])  # blunder epochs
+        self.time_vector_cont: np.ndarray = np.array([])
+        self.time_vector_cont_mjds: np.ndarray = np.array([])
+        # no solution and blunders
+        self.time_vector_ns: np.ndarray = np.array([])  # no solution epochs
+        self.time_vector_blunders: np.ndarray = np.array([])  # blunder epochs
 
     @abstractmethod
     def load_data(self, cnn, **kwargs) -> None:
@@ -76,23 +80,23 @@ class SolutionData(ABC):
     def compute_hash(self, additional_data: str = "") -> int:
         """Compute hash for the solution data"""
         hash_input = (
-            f"{len(self.time)}_{len(self.blunders)}_"
+            f"{len(self.time_vector)}_{len(self.blunders)}_"
             f"{self.auto_x[0] if len(self.auto_x) > 0 else 0}_"
             f"{self.auto_y[0] if len(self.auto_y) > 0 else 0}_"
             f"{self.auto_z[0] if len(self.auto_z) > 0 else 0}_"
-            f"{self.time.min() if len(self.time) > 0 else 0}_"
-            f"{self.time.max() if len(self.time) > 0 else 0}_"
+            f"{self.time_vector.min() if len(self.time_vector) > 0 else 0}_"
+            f"{self.time_vector.max() if len(self.time_vector) > 0 else 0}_"
             f"{additional_data}"
         )
         return crc32(hash_input)
 
     def create_continuous_time_vector(self) -> None:
         """Create continuous time vectors for plotting"""
-        if len(self.mjd) > 0:
-            ts = np.arange(np.min(self.mjd), np.max(self.mjd) + 1, 1)
-            self.mjds = ts
-            self.ts = np.array([pyDate.Date(mjd=mjd).fyear for mjd in ts])
-            self.gaps = np.setdiff1d(self.mjds, self.mjd)
+        if len(self.time_vector_mjd) > 0:
+            ts = np.arange(np.min(self.time_vector_mjd), np.max(self.time_vector_mjd) + 1, 1)
+            self.time_vector_cont_mjds = ts
+            self.time_vector_cont = np.array([pyDate.Date(mjd=mjd).fyear for mjd in ts])
+            self.gaps = np.setdiff1d(self.time_vector_cont_mjds, self.time_vector_mjd)
 
     def filter_by_distance(self, coordinates: np.ndarray,
                            reference: np.ndarray) -> bool:
@@ -100,16 +104,49 @@ class SolutionData(ABC):
         distances = np.sqrt(np.sum(np.square(coordinates - reference), axis=1))
         return distances <= self.max_dist
 
+    def transform_to_local(self) -> np.ndarray:
+        """Transform ECEF coordinates to local NEU frame"""
+        from pgamit.Utils import ct2lg
+
+        # Compute coordinate differences from reference
+        ecef_diff = np.array([
+            self.x - self.auto_x[0],
+            self.y - self.auto_y[0],
+            self.z - self.auto_z[0]
+        ])
+
+        # Transform to local frame
+        neu = ct2lg(ecef_diff[0], ecef_diff[1], ecef_diff[2],
+                    self.lat[0], self.lon[0])
+
+        return np.array(neu)
+
+    def apply_models(self, models: List) -> np.ndarray:
+        """Apply external models (velocity, postseismic) to observations"""
+        corrected_observations = self.transform_to_local().copy()
+
+        for model in models:
+            if hasattr(model, 'eval'):
+                model_values = model.eval(self.time_vector)
+                corrected_observations -= model_values
+                logger.info(f"Applied {model.__class__.__name__} model")
+
+        return corrected_observations
+
 
 class PPPSolutionData(SolutionData):
     """PPP-specific solution data implementation"""
 
     def __init__(self, config: ETMConfig):
         super().__init__(config)
-        self.type = 'ppp'
+        self.soln = 'ppp'
         self.stack_name = 'ppp'
         self.project = 'from_ppp'
         self.rnx_no_ppp: List = []
+        # update config to reflect which solution we are working with
+        config.solution.soln = 'ppp'
+        config.solution.stack_name = 'ppp'
+        self.config = config
 
     def load_data(self, cnn, **kwargs) -> None:
         """Load PPP solutions from database"""
@@ -158,8 +195,8 @@ class PPPSolutionData(SolutionData):
         dates_years_doys = solution_array[:, 3:5].astype(int)
         self.date = [pyDate.Date(year=year, doy=doy)
                      for year, doy in dates_years_doys]
-        self.time = np.array([date.fyear for date in self.date])
-        self.mjd = np.array([date.mjd for date in self.date])
+        self.time_vector = np.array([date.fyear for date in self.date])
+        self.time_vector_mjd = np.array([date.mjd for date in self.date])
 
         self.solutions = len(valid_solutions)
 
@@ -185,11 +222,11 @@ class PPPSolutionData(SolutionData):
         ''' % (self.network_code, self.station_code)
 
         missing = cnn.query_float(rnx_query)
-        self.ts_ns = np.array([float(item[0]) for item in missing])
+        self.time_vector_ns = np.array([float(item[0]) for item in missing])
 
-        total_epochs = len(self.ts_ns) + len(self.time)
+        total_epochs = len(self.time_vector_ns) + len(self.time_vector)
         if total_epochs > 0:
-            self.completion = 100.0 - (len(self.ts_ns) / total_epochs * 100.0)
+            self.completion = 100.0 - (len(self.time_vector_ns) / total_epochs * 100.0)
         else:
             self.completion = 0.0
 
@@ -206,7 +243,7 @@ class PPPSolutionData(SolutionData):
         if len(self.x) != len(self.y) or len(self.y) != len(self.z):
             issues.append("Coordinate arrays have different lengths")
 
-        if len(self.time) != len(self.x):
+        if len(self.time_vector) != len(self.x):
             issues.append("Time array length doesn't match coordinate arrays")
 
         # Check for reasonable coordinate ranges
@@ -223,9 +260,13 @@ class GAMITSolutionData(SolutionData):
 
     def __init__(self, stack_name: str, config: ETMConfig):
         super().__init__(config)
-        self.type = 'gamit'
+        self.soln = 'gamit'
         self.stack_name = stack_name
         self.rnx_no_ppp: List = []
+        # update config to reflect which solution we are working with
+        config.solution.soln = 'gamit'
+        config.solution.stack_name = stack_name
+        self.config = config
 
     def load_data(self, cnn, polyhedrons: Optional[List] = None, **kwargs) -> None:
         """Load GAMIT solutions from database or polyhedron list"""
@@ -295,8 +336,8 @@ class GAMITSolutionData(SolutionData):
         dates_years_doys = valid_poly[:, 3:5].astype(int)
         self.date = [pyDate.Date(year=year, doy=doy)
                      for year, doy in dates_years_doys]
-        self.time = np.array([date.fyear for date in self.date])
-        self.mjd = np.array([date.mjd for date in self.date])
+        self.time_vector = np.array([date.fyear for date in self.date])
+        self.time_vector_mjd = np.array([date.mjd for date in self.date])
 
         self.solutions = len(valid_poly)
 
@@ -316,11 +357,11 @@ class GAMITSolutionData(SolutionData):
 
         missing = cnn.query(query)
         self.rnx_no_ppp = missing.dictresult()
-        self.ts_ns = np.array([float(item['ObservationFYear']) for item in self.rnx_no_ppp])
+        self.time_vector_ns = np.array([float(item['ObservationFYear']) for item in self.rnx_no_ppp])
 
-        total_epochs = len(self.ts_ns) + len(self.time)
+        total_epochs = len(self.time_vector_ns) + len(self.time_vector)
         if total_epochs > 0:
-            self.completion = 100.0 - (len(self.ts_ns) / total_epochs * 100.0)
+            self.completion = 100.0 - (len(self.time_vector_ns) / total_epochs * 100.0)
         else:
             self.completion = 0.0
 

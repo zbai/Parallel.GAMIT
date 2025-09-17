@@ -6,12 +6,18 @@ Author: Demian D. Gomez
 
 # etm_config.py
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Union, Tuple
 from enum import IntEnum, auto
+from datetime import datetime
+from io import BytesIO
 import numpy as np
 import logging
 
 logger = logging.getLogger(__name__)
+
+# app
+from pgamit.pyDate import Date
+
 
 class JumpType(IntEnum):
     """Enum for jump types to replace scattered constants"""
@@ -23,10 +29,22 @@ class JumpType(IntEnum):
     COSEISMIC_ONLY = 15
     POSTSEISMIC_ONLY = 20
 
+    @property
+    def color(self) -> str:
+        """Get the plotting color for this jump type"""
+        color_map = {
+            JumpType.UNDETERMINED: 'gray',
+            JumpType.MECHANICAL_MANUAL: 'darkcyan',
+            JumpType.MECHANICAL_ANTENNA: 'blue',
+            JumpType.REFERENCE_FRAME: 'green',
+            JumpType.COSEISMIC_JUMP_DECAY: 'red',
+            JumpType.COSEISMIC_ONLY: 'purple',
+            JumpType.POSTSEISMIC_ONLY: 'orange'
+        }
+        return color_map.get(self, 'black')
 
-class JumpTypeDict:
-    @staticmethod
-    def get_description(jump_type: JumpType) -> str:
+    @property
+    def description(self) -> str:
         descriptions = {
             JumpType.UNDETERMINED: 'UNDETERMINED',
             JumpType.MECHANICAL_MANUAL: 'MECHANICAL (MANUAL)',
@@ -36,7 +54,26 @@ class JumpTypeDict:
             JumpType.COSEISMIC_ONLY: 'COSEISMIC ONLY',
             JumpType.POSTSEISMIC_ONLY: 'POSTSEISMIC ONLY'
         }
-        return descriptions.get(jump_type, 'UNKNOWN')
+        return descriptions.get(self, 'UNKNOWN')
+
+
+@dataclass
+class Earthquake:
+    id: str = None
+    lat: float = None
+    lon: float = None
+    date: Date = None
+    depth: int = None
+    magnitude: float = 0
+    distance: float = 0
+    location: str = None
+    jump_type: JumpType = None
+
+    def build_metadata(self) -> str:
+        link = ('<a href="https://earthquake.usgs.gov/earthquakes/eventpage/%s" '
+                'target="_blank">%s</a>'
+                % (self.id, self.id))
+        return f'{link}: M{self.magnitude:.1f} {self.location} -> {self.distance:.0f} km'
 
 
 class PeriodicStatus(IntEnum):
@@ -47,6 +84,19 @@ class PeriodicStatus(IntEnum):
 
 
 @dataclass
+class JumpParameters:
+    jump_type: JumpType = field(default_factory=lambda: JumpType)
+    relaxation: np.ndarray = field(default_factory=lambda: np.array([0.5]))
+    date: Date = None
+    action: str = None
+
+
+@dataclass
+class LeastSquares:
+    iterations: int = 10
+    sigma_filter_limit: float = 2.5
+
+@dataclass
 class ModelingParameters:
     """Configuration for modeling parameters"""
     relaxation: np.ndarray = field(default_factory=lambda: np.array([0.5]))
@@ -55,33 +105,52 @@ class ModelingParameters:
     frequencies: np.ndarray = field(
         default_factory=lambda: np.array([1 / 365.25, 1 / (365.25 / 2)])
     )
+    periodic_status: PeriodicStatus = PeriodicStatus.AUTOMATICALLY_ADDED
+    user_jumps: List[JumpParameters] = field(default_factory=lambda: [])
+    earthquake_jumps: List[Earthquake] = field(default_factory=lambda: [])
     sigma_floor_h: float = 0.10
     sigma_floor_v: float = 0.15
-    limit: float = 2.5
-    eq_min_days: int = 15
-    jp_min_days: int = 5
+    robust_lsq_limit: float = 2.5
+    earthquake_min_days: int = 15
+    jump_min_days: int = 5
+    post_seismic_back_lim: int = 365 * 5 # 5 years of postseismic user_jumps back in time
+    # master switches activating certain components
+    fit_earthquakes: bool = True
+    fit_generic_jumps: bool = True
+    fit_metadata_jumps: bool = True
 
+    def get_user_jump(self, date: Union[Date, datetime], jump_type: JumpType) -> Union[JumpParameters, None]:
+        """obtain a jump from the database jump config using date and type"""
+        for jump_params in self.user_jumps:
+            if jump_params.date == date:
+                # dates match, check types
+                if jump_params.jump_type == jump_type:
+                    # types match exactly, so it is the jump being looked for
+                    return jump_params
+                elif (jump_params.jump_type >= JumpType.COSEISMIC_JUMP_DECAY
+                      and jump_type >= JumpType.COSEISMIC_JUMP_DECAY):
+                    # a geophysical jump with a change in behavior, return it to the caller
+                    return jump_params
+        return None
 
 @dataclass
 class StationMetadata:
-    lat: np.ndarray = np.array([0])
-    lon: np.ndarray = np.array([0])
-    height: np.ndarray = np.array([0])
-    auto_x: np.ndarray = np.array([6378137.])
-    auto_y: np.ndarray = np.array([0])
-    auto_z: np.ndarray = np.array([0])
+    lat: np.ndarray = field(default_factory=lambda: np.array([0]))
+    lon: np.ndarray = field(default_factory=lambda: np.array([0]))
+    height: np.ndarray = field(default_factory=lambda: np.array([0]))
+    auto_x: np.ndarray = field(default_factory=lambda: np.array([6378137.]))
+    auto_y: np.ndarray = field(default_factory=lambda: np.array([0]))
+    auto_z: np.ndarray = field(default_factory=lambda: np.array([0]))
+    first_obs: Date = Date(year=1980, doy=1)
+    last_obs: Date = Date(datetime=datetime.now())
     max_dist: float = 20.0
+    station_information: list = field(default_factory=lambda: [])
+
 
 @dataclass
-class ProcessingOptions:
-    """Configuration for processing behavior"""
-    fit_earthquakes: bool = True
-    fit_generic_jumps: bool = True
-    fit_periodic: bool = True
-    plot_remove_jumps: bool = False
-    plot_polynomial_removed: bool = False
-    ignore_db_params: bool = False
-    no_model: bool = False
+class SolutionOptions:
+    soln: str = 'ppp'
+    stack_name: str = 'ppp'
 
 
 @dataclass
@@ -94,22 +163,38 @@ class ValidationRules:
 
 
 @dataclass
-class ParameterVector:
-    # station and solution identification
-    NetworkCode: str
-    StationCode: str
-    # Parameter storage
-    frequencies: np.ndarray = field(default_factory=lambda: np.array([]))
-    params: np.ndarray = field(default_factory=lambda: np.array([]))
-    sigmas: np.ndarray = field(default_factory=lambda: np.array([]))
-    covar: np.ndarray = field(default_factory=lambda: np.array([]))
+class PlotOutputConfig:
+    _allowed_attributes = {
+        'filename', 'file_io', 'format', 'save_kwargs',
+        'plot_show_outliers', 'plot_residuals_mode', 'plot_time_window',
+        'plot_remove_jumps', 'plot_remove_polynomial', 'plot_remove_periodic',
+        'missing_solutions'
+    }
+    """Configuration for plot output"""
+    filename: Optional[str] = None
+    file_io: Optional[BytesIO] = None
+    format: str = 'png'
+    save_kwargs: Dict[str, Any] = None
 
-    soln: str = ''
-    stack: str = ''
-    object: str = ''
-    metadata: Optional[str] = None
-    hash: int = 0
-    t_ref: float = 0
+    # Plot configuration
+    plot_show_outliers: bool = True
+    plot_residuals_mode: bool = False
+    plot_time_window: Optional[Tuple[float, float]] = None
+    plot_remove_jumps: bool = False
+    plot_remove_polynomial: bool = False
+    plot_remove_periodic: bool = False
+
+    # Missing data
+    missing_solutions: Optional[List] = None
+
+    def __post_init__(self):
+        if self.save_kwargs is None:
+            self.save_kwargs = {}
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name not in self._allowed_attributes:
+            raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'. ")
+        super().__setattr__(name, value)
 
 class ETMConfig:
     """Central configuration manager for ETM operations"""
@@ -131,10 +216,12 @@ class ETMConfig:
         self.network_code = network_code
         self.station_code = station_code
 
+        self.solution = SolutionOptions()
         self.modeling = ModelingParameters()
-        self.processing = ProcessingOptions()
+        self.plotting_config = PlotOutputConfig()
         self.validation = ValidationRules()
         self.metadata = StationMetadata()
+        self.least_squares = LeastSquares()
 
         # Language support
         self.language = 'eng'
@@ -144,8 +231,8 @@ class ETMConfig:
                 "north": "North",
                 "east": "East",
                 "up": "Up",
-                "table_title": "Year Day Relx    [mm] Mag   D [km]",
-                "periodic": "Periodic amp",
+                "table_title": "  Year Day Relx    [mm] Mag D [km]",
+                "periodic": "Seasonal Amplitude",
                 "velocity": "Velocity",
                 "from_model": "from model",
                 "acceleration": "Acceleration",
@@ -161,15 +248,16 @@ class ETMConfig:
                 "histogram plot": "Histogram",
                 "residual plot": "Residual Plot",
                 "jumps removed": "Jumps Removed",
-                "polynomial removed": "Polynomial Removed"
+                "polynomial removed": "Polynomial Removed",
+                "seasonal removed": "Seasonal Removed"
             },
             'spa': {
                 "station": "Estación",
                 "north": "Norte",
                 "east": "Este",
                 "up": "Arriba",
-                "table_title": "Año  Día Relx    [mm] Mag   D [km]",
-                "periodic": "Amp. Periódica",
+                "table_title": "  Año  Día Relx    [mm] Mag D [km]",
+                "periodic": "Amplitud Estacional",
                 "velocity": "Velocidad",
                 "from_model": "de modelo",
                 "acceleration": "Aceleración",
@@ -185,7 +273,8 @@ class ETMConfig:
                 "histogram plot": "Histograma",
                 "residual plot": "Gráfico de Residuos",
                 "jumps removed": "Saltos Removidos",
-                "polynomial removed": "Polinomio Removido"
+                "polynomial removed": "Polinomio Removido",
+                "seasonal removed": "Estacionales Removidas"
             }
         }
 
@@ -203,10 +292,10 @@ class ETMConfig:
     def _load_from_database(self, cnn) -> None:
         """Load station-specific configuration from database"""
         try:
+            self._load_station_metadata(cnn)
             self._load_polynomial_config(cnn)
             self._load_periodic_config(cnn)
             self._load_jump_config(cnn)
-            self._load_station_metadata(cnn)
 
             logger.info(f"Loaded configuration from database for {self.network_code}.{self.station_code}")
 
@@ -233,7 +322,18 @@ class ETMConfig:
         self.metadata.auto_x = np.array([float(stn[0]['auto_x'])])
         self.metadata.auto_y = np.array([float(stn[0]['auto_y'])])
         self.metadata.auto_z = np.array([float(stn[0]['auto_z'])])
+        self.metadata.first_obs = Date(fyear=stn[0]['DateStart'])
+        self.metadata.last_obs = Date(fyear=stn[0]['DateEnd'])
         self.metadata.max_dist = 20.0 if not stn[0]['max_dist'] else stn[0]['max_dist']
+
+        # as part of the metadata, load the station info
+        from pgamit.pyStationInfo import StationInfo, pyStationInfoException
+        try:
+            station_info = StationInfo(cnn, self.network_code, self.station_code, allow_empty=True)
+
+            self.metadata.station_information = station_info.records
+        except pyStationInfoException:
+            self.metadata.station_information = []
 
     def _load_polynomial_config(self, cnn) -> None:
         """Load polynomial configuration from etm_params table"""
@@ -278,17 +378,21 @@ class ETMConfig:
                 freqs = result[0]['frequencies']
                 if isinstance(freqs, (list, tuple)):
                     self.modeling.frequencies = np.array(freqs)
+                    self.modeling.periodic_status = PeriodicStatus.ADDED_BY_USER
 
         except Exception as e:
             logger.debug(f"No periodic config in database: {e}")
 
     def _load_jump_config(self, cnn) -> None:
         """Load jump configuration from etm_params table"""
+        from etm.core.s_score import ScoreTable
+
+        # @todo: analyze if "soln" = 'gamit' always or should also allow 'ppp'
         query = '''
             SELECT "Year", "DOY", "action", "jump_type", "relaxation" 
             FROM etm_params 
             WHERE "NetworkCode" = '%s' AND "StationCode" = '%s' 
-            AND "object" = 'jump' AND "soln" = 'gamit'
+            AND "object" = 'jump' AND "soln" = 'gamit' ORDER BY ("Year", "DOY")
         ''' % (self.network_code, self.station_code)
 
         try:
@@ -296,13 +400,34 @@ class ETMConfig:
 
             if result:
                 # Store jump configuration for later use
-                self.jump_config = result
+                for jump in result:
+                    if jump['jump_type'] == 1:
+                        jump_type = JumpType.COSEISMIC_JUMP_DECAY
+                    elif jump['jump_type'] == 2:
+                        jump_type = JumpType.POSTSEISMIC_ONLY
+                    else:
+                        jump_type = JumpType.MECHANICAL_MANUAL
+
+                    jump_params = JumpParameters(
+                        jump_type=jump_type,
+                        relaxation=jump['relaxation'],
+                        date=Date(year=int(jump['Year']), doy=int(jump['DOY'])),
+                        action=jump['action'])
+
+                    self.modeling.user_jumps.append(jump_params)
             else:
-                self.jump_config = []
+                self.modeling.user_jumps = []
+
+            # now earthquakes
+            # no information yet of data dates, load everything that is possible
+            score = ScoreTable(cnn, self.metadata.lat[0], self.metadata.lon[0],
+                               self.metadata.first_obs - self.modeling.post_seismic_back_lim,
+                               self.metadata.last_obs)
+            self.modeling.earthquake_jumps = score.table
 
         except Exception as e:
             logger.debug(f"No jump config in database: {e}")
-            self.jump_config = []
+            self.modeling.user_jumps = []
 
     def get_label(self, key: str) -> str:
         """Get localized label"""

@@ -1,8 +1,8 @@
-from typing import List, Tuple, Any
+from typing import List
 import numpy as np
 
 # app
-from pgamit.etm.etm_config import ETMConfig
+from etm.core.etm_config import ETMConfig
 
 
 class DataValidator:

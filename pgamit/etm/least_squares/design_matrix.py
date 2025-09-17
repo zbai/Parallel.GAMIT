@@ -5,8 +5,8 @@ import logging
 logger = logging.getLogger(__name__)
 
 # app
-from pgamit.etm.etm_config import  ETMConfig
-from pgamit.etm.trajectory_functions import EtmFunction
+from etm.core.etm_config import  ETMConfig
+from etm.etm_functions.etm_function import EtmFunction
 
 # ============================================================================
 # Enhanced Design Matrix
@@ -23,7 +23,7 @@ class DesignMatrix:
         self.config = config
 
         # Build matrix
-        self.matrix = self._build_matrix()
+        self.matrix: np.ndarray = self._build_matrix(self.time_vector)
         self.condition_number = self._compute_condition_number()
 
         # Assign column indices to functions
@@ -32,24 +32,30 @@ class DesignMatrix:
         # Validate matrix
         self._validate_matrix()
 
-    def _build_matrix(self) -> np.ndarray:
+    def _build_matrix(self, time_vector: np.ndarray) -> np.ndarray:
         """Build the complete design matrix"""
         active_functions = [f for f in self.functions if f.fit]
 
         if not active_functions:
-            return np.array([]).reshape(len(self.time_vector), 0)
+            return np.array([]).reshape(len(time_vector), 0)
 
         # Build matrix column by column
         matrix_parts = []
         for func in active_functions:
-            func_matrix = func.get_design_ts(self.time_vector)
+            func_matrix = func.get_design_ts(time_vector)
             if func_matrix.size > 0:
                 matrix_parts.append(func_matrix)
 
         if matrix_parts:
             return np.column_stack(matrix_parts)
         else:
-            return np.array([]).reshape(len(self.time_vector), 0)
+            return np.array([]).reshape(len(time_vector), 0)
+
+    def alternate_time_vector(self, time_vector: np.ndarray):
+        """
+        expose _build_matrix
+        """
+        return self._build_matrix(time_vector)
 
     def _assign_column_indices(self) -> None:
         """Assign column indices to functions"""

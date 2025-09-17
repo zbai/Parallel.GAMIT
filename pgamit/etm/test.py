@@ -1,26 +1,23 @@
-
-from pgamit.etm.solution_data import PPPSolutionData
-from pgamit.etm.solution_data import GAMITSolutionData
-from pgamit.etm.etm_config import ETMConfig
+from etm.core.etm_engine import *
+from etm.core.etm_config import ETMConfig
 from pgamit.dbConnection import Cnn
-from pgamit.etm.function_factory import FunctionFactory
+
 
 cnn = Cnn('/home/demian/pg_osu/gnss_data.cfg')
 
-
 config = ETMConfig('arg', 'igm1', cnn=cnn)
+
+# options for plotting
+config.plotting_config.filename = '/home/demian/pg_osu/test.png'
+config.plotting_config.plot_show_outliers = True
+config.plotting_config.save_kwargs={'dpi': 150}
+config.plotting_config.plot_remove_polynomial = True
+config.plotting_config.plot_remove_periodic = True
 
 config.validate_config()
 
-soln = PPPSolutionData(config)
-
-soln.load_data(cnn)
-
-soln = GAMITSolutionData('igs14', config)
-
-soln.load_data(cnn)
-
-factory = FunctionFactory()
-pol = factory.create_polynomial(soln, config, _time_vector=soln.t)
+etm = ETMEngine(cnn, config, SolutionType.GAMIT, stack_name='igs14')
+etm.run_adjustment()
+etm.plot()
 
 print('done')

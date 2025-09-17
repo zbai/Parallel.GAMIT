@@ -2,39 +2,46 @@ from datetime import datetime
 from typing import Optional, Union, List, Tuple, Dict, Any
 import numpy as np
 
+
 # app
 from pgamit.Utils import crc32
-from pgamit import pyDate
-from pgamit.etm.trajectory_functions import EtmFunction
-from pgamit.etm.etm_config import JumpType
-from pgamit.etm.etm_config import ETMConfig
+from pgamit.pyDate import Date
+from etm.etm_functions.etm_function import EtmFunction
+from etm.core.etm_config import JumpType
+from etm.core.etm_config import ETMConfig
 
 class JumpFunction(EtmFunction):
     """Enhanced jump function with improved management and validation"""
+    def __init__(self, config: ETMConfig, **kwargs):
+        self.date = Date(year=1980, doy=1)
+        self.magnitude = 0
+        self.epi_distance = 0
+        self.user_action = 'A'
+        super().__init__(config, **kwargs)
 
-    def initialize(self, time_vector: np.ndarray, date: Union[pyDate.Date, datetime],
+
+    def initialize(self, time_vector: np.ndarray, date: Union[Date, datetime],
                    jump_type: JumpType = JumpType.MECHANICAL_MANUAL,
-                   metadata: str = "", action: str = 'A',
-                   relaxation: Optional[np.ndarray] = None,
-                   magnitude: float = np.nan, epi_distance: float = 0.0,
+                   magnitude: Optional[int] = 0,
+                   epi_distance: Optional[float] = 0,
+                   user_action: Optional[str] = 'A',
                    **kwargs) -> None:
         """Initialize jump-specific parameters"""
         self.p.object = 'jump'
         self._time_vector = time_vector
 
         # Jump identification
-        self.date = date if isinstance(date, pyDate.Date) else pyDate.Date(datetime=date)
+        self.date = date if isinstance(date, Date) else Date(datetime=date)
         self.p.jump_date = self.date.datetime()
         self.p.jump_type = jump_type
-        self.p.metadata = metadata
 
         # Jump properties
-        self.action = action  # 'A'uto, '+'add, '-'remove, 'M'anual
         self.magnitude = magnitude
+        self.user_action = user_action
         self.epi_distance = epi_distance
 
-        # Relaxation parameters for postseismic jumps
-        self.p.relaxation = self._setup_relaxation(relaxation, jump_type)
+        # Relaxation parameters for postseismic user_jumps
+        self.p.relaxation = self._setup_relaxation(jump_type)
 
         # Parameter counting and design matrix setup
         self._setup_parameter_count()
@@ -43,17 +50,20 @@ class JumpFunction(EtmFunction):
         # Validation and final setup
         self._validate_jump_configuration(time_vector)
 
-    def _setup_relaxation(self, relaxation: Optional[np.ndarray], jump_type: JumpType) -> np.ndarray:
-        """Setup relaxation parameters based on jump type"""
-        if jump_type in (JumpType.COSEISMIC_JUMP_DECAY, JumpType.POSTSEISMIC_ONLY):
-            if relaxation is None:
-                return self.config.modeling.default_relaxation.copy()
-            elif isinstance(relaxation, (list, tuple)):
-                return np.array(relaxation)
-            elif isinstance(relaxation, (int, float)):
-                return np.array([relaxation])
+    def _setup_relaxation(self, jump_type: JumpType) -> np.ndarray:
+        """Setup relaxation parameters based on jump type.
+        Find jump in the list user jumps for a personalized relxation time"""
+        if jump_type >= JumpType.COSEISMIC_JUMP_DECAY:
+            # try to find the jump in the config
+            jump_params = self.config.modeling.get_user_jump(self.date, jump_type)
+            if jump_params is None or jump_params.action == '-':
+                return self.config.modeling.relaxation.copy()
+            elif isinstance(jump_params.relaxation, (list, tuple)):
+                return np.array(jump_params.relaxation)
+            elif isinstance(jump_params.relaxation, (int, float)):
+                return np.array([jump_params.relaxation])
             else:
-                return relaxation.copy()
+                return jump_params.relaxation.copy()
         else:
             return np.array([])
 
@@ -79,10 +89,8 @@ class JumpFunction(EtmFunction):
 
         if self.p.jump_type == JumpType.COSEISMIC_ONLY:
             return step_function
-
         elif self.p.jump_type == JumpType.POSTSEISMIC_ONLY:
             return self._create_logarithmic_decay(time_vector)
-
         elif self.p.jump_type == JumpType.COSEISMIC_JUMP_DECAY:
             decay_matrix = self._create_logarithmic_decay(time_vector)
             if decay_matrix.size > 0:
@@ -156,58 +164,32 @@ class JumpFunction(EtmFunction):
         """Generate design matrix for given time series"""
         return self._create_design_matrix(ts)
 
-    def print_parameters(self) -> Tuple[str, str, str]:
+    def print_parameters(self) -> Tuple[list, list, list]:
         """Generate formatted parameter strings for N, E, U components"""
-        if not self.fit or self.p.params.size == 0:
-            return self._format_no_fit_output()
+        # set the format string depending on jump type
+        self.format_str = []
 
-        return self._format_parameter_output()
+        if self.p.jump_type in (JumpType.COSEISMIC_JUMP_DECAY, JumpType.COSEISMIC_ONLY):
+            self.format_str.append(f'{self.user_action} {self.date.yyyyddd()} {"":4}' + ' {:>7.1f}'
+                                   + f' {self.magnitude:3.1f} {self.epi_distance:6.1f}')
+        elif not self.p.jump_type == JumpType.POSTSEISMIC_ONLY:
+            self.format_str.append(f'{self.user_action} {self.date.yyyyddd()} {"":4}' + ' {:>7.1f}')
 
-    def _format_no_fit_output(self) -> Tuple[str, str, str]:
-        """Format output when jump is not fitted"""
-        mag_str = f"{self.magnitude:.1f}" if not np.isnan(self.magnitude) else "-"
-        dist_str = f"{self.epi_distance:.1f}" if self.epi_distance > 0 else ""
+        # add relaxation parameters if needed
+        for relax in self.p.relaxation:
+            self.format_str.append(f'{self.user_action} {self.date.yyyyddd()} {relax:4.2f}' + ' {:>7.1f}'
+                                   + f' {self.magnitude:3.1f} {self.epi_distance:6.1f}')
 
-        base_format = f"{self.date.yyyyddd()}            - {mag_str} {self.action} {dist_str}"
+        output_table = [[], [], []]
 
-        if self.p.jump_type == JumpType.POSTSEISMIC_ONLY:
-            # Show relaxation terms for postseismic
-            output = []
-            for r in self.p.relaxation:
-                output.append(f"{self.date.yyyyddd()} {r:4.2f}       - {mag_str} {self.action} {dist_str}")
-            return '\n'.join(output), '\n'.join(output), '\n'.join(output)
-        else:
-            return base_format, base_format, base_format
+        for i in range(3):
+            if not self.fit or not len(self.p.params):
+                output_table[i].append((self.format_str[0].format(0), 'gray'))
+            else:
+                for j, param in enumerate(self.p.params[i]):
+                    output_table[i].append((self.format_str[j].format(param * 1000.), self.p.jump_type.color))
 
-    def _format_parameter_output(self) -> Tuple[str, str, str]:
-        """Format output when parameters are available"""
-        mag_str = f"{self.magnitude:.1f}" if not np.isnan(self.magnitude) else "-"
-        dist_str = f"{self.epi_distance:.1f}" if self.epi_distance > 0 else ""
-
-        output_n, output_e, output_u = [], [], []
-        param_idx = 0
-
-        # Format jump component
-        if self.p.jump_type != JumpType.POSTSEISMIC_ONLY:
-            jump_params = self.p.params[:, param_idx] * 1000  # Convert to mm
-            output_n.append(f"{self.date.yyyyddd()}      {jump_params[0]:>7.1f} {mag_str} {self.action} {dist_str}")
-            output_e.append(f"{self.date.yyyyddd()}      {jump_params[1]:>7.1f} {mag_str} {self.action} {dist_str}")
-            output_u.append(f"{self.date.yyyyddd()}      {jump_params[2]:>7.1f} {mag_str} {self.action} {dist_str}")
-            param_idx += 1
-
-        # Format relaxation components
-        for r in self.p.relaxation:
-            if param_idx < self.p.params.shape[1]:
-                relax_params = self.p.params[:, param_idx] * 1000
-                output_n.append(
-                    f"{self.date.yyyyddd()} {r:4.2f} {relax_params[0]:>7.1f} {mag_str} {self.action} {dist_str}")
-                output_e.append(
-                    f"{self.date.yyyyddd()} {r:4.2f} {relax_params[1]:>7.1f} {mag_str} {self.action} {dist_str}")
-                output_u.append(
-                    f"{self.date.yyyyddd()} {r:4.2f} {relax_params[2]:>7.1f} {mag_str} {self.action} {dist_str}")
-                param_idx += 1
-
-        return '\n'.join(output_n), '\n'.join(output_e), '\n'.join(output_u)
+        return output_table[0], output_table[1], output_table[2]
 
     def rehash(self) -> None:
         """Recompute hash for change detection"""
@@ -241,13 +223,12 @@ class JumpFunction(EtmFunction):
         if 'magnitude' in behavior_config:
             self.magnitude = float(behavior_config['magnitude'])
 
-        if 'action' in behavior_config:
-            self.action = str(behavior_config['action'])
-
-    def remove_from_fit(self) -> None:
-        """Remove jump from fitting process"""
+    def remove_from_fit(self, user_action=None) -> None:
+        """Remove jump from fitting process. If user_action provided, update the field"""
         self.fit = False
         self.design = np.array([])
+        if user_action:
+            self.user_action = user_action
         self.rehash()
 
     def validate_parameters(self) -> List[str]:
@@ -270,18 +251,18 @@ class JumpFunction(EtmFunction):
         return issues
 
     def __lt__(self, other: 'JumpFunction') -> bool:
-        """Enable sorting of jumps by date"""
+        """Enable sorting of user_jumps by date"""
         return self.date.fyear < other.date.fyear
 
     def __eq__(self, other: 'JumpFunction') -> Tuple[bool, Optional['JumpFunction']]:
         """
-        Compare two jumps for equivalence and return decision on which to keep
+        Compare two user_jumps for equivalence and return decision on which to keep
         Returns (is_equivalent, preferred_jump)
         """
         if not isinstance(other, JumpFunction):
             raise ValueError("Can only compare JumpFunction objects")
 
-        # Handle non-fitting jumps
+        # Handle non-fitting user_jumps
         if not self.fit and other.fit:
             return True, other
         elif self.fit and not other.fit:
@@ -289,138 +270,56 @@ class JumpFunction(EtmFunction):
         elif not self.fit and not other.fit:
             return False, None
 
-        # Both jumps are fitted - check for conflicts
-        time_separation = abs(other.date.fyear - self.date.fyear)
-        days_separation = time_separation * 365.25
+        # Both user_jumps are fitted - check for conflicts
+        lt_earthquake_min_days = abs(other.date - self.date) <= self.config.modeling.earthquake_min_days
+        lt_jump_min_days = abs(other.date - self.date) <= self.config.modeling.jump_min_days
 
         # Calculate data overlap
         design_overlap = 0
         if self.design.size > 0 and other.design.size > 0:
             design_overlap = np.sum(np.logical_xor(self.design[:, 0], other.design[:, 0]))
 
+        lt_design_eq_min_days = design_overlap <= self.config.modeling.earthquake_min_days
+        lt_design_jump_min_days = design_overlap <= self.config.modeling.jump_min_days
+
         # Decision logic based on jump types and data availability
-        if self._is_coseismic() and other._is_coseismic():
-            # Two coseismic jumps
-            if design_overlap < max(self.param_count, other.param_count) + 1:
-                # Insufficient data separation - choose by magnitude
-                if not np.isnan(self.magnitude) and not np.isnan(other.magnitude):
-                    return True, self if self.magnitude > other.magnitude else other
-                else:
-                    return True, other  # Prefer the newer one
+        if self._is_geophysical() and other._is_geophysical():
+            # Two geophysical user_jumps
+            # there are more than two weeks of data to constrain params, return false (not equal)
+            # otherwise, decide based on the magnitude of events
+            if lt_earthquake_min_days or lt_design_eq_min_days:
+                # Insufficient data separation, by date or data points - choose by magnitude
+                return True, self if self.magnitude > other.magnitude else other
+            else:
+                return False, None  # Can coexist
+        elif self._is_geophysical() and not other._is_geophysical():
+            if lt_design_jump_min_days:
+                return True, self  # geophysical prevails
+            else:
+                return False, None # Can coexist
+        elif not self._is_geophysical() and other._is_geophysical():
+            if lt_design_jump_min_days:
+                return True, other  # geophysical prevails
+            else:
+                return False, None  # Can coexist
+        else:
+            # Two mechanical/generic user_jumps
+            if lt_jump_min_days or lt_design_jump_min_days:
+                return True, other  # Prefer the latest jump
             else:
                 return False, None  # Can coexist
 
-        elif self._is_coseismic() and not other._is_coseismic():
-            if design_overlap < self.param_count + 1:
-                return True, self  # Coseismic prevails
-            else:
-                return False, None
-
-        elif not self._is_coseismic() and other._is_coseismic():
-            if design_overlap < other.param_count + 1:
-                return True, other  # Coseismic prevails
-            else:
-                return False, None
-
-        else:
-            # Two mechanical/generic jumps
-            if design_overlap < max(self.param_count, other.param_count) + 1:
-                return True, other  # Prefer the newer one
-            else:
-                return False, None
-
-    def _is_coseismic(self) -> bool:
-        """Check if jump is coseismic type"""
+    def _is_geophysical(self) -> bool:
+        """Check if jump is geophysical, i.e. if >= COSEISMIC_JUMP_DECAY"""
         return self.p.jump_type >= JumpType.COSEISMIC_JUMP_DECAY
 
     def __str__(self) -> str:
         """String representation for debugging"""
         return (f"JumpFunction(date={self.date.yyyyddd()}, "
-                f"type={JumpTypeDict.get_description(self.p.jump_type)}, "
-                f"action={self.action}, fit={self.fit}, "
+                f"type={self.p.jump_type.description}, "
+                f"fit={self.fit}, "
                 f"params={self.param_count})")
 
     def __repr__(self) -> str:
         return f"JumpFunction({str(self)})"
-
-
-class JumpManager:
-    """Manager class for handling collections of jumps"""
-
-    def __init__(self, config: ETMConfig):
-        self.config = config
-        self.jumps: List[JumpFunction] = []
-
-    def add_jump(self, jump: JumpFunction) -> bool:
-        """
-        Add jump to collection, handling conflicts automatically
-        Returns True if jump was added, False if rejected
-        """
-        # Check for conflicts with existing jumps
-        for existing_jump in self.jumps[::-1]:  # Check in reverse order
-            if existing_jump.fit:
-                is_equivalent, preferred = existing_jump.__eq__(jump)
-                if is_equivalent:
-                    if preferred is jump:
-                        existing_jump.remove_from_fit()
-                    else:
-                        jump.remove_from_fit()
-                    break
-
-        self.jumps.append(jump)
-        self.jumps.sort()  # Keep chronological order
-        return jump.fit
-
-    def remove_jump(self, date: pyDate.Date) -> bool:
-        """Remove jump by date"""
-        for i, jump in enumerate(self.jumps):
-            if jump.date == date:
-                del self.jumps[i]
-                return True
-        return False
-
-    def get_active_jumps(self) -> List[JumpFunction]:
-        """Get list of jumps that are fitted"""
-        return [jump for jump in self.jumps if jump.fit]
-
-    def get_parameter_count(self) -> int:
-        """Get total parameter count for active jumps"""
-        return sum(jump.param_count for jump in self.jumps if jump.fit)
-
-    def validate_all_jumps(self) -> List[str]:
-        """Validate all jumps and return issues"""
-        all_issues = []
-        for jump in self.jumps:
-            issues = jump.validate_parameters()
-            all_issues.extend(issues)
-        return all_issues
-
-    def print_jump_table(self) -> Tuple[str, str, str]:
-        """Generate formatted jump tables for N, E, U components"""
-        if not self.jumps:
-            return "No jumps", "No jumps", "No jumps"
-
-        # Header
-        header = self.config.get_label('table_title')
-        output_n = [header]
-        output_e = [header]
-        output_u = [header]
-
-        # Add each jump's parameters
-        for jump in self.jumps:
-            n_str, e_str, u_str = jump.print_parameters()
-            if n_str:  # Only add non-empty strings
-                output_n.extend(n_str.split('\n'))
-                output_e.extend(e_str.split('\n'))
-                output_u.extend(u_str.split('\n'))
-
-        # Truncate if too long
-        max_lines = 22
-        if len(output_n) > max_lines:
-            truncate_msg = self.config.get_label('table_too_long')
-            output_n = output_n[:max_lines] + [truncate_msg]
-            output_e = output_e[:max_lines] + [truncate_msg]
-            output_u = output_u[:max_lines] + [truncate_msg]
-
-        return '\n'.join(output_n), '\n'.join(output_e), '\n'.join(output_u)
 
