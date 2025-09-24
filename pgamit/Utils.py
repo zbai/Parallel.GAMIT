@@ -53,8 +53,13 @@ def get_field_or_attr(obj, f):
 
 
 def stationID(s):
-    return "%s.%s" % (get_field_or_attr(s, 'NetworkCode'),
-                      get_field_or_attr(s, 'StationCode'))
+    if hasattr(s, 'network_code'):
+        # new format
+        return "%s.%s" % (get_field_or_attr(s, 'network_code'),
+                          get_field_or_attr(s, 'station_code'))
+    else:
+        return "%s.%s" % (get_field_or_attr(s, 'NetworkCode'),
+                          get_field_or_attr(s, 'StationCode'))
 
 
 def get_stack_stations(cnn, name):

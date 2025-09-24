@@ -1,48 +1,30 @@
 # base_function.py
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import asdict
 from typing import Dict, Any, Optional, List, Tuple
-from datetime import datetime
 import numpy as np
+import logging
+
+from skimage.transform import order_angles_golden_ratio
+
+logger = logging.getLogger(__name__)
 
 from etm.core.etm_config import JumpType
 # app
-from etm.core.etm_config import ETMConfig
-
-@dataclass
-class ParameterVector:
-    # station and solution identification
-    NetworkCode: str
-    StationCode: str
-    # Parameter storage
-    frequencies: np.ndarray = field(default_factory=lambda: np.array([]))
-    params: List[np.ndarray] = field(default_factory=lambda: [np.array([]), np.array([]), np.array([])])
-    sigmas: List[np.ndarray] = field(default_factory=lambda: [np.array([]), np.array([]), np.array([])])
-    covar: List[np.ndarray] = field(default_factory=lambda: [np.array([]), np.array([]), np.array([])])
-
-    soln: str = 'ppp'
-    stack: str = 'ppp'
-    object: str = ''
-    metadata: Optional[str] = None
-    hash: int = 0
-    jump_date: datetime = datetime(1980, 1, 1)
-    jump_type: JumpType = JumpType.UNDETERMINED
-    t_ref: float = 0
+from pgamit.etm.core.etm_config import EtmConfig
+from pgamit.etm.core.data_classes import EtmFunctionParameterVector, AdjustmentResults
 
 
 class EtmFunction(ABC):
     """Enhanced base class for all ETM function objects"""
 
-    def __init__(self, config: ETMConfig,
-                 metadata: Optional[str] = 'Generic ETM function',
+    def __init__(self, config: EtmConfig,
+                 metadata: Optional[str] = '',
                  **kwargs):
 
-        self.p = ParameterVector(config.network_code, config.station_code)
+        self.p = EtmFunctionParameterVector()
         self.config = config
 
-        # Core identification
-        self.p.soln = config.solution.soln
-        self.p.stack = config.solution.stack_name
         self.p.metadata = metadata
 
         # Function properties
@@ -90,54 +72,47 @@ class EtmFunction(ABC):
         else:
             return design @ self.p.params[component]
 
-    def load_parameters(self, params: np.ndarray, sigmas: np.ndarray, **kwargs) -> None:
+    def load_parameters(self, etm_results: List[AdjustmentResults]) -> None:
         """Load estimated parameters and their uncertainties"""
-        if params.ndim == 1:
-            params = params.reshape((3, params.shape[0] // 3))
-        if sigmas.ndim == 1:
-            sigmas = sigmas.reshape((3, sigmas.shape[0] // 3))
+        # set to None, initialize before assigning values
+        self.p.params = [np.array([])] * 3
+        self.p.sigmas = [np.array([])] * 3
+        self.p.covar = [np.array([])] * 3
 
-        # Handle different parameter sources (LSQ X vector vs database)
-        if params.shape[1] > self.param_count:
-            # From LSQ X vector - use column indices
-            self.p.params = params[:, self.column_index]
-            self.p.sigmas = sigmas[:, self.column_index]
-        else:
-            # From database - direct assignment
-            self.p.params = params
-            self.p.sigmas = sigmas
+        for i in range(3):
+            self.p.params[i] =  etm_results[i].parameters[self.column_index]
+            self.p.sigmas[i] = etm_results[i].parameter_sigmas[self.column_index]
+            self.p.covar[i] = etm_results[i].covariance_matrix[self.column_index][:, self.column_index]
 
     @abstractmethod
-    def print_parameters(self) -> Tuple[list, list, list]:
+    def print_parameters(self, **kwargs) -> Tuple[list, list, list]:
         pass
 
-    def validate_parameters(self) -> List[str]:
+    def validate_parameters(self) -> List[Tuple['EtmFunction', str]]:
         """Validate parameter values and return issues"""
         issues = []
 
-        if self.p.params.size > 0:
-            if np.any(np.isnan(self.p.params)):
-                issues.append(f"{self.__class__.__name__}: NaN values in parameters")
-            if np.any(np.isinf(self.p.params)):
-                issues.append(f"{self.__class__.__name__}: Infinite values in parameters")
+        if self.p.params and len(self.p.params) > 0:
+            if np.any(np.isnan(self.p.params[0])):
+                issues.append((self, f"{self.__class__.__name__}: NaN values in parameters"))
+            if np.any(np.isinf(self.p.params[0])):
+                issues.append((self, f"{self.__class__.__name__}: Infinite values in parameters"))
 
         return issues
 
+    def validate_design(self) -> List[Tuple['EtmFunction', str]]:
+        issues = []
+        return issues
+
     def get_parameter_dict(self) -> Dict[str, Any]:
-        """Get parameters as dictionary for serialization"""
-        return {
-            'NetworkCode': self.p.NetworkCode,
-            'StationCode': self.p.StationCode,
-            'soln': self.p.soln,
-            'stack': self.p.stack,
-            'object': self.p.object,
-            'params': self.p.params.tolist() if self.p.params.size > 0 else [],
-            'sigmas': self.p.sigmas.tolist() if self.p.sigmas.size > 0 else [],
-            'metadata': self.p.metadata,
-            'hash': self.p.hash,
-            'param_count': self.param_count,
-            'fit': self.fit
-        }
+        """Get parameters as dictionary for database"""
+        parameter_dict = asdict(self.p)
+        parameter_dict['NetworkCode'] = self.config.network_code
+        parameter_dict['StationCode'] = self.config.station_code
+        parameter_dict['soln'] = self.config.solution.soln
+        parameter_dict['stack'] = self.config.solution.stack_name
+
+        return parameter_dict
 
     def configure_behavior(self, behavior_config: Dict[str, Any]) -> None:
         """Configure function behavior based on conditions"""
@@ -152,4 +127,7 @@ class EtmFunction(ABC):
             elif hasattr(self, condition):
                 setattr(self, condition, value)
 
+    @abstractmethod
+    def short_name(self) -> str:
+        pass
 

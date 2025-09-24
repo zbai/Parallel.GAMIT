@@ -6,22 +6,103 @@ Author: Demian D. Gomez
 
 # solution_data.py
 from abc import ABC, abstractmethod
-from typing import List, Optional
+from typing import List, Optional, Union
+from dataclasses import dataclass, field
+import json
 import numpy as np
 import logging
 
 logger = logging.getLogger(__name__)
 
 # app
-from pgamit import pyDate
+from pgamit.pyDate import Date
 from pgamit.Utils import crc32
-from etm.core.etm_config import ETMConfig
+from pgamit.etm.core.etm_config import EtmConfig
+from pgamit.etm.core.type_declarations import FitStatus
+
+class SolutionDataException(Exception):
+    pass
+
+
+@dataclass
+class CoordinateTimeSeries:
+    """Dataclass for coordinate time series data with JSON serialization support"""
+    x: np.ndarray = field(default_factory=lambda: np.array([]))
+    y: np.ndarray = field(default_factory=lambda: np.array([]))
+    z: np.ndarray = field(default_factory=lambda: np.array([]))
+    time_vector: np.ndarray = field(default_factory=lambda: np.array([]))
+    time_vector_mjd: np.ndarray = field(default_factory=lambda: np.array([]))
+    dates: List[Date] = field(default_factory=list)  # Store date info as dicts for JSON
+
+    @classmethod
+    def from_arrays(cls, x: np.ndarray, y: np.ndarray, z: np.ndarray,
+                    time_vector: np.ndarray, time_vector_mjd: np.ndarray,
+                    dates: List[Date]) -> 'CoordinateTimeSeries':
+        """Create from numpy arrays and Date objects"""
+        return cls(
+            x=x,
+            y=y,
+            z=z,
+            time_vector=time_vector.tolist(),
+            time_vector_mjd=time_vector_mjd.tolist(),
+            dates=dates
+        )
+
+    def __len__(self) -> int:
+        """Return number of coordinate points"""
+        return len(self.x)
+
+    def is_empty(self) -> bool:
+        """Check if coordinate series is empty"""
+        return len(self.x) == 0
+
+    def validate(self) -> List[str]:
+        """Validate coordinate time series consistency"""
+        issues = []
+        lengths = [len(self.x), len(self.y), len(self.z), len(self.time_vector),
+                   len(self.time_vector_mjd), len(self.dates)]
+
+        if not all(l == lengths[0] for l in lengths):
+            issues.append("Coordinate and time arrays have different lengths")
+
+        return issues
+
+    def to_json(self, filepath: Optional[str] = None) -> Union[str, None]:
+        """Save to JSON file or return JSON string"""
+        data = {
+            'x': self.x,
+            'y': self.y,
+            'z': self.z,
+            'time_vector': self.time_vector,
+            'time_vector_mjd': self.time_vector_mjd,
+            'dates': self.dates
+        }
+
+        if filepath:
+            with open(filepath, 'w') as f:
+                json.dump(data, f, indent=2)
+            return None
+        else:
+            return json.dumps(data, indent=2)
+
+    @classmethod
+    def from_json(cls, filepath: Optional[str] = None, json_string: Optional[str] = None) -> 'CoordinateTimeSeries':
+        """Load from JSON file or string"""
+        if filepath:
+            with open(filepath, 'r') as f:
+                data = json.load(f)
+        elif json_string:
+            data = json.loads(json_string)
+        else:
+            raise ValueError("Either filepath or json_string must be provided")
+
+        return cls(**data)
 
 
 class SolutionData(ABC):
-    """Base class for all solution data types"""
+    """Base class for all solution data types with JSON serialization support"""
 
-    def __init__(self, config: ETMConfig):
+    def __init__(self, config: EtmConfig):
         self.network_code = config.network_code
         self.station_code = config.station_code
         self.config = config
@@ -29,27 +110,15 @@ class SolutionData(ABC):
         # Common attributes
         self.solutions: int = 0
         self.completion: float = 0.0
-        self.hash: int = 0
         self.soln: str = ""
         self.stack_name: str = ""
         self.project: str = ""
 
-        # Coordinate arrays
-        self.x: np.ndarray = np.array([])
-        self.y: np.ndarray = np.array([])
-        self.z: np.ndarray = np.array([])
-        self.time_vector: np.ndarray = np.array([])
-        self.time_vector_mjd: np.ndarray = np.array([])
-        self.date: List[pyDate.Date] = []
+        # Replace individual arrays with dataclass
+        self.coordinates = CoordinateTimeSeries()
 
         # Reference coordinates
-        self.lat = config.metadata.lat
-        self.lon = config.metadata.lon
-        self.height = config.metadata.height
-        self.auto_x = config.metadata.auto_x
-        self.auto_y = config.metadata.auto_y
-        self.auto_z = config.metadata.auto_z
-        self.max_dist = config.metadata.max_dist
+        self.metadata = config.metadata
 
         # Quality control
         self.blunders: List = []
@@ -58,11 +127,266 @@ class SolutionData(ABC):
 
         # Time series for plotting
         self.time_vector_cont: np.ndarray = np.array([])
-        self.time_vector_cont_mjds: np.ndarray = np.array([])
-        # no solution and blunders
-        self.time_vector_ns: np.ndarray = np.array([])  # no solution epochs
-        self.time_vector_blunders: np.ndarray = np.array([])  # blunder epochs
+        self.time_vector_cont_mjd: np.ndarray = np.array([])
 
+        # no solution and blunders
+        self.time_vector_ns: np.ndarray = np.array([])
+        self.time_vector_blunders: np.ndarray = np.array([])
+        self.rnx_no_ppp: List = []
+
+    # Properties for backward compatibility
+    @property
+    def lat(self) -> np.ndarray:
+        return self.metadata.lat
+
+    @property
+    def lon(self) -> np.ndarray:
+        return self.metadata.lon
+
+    @property
+    def height(self) -> np.ndarray:
+        return self.metadata.height
+
+    @property
+    def auto_x(self) -> np.ndarray:
+        return self.metadata.auto_x
+
+    @property
+    def auto_y(self) -> np.ndarray:
+        return self.metadata.auto_y
+
+    @property
+    def auto_z(self) -> np.ndarray:
+        return self.metadata.auto_z
+
+    @property
+    def max_dist(self) -> np.ndarray:
+        return self.metadata.max_dist
+
+    @property
+    def x(self) -> np.ndarray:
+        """Get X coordinates as numpy array"""
+        return np.array(self.coordinates.x)
+
+    @property
+    def y(self) -> np.ndarray:
+        """Get Y coordinates as numpy array"""
+        return np.array(self.coordinates.y)
+
+    @property
+    def z(self) -> np.ndarray:
+        """Get Z coordinates as numpy array"""
+        return np.array(self.coordinates.z)
+
+    @property
+    def time_vector(self) -> np.ndarray:
+        """Get time vector as numpy array"""
+        return np.array(self.coordinates.time_vector)
+
+    @property
+    def time_vector_mjd(self) -> np.ndarray:
+        """Get MJD time vector as numpy array"""
+        return np.array(self.coordinates.time_vector_mjd)
+
+    @property
+    def date(self) -> List[Date]:
+        """Get dates as list of Date objects"""
+        return self.coordinates.dates
+
+    @property
+    def hash(self):
+        if not self.solutions:
+            raise SolutionDataException('Hash value requested but no solutions were loaded!')
+        else:
+            return self.compute_hash(self.soln + self.stack_name)
+
+    def _set_coordinates_from_arrays(self, x: np.ndarray, y: np.ndarray, z: np.ndarray,
+                                     time_vector: np.ndarray, time_vector_mjd: np.ndarray,
+                                     dates: List[Date]) -> None:
+        """Set coordinates from numpy arrays (internal method)"""
+        self.coordinates = CoordinateTimeSeries.from_arrays(
+            x, y, z, time_vector, time_vector_mjd, dates
+        )
+        self.solutions = self.coordinates.x.size
+
+    def _process_coordinate_solutions(self, solutions: List, solution_type: str = "solutions") -> None:
+        """Common processing for coordinate solutions"""
+        if not solutions:
+            raise ValueError(f"No {solution_type} for {self.get_station_id()}")
+
+        # Filter by distance from reference coordinates
+        coordinates = np.array([(s[0], s[1], s[2]) for s in solutions])
+        dates = np.array([(s[3], s[4]) for s in solutions]).astype(int)
+
+        # determine the type of coordinate being passed
+        if np.sqrt(np.sum(np.square(coordinates[0, 0:3]))) > 6.3e3:
+            reference = np.array([self.auto_x[0], self.auto_y[0], self.auto_z[0]])
+        else:
+            reference = np.array([0, 0, 0])
+
+        valid_mask = self.filter_by_distance(coordinates, reference)
+        valid_solutions = coordinates[valid_mask]
+        valid_dates = dates[valid_mask]
+        if not valid_solutions.any():
+            min_dist = np.sqrt(np.sum(np.square(coordinates - reference), axis=1)).min()
+            raise ValueError(
+                f"No viable {solution_type} for {self.get_station_id()} "
+                f"(minimum distance: {min_dist:.1f}m)"
+            )
+
+        # Convert to arrays
+        x = valid_solutions[:, 0]
+        y = valid_solutions[:, 1]
+        z = valid_solutions[:, 2]
+
+        # Create time vectors
+        dates = [Date(year=year, doy=doy) for year, doy in valid_dates]
+        time_vector = np.array([date.fyear for date in dates])
+        time_vector_mjd = np.array([date.mjd for date in dates])
+
+        # Set using the new dataclass
+        self._set_coordinates_from_arrays(x, y, z, time_vector, time_vector_mjd, dates)
+
+    def _compute_completion_percentage(self, time_vector_ns: np.ndarray) -> None:
+        """Common completion percentage calculation"""
+        self.time_vector_ns = time_vector_ns
+        total_epochs = len(self.time_vector_ns) + len(self.coordinates)
+        if total_epochs > 0:
+            self.completion = 100.0 - (len(self.time_vector_ns) / total_epochs * 100.0)
+        else:
+            self.completion = 0.0
+
+    def _validate_basic_data(self, issues: List[str]) -> List[str]:
+        """Common validation checks"""
+        if self.solutions < self.config.validation.min_solutions_for_etm:
+            issues.append(
+                f"Insufficient solutions ({self.solutions} < "
+                f"{self.config.validation.min_solutions_for_etm})"
+            )
+
+        # Use dataclass validation
+        coord_issues = self.coordinates.validate()
+        issues.extend(coord_issues)
+
+        return issues
+
+    @staticmethod
+    def _execute_query(cnn, query: str, query_params: tuple = ()) -> List:
+        """Common query execution with logging"""
+        if query_params:
+            formatted_query = query % query_params
+        else:
+            formatted_query = query
+
+        return cnn.query_float(formatted_query)
+
+    def create_continuous_time_vector(self) -> None:
+        """Create continuous time vectors for plotting"""
+        if len(self.coordinates) > 0:
+            mjd_array = self.time_vector_mjd
+            ts = np.arange(np.min(mjd_array), np.max(mjd_array) + 1, 1)
+            self.time_vector_cont_mjd = ts
+            self.time_vector_cont = np.array([Date(mjd=mjd).fyear for mjd in ts])
+            self.gaps = np.setdiff1d(self.time_vector_cont_mjd, mjd_array)
+
+    def compute_hash(self, additional_data: str = "") -> int:
+        """Compute hash for the solution data"""
+        hash_input = (
+            f"{len(self.coordinates)}_{len(self.blunders)}_"
+            f"{self.auto_x[0] if len(self.auto_x) > 0 else 0}_"
+            f"{self.auto_y[0] if len(self.auto_y) > 0 else 0}_"
+            f"{self.auto_z[0] if len(self.auto_z) > 0 else 0}_"
+            f"{self.time_vector.min() if len(self.coordinates) > 0 else 0}_"
+            f"{self.time_vector.max() if len(self.coordinates) > 0 else 0}_"
+            f"{self.config.modeling.data_model_window}_"
+            f"{additional_data}"
+        )
+        return crc32(hash_input)
+
+    def transform_to_local(self, ignore_filter=False) -> List[np.ndarray]:
+        """Transform ECEF coordinates to local NEU frame"""
+        from pgamit.Utils import ct2lg
+
+        # apply observation mask (if any)
+        if not ignore_filter:
+            mask = self.config.modeling.get_observation_mask(self.time_vector)
+        else:
+            mask = np.ones(self.time_vector.shape).astype(bool)
+
+        ecef_diff = np.array([
+            self.x[mask] - self.auto_x[0],
+            self.y[mask] - self.auto_y[0],
+            self.z[mask] - self.auto_z[0]
+        ])
+        neu = ct2lg(ecef_diff[0], ecef_diff[1], ecef_diff[2], self.lat[0], self.lon[0])
+        return neu
+
+    def transform_to_ecef(self, neu_coords: List[np.ndarray]) -> List[np.ndarray]:
+        """Transform local NEU coordinates back to ECEF"""
+        from pgamit.Utils import lg2ct
+
+        ecef_diff = lg2ct(neu_coords[0], neu_coords[1], neu_coords[2],
+                          self.lat[0], self.lon[0])
+        # Add reference coordinates back
+        ecef = [
+            ecef_diff[0] + self.auto_x[0],
+            ecef_diff[1] + self.auto_y[0],
+            ecef_diff[2] + self.auto_z[0]
+        ]
+        return ecef
+
+    def save_to_json(self, filepath: str) -> None:
+        """Save solution data to JSON file"""
+        data = {
+            'network_code': self.network_code,
+            'station_code': self.station_code,
+            'solutions': self.solutions,
+            'completion': self.completion,
+            'soln': self.soln,
+            'stack_name': self.stack_name,
+            'project': self.project,
+            'coordinates': self.coordinates.__dict__,
+            'time_vector_ns': self.time_vector_ns.tolist(),
+            'gaps': self.gaps.tolist(),
+            'excluded': self.excluded,
+            'rnx_no_ppp': self.rnx_no_ppp
+        }
+
+        with open(filepath, 'w') as f:
+            json.dump(data, f, indent=2)
+
+        logger.info(f"Saved solution data to {filepath}")
+
+    @classmethod
+    def load_from_json(cls, filepath: str, config: EtmConfig) -> 'SolutionData':
+        """Load solution data from JSON file (factory method)"""
+        with open(filepath, 'r') as f:
+            data = json.load(f)
+
+        # Determine which subclass to create based on solution type
+        if data['soln'] == 'ppp':
+            instance = PPPSolutionData(config)
+        elif data['soln'] == 'gamit':
+            instance = GAMITSolutionData(data['stack_name'], config)
+        else:
+            raise ValueError(f"Unknown solution type: {data['soln']}")
+
+        # Load the data
+        instance.solutions = data['solutions']
+        instance.completion = data['completion']
+        instance.soln = data['soln']
+        instance.stack_name = data['stack_name']
+        instance.project = data['project']
+        instance.coordinates = CoordinateTimeSeries(**data['coordinates'])
+        instance.time_vector_ns = np.array(data['time_vector_ns'])
+        instance.gaps = np.array(data['gaps'])
+        instance.excluded = data['excluded']
+        instance.rnx_no_ppp = data['rnx_no_ppp']
+
+        logger.info(f"Loaded solution data from {filepath}")
+        return instance
+
+    # Abstract methods
     @abstractmethod
     def load_data(self, cnn, **kwargs) -> None:
         """Load data from database or other source"""
@@ -77,140 +401,57 @@ class SolutionData(ABC):
         """Get formatted station identifier"""
         return f"{self.network_code}.{self.station_code}"
 
-    def compute_hash(self, additional_data: str = "") -> int:
-        """Compute hash for the solution data"""
-        hash_input = (
-            f"{len(self.time_vector)}_{len(self.blunders)}_"
-            f"{self.auto_x[0] if len(self.auto_x) > 0 else 0}_"
-            f"{self.auto_y[0] if len(self.auto_y) > 0 else 0}_"
-            f"{self.auto_z[0] if len(self.auto_z) > 0 else 0}_"
-            f"{self.time_vector.min() if len(self.time_vector) > 0 else 0}_"
-            f"{self.time_vector.max() if len(self.time_vector) > 0 else 0}_"
-            f"{additional_data}"
-        )
-        return crc32(hash_input)
-
-    def create_continuous_time_vector(self) -> None:
-        """Create continuous time vectors for plotting"""
-        if len(self.time_vector_mjd) > 0:
-            ts = np.arange(np.min(self.time_vector_mjd), np.max(self.time_vector_mjd) + 1, 1)
-            self.time_vector_cont_mjds = ts
-            self.time_vector_cont = np.array([pyDate.Date(mjd=mjd).fyear for mjd in ts])
-            self.gaps = np.setdiff1d(self.time_vector_cont_mjds, self.time_vector_mjd)
-
-    def filter_by_distance(self, coordinates: np.ndarray,
-                           reference: np.ndarray) -> bool:
+    def filter_by_distance(self, coordinates: np.ndarray, reference: np.ndarray) -> np.ndarray:
         """Filter coordinates by distance from reference"""
         distances = np.sqrt(np.sum(np.square(coordinates - reference), axis=1))
         return distances <= self.max_dist
 
-    def transform_to_local(self) -> np.ndarray:
-        """Transform ECEF coordinates to local NEU frame"""
-        from pgamit.Utils import ct2lg
-
-        # Compute coordinate differences from reference
-        ecef_diff = np.array([
-            self.x - self.auto_x[0],
-            self.y - self.auto_y[0],
-            self.z - self.auto_z[0]
-        ])
-
-        # Transform to local frame
-        neu = ct2lg(ecef_diff[0], ecef_diff[1], ecef_diff[2],
-                    self.lat[0], self.lon[0])
-
-        return np.array(neu)
-
-    def apply_models(self, models: List) -> np.ndarray:
-        """Apply external models (velocity, postseismic) to observations"""
-        corrected_observations = self.transform_to_local().copy()
-
-        for model in models:
-            if hasattr(model, 'eval'):
-                model_values = model.eval(self.time_vector)
-                corrected_observations -= model_values
-                logger.info(f"Applied {model.__class__.__name__} model")
-
-        return corrected_observations
-
 
 class PPPSolutionData(SolutionData):
-    """PPP-specific solution data implementation"""
+    """PPP-specific solution data implementation with JSON support"""
 
-    def __init__(self, config: ETMConfig):
+    def __init__(self, config: EtmConfig):
         super().__init__(config)
         self.soln = 'ppp'
         self.stack_name = 'ppp'
         self.project = 'from_ppp'
-        self.rnx_no_ppp: List = []
-        # update config to reflect which solution we are working with
+
+        # Update config to reflect which solution we are working with
         config.solution.soln = 'ppp'
         config.solution.stack_name = 'ppp'
         self.config = config
 
     def load_data(self, cnn, **kwargs) -> None:
         """Load PPP solutions from database"""
-
         self._load_ppp_solutions(cnn)
         self._load_excluded_solutions(cnn)
         self._compute_completion_stats(cnn)
-
         self.create_continuous_time_vector()
-        self.hash = self.compute_hash()
 
     def _load_ppp_solutions(self, cnn) -> None:
         """Load PPP coordinate solutions"""
-        ppp_query = '''
+        query = '''
             SELECT "X", "Y", "Z", "Year", "DOY" FROM ppp_soln p1
             WHERE p1."NetworkCode" = '%s' AND p1."StationCode" = '%s' 
             ORDER BY "Year", "DOY"
-        ''' % (self.network_code, self.station_code)
+        '''
+        logger.info(f'Loading PPP solutions for {self.get_station_id()}')
+        solutions = self._execute_query(cnn, query, (self.network_code, self.station_code))
 
-        solutions = cnn.query_float(ppp_query)
-
-        if not solutions:
-            raise ValueError(f"No PPP solutions for {self.get_station_id()}")
-
-        # Filter by distance from reference coordinates
-        coordinates = np.array([(s[0], s[1], s[2]) for s in solutions])
-        reference = np.array([self.auto_x[0], self.auto_y[0], self.auto_z[0]])
-
-        valid_mask = self.filter_by_distance(coordinates, reference)
-        valid_solutions = [s for i, s in enumerate(solutions) if valid_mask[i]]
-
-        if not valid_solutions:
-            min_dist = np.sqrt(np.sum(np.square(coordinates - reference), axis=1)).min()
-            raise ValueError(
-                f"No viable PPP solutions for {self.get_station_id()} "
-                f"(minimum distance: {min_dist:.1f}m)"
-            )
-
-        # Convert to arrays
-        solution_array = np.array(valid_solutions)
-        self.x = solution_array[:, 0]
-        self.y = solution_array[:, 1]
-        self.z = solution_array[:, 2]
-
-        # Create time vectors
-        dates_years_doys = solution_array[:, 3:5].astype(int)
-        self.date = [pyDate.Date(year=year, doy=doy)
-                     for year, doy in dates_years_doys]
-        self.time_vector = np.array([date.fyear for date in self.date])
-        self.time_vector_mjd = np.array([date.mjd for date in self.date])
-
-        self.solutions = len(valid_solutions)
+        # Use shared processing method
+        self._process_coordinate_solutions(solutions, "PPP solutions")
 
     def _load_excluded_solutions(self, cnn) -> None:
         """Load list of excluded solutions"""
-        excl_query = '''
+        query = '''
             SELECT "Year", "DOY" FROM ppp_soln_excl
             WHERE "NetworkCode" = '%s' AND "StationCode" = '%s'
-        ''' % (self.network_code, self.station_code)
-        self.excluded = cnn.query_float(excl_query)
+        '''
+        self.excluded = self._execute_query(cnn, query, (self.network_code, self.station_code))
 
     def _compute_completion_stats(self, cnn) -> None:
         """Compute completion percentage and missing solution epochs"""
-        rnx_query = '''
+        query = '''
             SELECT r."ObservationFYear" FROM rinex_proc as r
             LEFT JOIN ppp_soln as p ON 
                 r."NetworkCode" = p."NetworkCode" AND
@@ -219,35 +460,22 @@ class PPPSolutionData(SolutionData):
                 r."ObservationDOY" = p."DOY"
             WHERE r."NetworkCode" = '%s' AND r."StationCode" = '%s' AND
                 p."NetworkCode" IS NULL
-        ''' % (self.network_code, self.station_code)
+        '''
+        missing = self._execute_query(cnn, query, (self.network_code, self.station_code))
+        time_vector_ns = np.array([float(item[0]) for item in missing])
 
-        missing = cnn.query_float(rnx_query)
-        self.time_vector_ns = np.array([float(item[0]) for item in missing])
-
-        total_epochs = len(self.time_vector_ns) + len(self.time_vector)
-        if total_epochs > 0:
-            self.completion = 100.0 - (len(self.time_vector_ns) / total_epochs * 100.0)
-        else:
-            self.completion = 0.0
+        # Use shared completion calculation
+        self._compute_completion_percentage(time_vector_ns)
 
     def validate_data(self) -> List[str]:
         """Validate PPP solution data"""
         issues = []
 
-        if self.solutions < self.config.validation.min_solutions_for_etm:
-            issues.append(
-                f"Insufficient solutions ({self.solutions} < "
-                f"{self.config.validation.min_solutions_for_etm})"
-            )
+        # Use shared validation
+        issues = self._validate_basic_data(issues)
 
-        if len(self.x) != len(self.y) or len(self.y) != len(self.z):
-            issues.append("Coordinate arrays have different lengths")
-
-        if len(self.time_vector) != len(self.x):
-            issues.append("Time array length doesn't match coordinate arrays")
-
-        # Check for reasonable coordinate ranges
-        if len(self.x) > 0:
+        # PPP-specific validation
+        if len(self.coordinates) > 0:
             coord_range = np.ptp([self.x, self.y, self.z])
             if coord_range > 1000:  # 1km seems unreasonable for a single station
                 issues.append(f"Coordinate range suspiciously large: {coord_range:.1f}m")
@@ -256,14 +484,14 @@ class PPPSolutionData(SolutionData):
 
 
 class GAMITSolutionData(SolutionData):
-    """GAMIT-specific solution data implementation"""
+    """GAMIT-specific solution data implementation with JSON support"""
 
-    def __init__(self, stack_name: str, config: ETMConfig):
+    def __init__(self, stack_name: str, config: EtmConfig):
         super().__init__(config)
         self.soln = 'gamit'
         self.stack_name = stack_name
-        self.rnx_no_ppp: List = []
-        # update config to reflect which solution we are working with
+
+        # Update config to reflect which solution we are working with
         config.solution.soln = 'gamit'
         config.solution.stack_name = stack_name
         self.config = config
@@ -276,9 +504,7 @@ class GAMITSolutionData(SolutionData):
         self._load_project_info(cnn)
         self._process_polyhedrons(polyhedrons)
         self._load_missing_solutions(cnn)
-
         self.create_continuous_time_vector()
-        self.hash = self.compute_hash(str(self._get_coordinate_hash(cnn)))
 
     def _load_polyhedrons_from_db(self, cnn) -> List:
         """Load polyhedrons from stacks table"""
@@ -303,43 +529,11 @@ class GAMITSolutionData(SolutionData):
     def _process_polyhedrons(self, polyhedrons: List) -> None:
         """Process polyhedron data into coordinate arrays"""
         if not polyhedrons:
-            raise ValueError(f"No GAMIT polyhedrons available for {self.get_station_id()}")
+            raise ValueError(f"No GAMIT polyhedrons available for {self.get_station_id()} "
+                             f"in stack {self.stack_name}")
 
-        poly_array = np.array(polyhedrons, dtype=float)
-
-        # Determine if coordinates are absolute or relative
-        if np.sqrt(np.sum(np.square(poly_array[0, 0:3]))) > 6.3e3:
-            # Absolute coordinates - filter by distance from reference
-            reference = np.array([self.auto_x[0], self.auto_y[0], self.auto_z[0]])
-            valid_mask = self.filter_by_distance(poly_array[:, 0:3], reference)
-        else:
-            # Relative coordinates - filter by magnitude
-            distances = np.sqrt(np.sum(np.square(poly_array[:, 0:3]), axis=1))
-            valid_mask = distances <= self.max_dist
-
-        if not np.any(valid_mask):
-            min_dist = np.sqrt(np.sum(np.square(poly_array[:, 0:3] -
-                                                np.array([self.auto_x[0], self.auto_y[0], self.auto_z[0]])),
-                                      axis=1)).min()
-            raise ValueError(
-                f"No viable GAMIT solutions for {self.get_station_id()} "
-                f"(minimum distance: {min_dist:.1f}m)"
-            )
-
-        # Extract valid solutions
-        valid_poly = poly_array[valid_mask]
-        self.x = valid_poly[:, 0]
-        self.y = valid_poly[:, 1]
-        self.z = valid_poly[:, 2]
-
-        # Create time vectors
-        dates_years_doys = valid_poly[:, 3:5].astype(int)
-        self.date = [pyDate.Date(year=year, doy=doy)
-                     for year, doy in dates_years_doys]
-        self.time_vector = np.array([date.fyear for date in self.date])
-        self.time_vector_mjd = np.array([date.mjd for date in self.date])
-
-        self.solutions = len(valid_poly)
+        # Use shared processing method
+        self._process_coordinate_solutions(polyhedrons, "PPP solutions")
 
     def _load_missing_solutions(self, cnn) -> None:
         """Load epochs with RINEX files but no solutions"""
@@ -365,29 +559,14 @@ class GAMITSolutionData(SolutionData):
         else:
             self.completion = 0.0
 
-    def _get_coordinate_hash(self, cnn) -> float:
-        """Get hash of average coordinates for frame change detection"""
-        query = '''
-            SELECT avg("X") + avg("Y") + avg("Z") AS hash FROM stacks 
-            WHERE name = '%s' AND "NetworkCode" = '%s' AND "StationCode" = '%s'
-        ''' % (self.stack_name, self.network_code, self.station_code)
-
-        result = cnn.query_float(query, as_dict=True)
-        return result[0]['hash'] if result else 0.0
-
     def validate_data(self) -> List[str]:
         """Validate GAMIT solution data"""
         issues = []
 
-        if self.solutions < self.config.validation.min_solutions_for_etm:
-            issues.append(
-                f"Insufficient solutions ({self.solutions} < "
-                f"{self.config.validation.min_solutions_for_etm})"
-            )
+        # Use shared validation
+        issues = self._validate_basic_data(issues)
 
-        if len(self.x) != len(self.y) or len(self.y) != len(self.z):
-            issues.append("Coordinate arrays have different lengths")
-
+        # GAMIT-specific validation
         if not self.project:
             issues.append("No project information available")
 

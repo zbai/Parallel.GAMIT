@@ -11,13 +11,13 @@ import logging
 logger = logging.getLogger(__name__)
 
 # app
-from etm.core.etm_config import ETMConfig
-from etm.data.solution_data import SolutionData
+from pgamit.etm.core.etm_config import EtmConfig
+from pgamit.etm.data.solution_data import SolutionData
 
 class TimeSeriesProcessor:
     """Handle coordinate transformations and time series operations"""
 
-    def __init__(self, config: ETMConfig):
+    def __init__(self, config: EtmConfig):
         self.config = config
 
     def transform_to_local(self, solution_data: SolutionData) -> np.ndarray:

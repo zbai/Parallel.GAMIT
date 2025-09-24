@@ -1,19 +1,19 @@
 import numpy as np
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, List
 import logging
 
 logger = logging.getLogger(__name__)
 
 # app
 from pgamit.Utils import crc32
-from etm.core.etm_config import ETMConfig
-from etm.etm_functions.etm_function import EtmFunction
+from pgamit.etm.core.etm_config import EtmConfig
+from pgamit.etm.etm_functions.etm_function import EtmFunction
 
 
 class PolynomialFunction(EtmFunction):
     """Enhanced polynomial function with improved configuration management"""
 
-    def __init__(self, config: ETMConfig, **kwargs):
+    def __init__(self, config: EtmConfig, **kwargs):
         super().__init__(config, **kwargs)
 
     def initialize(self, models: tuple = (), time_vector: np.ndarray = np.array([])) -> None:
@@ -24,15 +24,21 @@ class PolynomialFunction(EtmFunction):
 
         # Set reference time
         if self.config.modeling.reference_epoch == 0:
-            self.config.modeling.reference_epoch = np.min(self._time_vector)
+            self.config.modeling.reference_epoch = np.min(time_vector)
             self.p.t_ref = self.config.modeling.reference_epoch
 
         # Initialize design matrix if time vector available
         self._time_vector = time_vector
-        self.design = self.get_design_ts(self._time_vector)
+        self.design = self.get_design_ts(time_vector)
 
-        logger.info('Polynomial -> Fitting %i term(s), conventional epoch %.3f' % (self.config.modeling.poly_terms,
-                                                                                   self.p.t_ref))
+        logger.info(f'Polynomial -> Fitting {self.config.modeling.poly_terms} term(s), conventional '
+                    f'epoch {self.p.t_ref:.3f}')
+
+        self.p.metadata = f'polynomial:{self.param_count}'
+
+        params = ','.join([f'p{i}' for i in range(self.param_count)])
+
+        self.p.param_metadata = f'polynomial:[n:[{params}]],[e:[{params}]],[u:[{params}]]]'
 
     def get_design_ts(self, time_vector: np.ndarray) -> np.ndarray:
         """Generate design matrix for polynomial terms"""
@@ -47,7 +53,7 @@ class PolynomialFunction(EtmFunction):
 
         return a
 
-    def print_parameters(self) -> Tuple[list, list, list]:
+    def print_parameters(self, ce_position: List[np.ndarray] = None) -> Tuple[list, list, list]:
         self.format_str = []
 
         params = np.array(self.p.params) * 1000.
@@ -55,9 +61,9 @@ class PolynomialFunction(EtmFunction):
 
         self.format_str = (self.config.get_label('position') +
                            f' ({self.p.t_ref:.3f}) '
-                           f'X: {params[0, 0]:.3f} '
-                           f'Y: {params[1, 0]:.3f} '
-                           f'Z: {params[2, 0]:.3f} [m]')
+                           f'X: {params[0, 0] if ce_position is None else ce_position[0][0]:.3f} '
+                           f'Y: {params[1, 0] if ce_position is None else ce_position[1][0]:.3f} '
+                           f'Z: {params[2, 0] if ce_position is None else ce_position[2][0]:.3f} [m]')
 
         if self.param_count > 1:
             self.format_str += ('\n' + self.config.get_label('velocity') + ' '
@@ -85,6 +91,8 @@ class PolynomialFunction(EtmFunction):
         """Configure polynomial-specific behavior"""
         super().configure_behavior(behavior_config)
 
+        logger.debug(f'configuring behavior {behavior_config}')
+
         if 'reference_epoch' in behavior_config:
             new_ref = behavior_config['reference_epoch']
             if isinstance(new_ref, (int, float)):
@@ -97,4 +105,19 @@ class PolynomialFunction(EtmFunction):
             if new_terms != self.config.modeling.poly_terms and new_terms > 0:
                 self.config.modeling.poly_terms = new_terms
                 self.design = self.get_design_ts(self._time_vector)
-                self.rehash()
+
+        self.rehash()
+
+    def short_name(self) -> str:
+        name = []
+        for p in range(self.param_count):
+            name.append(f'{"POLY " + f"P{p:d}":>10}')
+
+        return ' '.join(name)
+
+    def __str__(self) -> str:
+        """String representation for debugging"""
+        return f"param count: {self.param_count}"
+
+    def __repr__(self) -> str:
+        return f"Polynomial({str(self)})"

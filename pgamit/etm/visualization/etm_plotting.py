@@ -4,13 +4,17 @@ import base64
 from typing import Optional, Dict, Any
 from dataclasses import dataclass
 import logging
+import os
 
-from pgamit.etm.visualization.plot_tempates import (PlotTemplate, TimeSeriesTemplate, HistogramTemplate,
-                                                    ResidualTemplate, TimeSeriesPlotData, PlotOutputConfig,
-                                                    HistogramPlotData)
-from etm.core.etm_config import ETMConfig
+# app
+from pgamit.etm.core.etm_config import EtmConfig
+from pgamit.etm.visualization.time_series_template import TimeSeriesTemplate
+from pgamit.etm.visualization.histogram_template import HistogramTemplate
+from pgamit.etm.visualization.residuals_template import  ResidualTemplate
+from pgamit.etm.visualization.data_classes import  TimeSeriesPlotData, PlotOutputConfig, HistogramPlotData
 
 logger = logging.getLogger(__name__)
+
 
 @dataclass
 class Templates:
@@ -18,10 +22,11 @@ class Templates:
     histogram: HistogramTemplate
     residuals: ResidualTemplate
 
-class ETMPlotter:
+
+class EtmPlotter:
     """Main plotting class for ETM visualizations"""
 
-    def __init__(self, config: ETMConfig):
+    def __init__(self, config: EtmConfig):
         self.config = config
         self.templates = Templates(
             TimeSeriesTemplate(config),
@@ -86,7 +91,7 @@ class ETMPlotter:
         # Handle output
         return self._handle_plot_output(fig, output_config)
 
-    def plot_histogram(self, plot_data: HistogramPlotData,
+    def plot_histogram(self, plot_data: TimeSeriesPlotData,
                        output_config: Optional['PlotOutputConfig'] = None) -> Optional[str]:
         """Create histogram/residual analysis plot"""
         # if no specific output_config passed, replaced with default
@@ -99,7 +104,7 @@ class ETMPlotter:
         fig, axes = template.create_figure_layout()
 
         # Generate title
-        title = template.generate_title(plot_data)
+        title = template.generate_title(plot_data, output_config)
         fig.suptitle(title, fontsize=9, family='monospace')
 
         # Plot N-E scatter with error ellipse
@@ -108,7 +113,7 @@ class ETMPlotter:
         # Plot component histograms
         template.plot_component_histograms(axes, plot_data)
 
-        return self._handle_plot_output(fig, output_config)
+        return self._handle_plot_output(fig, output_config, histogram=True)
 
     def _determine_plot_layout(self, plot_data: TimeSeriesPlotData,
                                output_config: Optional[PlotOutputConfig]) -> Dict[str, Any]:
@@ -164,6 +169,10 @@ class ETMPlotter:
         # Add grid and labels
         template.add_grid_and_labels(ax, component)
 
+        # Apply time window if specified
+        if output_config.plot_time_window:
+            template.apply_time_window(ax, output_config.plot_time_window)
+
         # Plot jumps
         if plot_data.jumps:
             template.plot_jumps(ax, plot_data.jumps, data.time_range)
@@ -171,10 +180,6 @@ class ETMPlotter:
         # Plot auto-detected jumps if requested
         if plot_data.auto_jumps and plot_data.show_auto_jumps:
             template.plot_auto_jumps(ax, plot_data.auto_jumps, data.time_range)
-
-        # Apply time window if specified
-        if output_config.plot_time_window:
-            template.apply_time_window(ax, output_config.plot_time_window)
 
     def _plot_outlier_data(self, ax, plot_data: TimeSeriesPlotData,
                            component_idx: int,
@@ -203,17 +208,33 @@ class ETMPlotter:
         if output_config.plot_time_window:
             template.apply_time_window(ax, output_config.plot_time_window)
 
-    def _handle_plot_output(self, fig, output_config: Optional[PlotOutputConfig]) -> Optional[str]:
+    def _handle_plot_output(self, fig,
+                            output_config: Optional[PlotOutputConfig],
+                            histogram: bool = False) -> Optional[str]:
         """Handle plot output based on configuration"""
+
+        if output_config.filename:
+            if not os.path.basename(output_config.filename):
+                filename = (os.path.join(output_config.filename,
+                                                      self.config.build_filename()) + ('_hist' if histogram else '')
+                                          + '.' + output_config.format)
+            else:
+                dirs = os.path.dirname(output_config.filename)
+                file = os.path.basename(output_config.filename).split('.')
+                filename = (os.path.join(dirs, file[0]) + ('_hist' if histogram else '')
+                                          + '.' + output_config.format)
+        else:
+            filename = output_config.filename
+
         if not output_config:
             # Interactive mode
             self._setup_interactive_mode(fig)
             plt.show()
             return None
 
-        elif output_config.filename:
+        elif filename:
             # Save to file
-            plt.savefig(output_config.filename, **output_config.save_kwargs)
+            plt.savefig(filename, **output_config.save_kwargs)
             plt.close()
             return None
 

@@ -1,18 +1,21 @@
 from datetime import datetime
 from typing import Optional, Union, List, Tuple, Dict, Any
 import numpy as np
+import logging
 
+logger = logging.getLogger(__name__)
 
 # app
 from pgamit.Utils import crc32
 from pgamit.pyDate import Date
-from etm.etm_functions.etm_function import EtmFunction
-from etm.core.etm_config import JumpType
-from etm.core.etm_config import ETMConfig
+from pgamit.etm.etm_functions.etm_function import EtmFunction
+from pgamit.etm.core.etm_config import EtmConfig
+from pgamit.etm.core.type_declarations import JumpType
+
 
 class JumpFunction(EtmFunction):
     """Enhanced jump function with improved management and validation"""
-    def __init__(self, config: ETMConfig, **kwargs):
+    def __init__(self, config: EtmConfig, **kwargs):
         self.date = Date(year=1980, doy=1)
         self.magnitude = 0
         self.epi_distance = 0
@@ -49,6 +52,21 @@ class JumpFunction(EtmFunction):
 
         # Validation and final setup
         self._validate_jump_configuration(time_vector)
+
+        self._fill_metadata()
+
+    def _fill_metadata(self) -> None:
+        self.p.param_metadata = self.p.jump_type.description
+
+        params = ','.join([f'a{i}' for i in range(self.p.relaxation.size)])
+
+        if self.p.jump_type == JumpType.COSEISMIC_JUMP_DECAY:
+            self.p.param_metadata += f':[n:[b,{params}]],[e:[b,{params}]],[u:[b,{params}]]'
+        elif self.p.jump_type == JumpType.POSTSEISMIC_ONLY:
+            self.p.param_metadata += f':[n:[{params}]],[e:[{params}]],[u:[{params}]]'
+        elif self.p.jump_type in (JumpType.REFERENCE_FRAME, JumpType.COSEISMIC_ONLY,
+                                  JumpType.MECHANICAL_ANTENNA, JumpType.MECHANICAL_MANUAL):
+            self.p.param_metadata += ':[n:[b]],[e:[b]],[u:[b]]'
 
     def _setup_relaxation(self, jump_type: JumpType) -> np.ndarray:
         """Setup relaxation parameters based on jump type.
@@ -151,14 +169,15 @@ class JumpFunction(EtmFunction):
                     self.design = np.array([])
                     return
 
+            # @ todo: analyze moving test in validate_design (now called just before doing the fit) here
             # Check condition number for combined jump+decay
-            if self.p.jump_type == JumpType.COSEISMIC_JUMP_DECAY and self.design.shape[1] > 1:
-                condition_num = np.linalg.cond(self.design.T @ self.design)
-                if condition_num > self.config.validation.max_condition_number:
-                    # Fallback to jump only
-                    self.p.jump_type = JumpType.COSEISMIC_ONLY
-                    self.param_count = 1
-                    self.design = self._create_step_function(time_vector)
+            #if self.p.jump_type == JumpType.COSEISMIC_JUMP_DECAY and self.design.shape[1] > 1:
+            #    condition_num = np.log10(np.linalg.cond(self.design.T @ self.design))
+            #    if condition_num > self.config.validation.max_condition_number:
+            #        # Fallback to jump only
+            #        self.p.jump_type = JumpType.COSEISMIC_ONLY
+            #        self.param_count = 1
+            #        self.design = self._create_step_function(time_vector)
 
     def get_design_ts(self, ts: np.ndarray) -> np.ndarray:
         """Generate design matrix for given time series"""
@@ -201,14 +220,15 @@ class JumpFunction(EtmFunction):
         """Configure jump-specific behavior"""
         super().configure_behavior(behavior_config)
 
-        if 'relaxation_times' in behavior_config:
-            new_relaxation = np.array(behavior_config['relaxation_times'])
+        logger.debug(f'configuring behavior {behavior_config} ' + str(self))
+
+        if 'relaxation' in behavior_config:
+            new_relaxation = np.array(behavior_config['relaxation'])
             if not np.array_equal(new_relaxation, self.p.relaxation):
                 self.p.relaxation = new_relaxation
                 self._setup_parameter_count()
                 if hasattr(self, '_time_vector'):
                     self.design = self._create_design_matrix(self._time_vector)
-                self.rehash()
 
         if 'jump_type' in behavior_config:
             new_type = JumpType(behavior_config['jump_type'])
@@ -218,10 +238,13 @@ class JumpFunction(EtmFunction):
                 if hasattr(self, '_time_vector'):
                     self.design = self._create_design_matrix(self._time_vector)
                     self._validate_jump_configuration(self._time_vector)
-                self.rehash()
+
 
         if 'magnitude' in behavior_config:
             self.magnitude = float(behavior_config['magnitude'])
+
+        self._fill_metadata()
+        self.rehash()
 
     def remove_from_fit(self, user_action=None) -> None:
         """Remove jump from fitting process. If user_action provided, update the field"""
@@ -231,24 +254,63 @@ class JumpFunction(EtmFunction):
             self.user_action = user_action
         self.rehash()
 
-    def validate_parameters(self) -> List[str]:
+    def validate_parameters(self) -> List[Tuple[EtmFunction, str]]:
         """Validate jump parameters"""
         issues = super().validate_parameters()
 
-        if self.fit and self.p.params.size > 0:
-            # Check for unrealistic jump amplitudes
-            max_amplitude = np.max(np.abs(self.p.params))
-            if max_amplitude > self.config.validation.max_jump_amplitude:
-                issues.append(
-                    f"Jump {self.date.yyyyddd()}: Unrealistic amplitude {max_amplitude:.3f}m"
-                )
+        if self.fit and len(self.p.params) > 0:
+            # Check for unrealistic relaxation amplitudes
+            if self.p.jump_type in (JumpType.COSEISMIC_JUMP_DECAY, JumpType.POSTSEISMIC_ONLY):
+                max_amplitude = np.max(np.abs(np.array(self.p.params)[:, -self.p.relaxation.size:]))
+                if max_amplitude > self.config.validation.max_relaxation_amplitude:
+                    issues.append((self, f"Unrealistic amplitude {max_amplitude:.3f} m: "
+                                         f"{self.p.jump_type.description} {self.date.yyyyddd()}"))
 
         # Check relaxation values are positive
         if len(self.p.relaxation) > 0:
-            if np.any(self.p.relaxation <= 0):
-                issues.append(f"Jump {self.date.yyyyddd()}: Relaxation times must be positive")
+            if np.any(np.array(self.p.relaxation) <= 0):
+                issues.append((self, f"{self.p.jump_type.description} {self.date.yyyyddd()}: "
+                                     f"Relaxation times must be positive"))
 
         return issues
+
+    def validate_design(self) -> List[Tuple[EtmFunction, str]]:
+        issues = super().validate_design()
+        # report condition number
+        cond_num = np.log10(np.linalg.cond(self.design.T @ self.design))
+        logger.debug(f'Condition number: {cond_num:.2f} ' + repr(self))
+
+        # validate the design matrix
+        if (cond_num >= self.config.validation.max_condition_number
+                and self.p.jump_type in (JumpType.COSEISMIC_JUMP_DECAY, JumpType.POSTSEISMIC_ONLY)
+                and self.p.relaxation.size > 1 and  self.fit):
+            issues.append((self, f"Condition number too large for jump "
+                                 f"{self.p.jump_type.description} {self.date.yyyyddd()} ({cond_num:.2f}), "
+                                 f"removing smallest relaxation time"))
+        return issues
+
+    def eval(self, component: int,
+             override_time_vector: np.ndarray = None,
+             override_params: np.ndarray = None):
+        """Implementation only removed jumps, not decay"""
+
+        if self.p.jump_type == JumpType.POSTSEISMIC_ONLY:
+            return 0
+
+        if override_time_vector is not None:
+            design = self.get_design_ts(override_time_vector)
+        else:
+            design = self.design
+
+        if self.p.jump_type not in (JumpType.COSEISMIC_ONLY, JumpType.MECHANICAL_MANUAL,
+                                    JumpType.MECHANICAL_ANTENNA, JumpType.REFERENCE_FRAME, JumpType.UNDETERMINED):
+            # to return a 2d array
+            design = design[:,[0]]
+
+        if override_params is not None:
+            return design @ override_params[component][[0]]
+        else:
+            return design @ self.p.params[component][[0]]
 
     def __lt__(self, other: 'JumpFunction') -> bool:
         """Enable sorting of user_jumps by date"""
@@ -279,7 +341,9 @@ class JumpFunction(EtmFunction):
         if self.design.size > 0 and other.design.size > 0:
             design_overlap = np.sum(np.logical_xor(self.design[:, 0], other.design[:, 0]))
 
+        # this flag is used to decide when both are geophysical
         lt_design_eq_min_days = design_overlap <= self.config.modeling.earthquake_min_days
+        # if one is geophysical but the other is not, use this flag
         lt_design_jump_min_days = design_overlap <= self.config.modeling.jump_min_days
 
         # Decision logic based on jump types and data availability
@@ -313,12 +377,30 @@ class JumpFunction(EtmFunction):
         """Check if jump is geophysical, i.e. if >= COSEISMIC_JUMP_DECAY"""
         return self.p.jump_type >= JumpType.COSEISMIC_JUMP_DECAY
 
+    def short_name(self) -> str:
+        if not self.p.jump_type == JumpType.POSTSEISMIC_ONLY:
+            name = [f'{"OFFSET":>10}']
+        else:
+            name = []
+
+        for r in self.p.relaxation:
+            name.append(f'{"RELAX " + f"{r:.1f}":>10}')
+
+        return ' '.join(name)
+
     def __str__(self) -> str:
         """String representation for debugging"""
-        return (f"JumpFunction(date={self.date.yyyyddd()}, "
-                f"type={self.p.jump_type.description}, "
-                f"fit={self.fit}, "
-                f"params={self.param_count})")
+        out_str = [f"{self.user_action} {self.date.yyyyddd()}",
+                   f"{self.p.jump_type.description}",
+                   f"fit: {self.fit}",
+                   f"param count: {self.param_count}"]
+
+        if self.p.jump_type >= JumpType.COSEISMIC_JUMP_DECAY:
+            out_str.append(f"relaxation: [" + " ".join([f'{item:.2f}' for item in self.p.relaxation.tolist()]) + "]")
+            out_str.append(f"magnitude: {self.magnitude:.1f}")
+            out_str.append(f"epi_distance: {self.epi_distance:.1f} km")
+
+        return '; '.join(out_str)
 
     def __repr__(self) -> str:
         return f"JumpFunction({str(self)})"

@@ -10,7 +10,8 @@ from typing import List
 
 from pgamit.pyDate import Date
 from pgamit.pyOkada import Score
-from etm.core.etm_config import Earthquake, JumpType
+from pgamit.etm.core.type_declarations import JumpType
+from pgamit.etm.core.data_classes import Earthquake
 
 # from Gómez et al 2024
 a = 0.5261

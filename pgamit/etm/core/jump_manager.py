@@ -4,28 +4,29 @@ Date: 9/13/25 5:22 PM
 Author: Demian D. Gomez
 """
 from typing import List, Tuple
-from dataclasses import dataclass, field
 import numpy as np
 import logging
 
 logger = logging.getLogger(__name__)
 
 # app
-from etm.core.etm_config import ETMConfig
-from etm.core.etm_config import JumpType
-from etm.etm_functions.jumps import JumpFunction
-from etm.data.solution_data import SolutionData
+from pgamit.etm.core.etm_config import EtmConfig
+from pgamit.etm.core.type_declarations import JumpType
+from pgamit.etm.etm_functions.jumps import JumpFunction
+from pgamit.etm.data.solution_data import SolutionData
 
 class JumpManager:
     """Comprehensive jump management system"""
 
-    def __init__(self, solution_data: SolutionData, config: ETMConfig):
+    def __init__(self, solution_data: SolutionData, config: EtmConfig):
         self.config = config
         self.jumps: List[JumpFunction] = []
         self.auto_detected_jumps: List[JumpFunction] = []
         # max and min dates
-        self.date_min = min(solution_data.date)
-        self.date_max = max(solution_data.date)
+        # check if user has selected a windowed fit
+        mask = np.where(self.config.modeling.get_observation_mask(solution_data.time_vector))[0]
+        self.date_min = np.array(solution_data.date)[mask].min()
+        self.date_max = np.array(solution_data.date)[mask].max()
 
     def build_jump_table(self, time_vector: np.ndarray) -> None:
         """
@@ -55,7 +56,7 @@ class JumpManager:
         # Validate final jump configuration
         # self._validate_jump_constraints(time_vector)
 
-        logger.info(f"Final jump table: {len(self.get_active_jumps())} active user_jumps")
+        logger.info(f"Final jump table: {len(self.get_active_jumps())} active jumps of {len(self.jumps)}")
 
     def _load_earthquake_jumps(self, time_vector: np.ndarray) -> None:
         """Load earthquake-based user_jumps from catalog"""
@@ -129,7 +130,7 @@ class JumpManager:
         if active_jumps:
             last_jump = None
             for jump in reversed(active_jumps):
-                if jump.jump_function.fit:
+                if jump.fit:
                     last_jump = jump
                     break
 
@@ -177,18 +178,22 @@ class JumpManager:
                         jump.remove_from_fit()
                     break
 
-        user_action, user_type = self._get_jump_action(jump)
+        if jump.fit:
+            # if jump got deactivated, do not bother to find it, some other jump already won
+            user_action, user_type = self._get_jump_action(jump)
 
-        # deactivate jump if user selected decided to
-        if not self._should_fit_jump(user_action):
-            jump.remove_from_fit(user_action=user_action)
+            # deactivate jump if user selected decided to
+            if not self._should_fit_jump(user_action):
+                jump.remove_from_fit(user_action=user_action)
 
-        # check that type match! if types don't match, transform the jump
-        if not jump.p.jump_type == user_type:
-            jump.configure_behavior({'jump_type': user_type})
+            # check that type match! if types don't match, transform the jump
+            if not jump.p.jump_type == user_type:
+                jump.configure_behavior({'jump_type': user_type})
 
-        if not jump.user_action == user_action:
-            jump.user_action = user_action
+            if not jump.user_action == user_action:
+                jump.user_action = user_action
+
+        logger.info(str(jump))
 
         self.jumps.append(jump)
 

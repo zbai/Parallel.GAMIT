@@ -1,15 +1,18 @@
 import numpy as np
 from typing import Dict, Any, Tuple
+import logging
+
+logger = logging.getLogger(__name__)
 
 # app
 from pgamit.Utils import crc32
-from etm.etm_functions.etm_function import EtmFunction
-from etm.core.etm_config import ETMConfig
+from pgamit.etm.etm_functions.etm_function import EtmFunction
+from pgamit.etm.core.etm_config import EtmConfig
 
 
 class PeriodicFunction(EtmFunction):
     """Enhanced periodic function with improved frequency management"""
-    def __init__(self, config: ETMConfig, **kwargs):
+    def __init__(self, config: EtmConfig, **kwargs):
         self.dt_max = 1.0
         super().__init__(config, **kwargs)
 
@@ -26,7 +29,16 @@ class PeriodicFunction(EtmFunction):
             self.param_count = 0
             self.p.frequencies = np.array([])
 
+        logger.info(f'Periodic -> Frequency count: {len(self.p.frequencies)}; FitPeriodic: {self.fit}')
+
         self.design = self.get_design_ts(time_vector)
+
+        self.p.metadata = f'periodic:{len(self.p.frequencies)}'
+
+        params = (','.join([f's{i}' for i in range(int(self.param_count/2))]) + ',' +
+                  ','.join([f'c{i}' for i in range(int(self.param_count/2))]))
+
+        self.p.param_metadata = f'periodic:[n:[{params}]],[e:[{params}]],[u:[{params}]]]'
 
     def _analyze_data_gaps(self, time_vector: np.ndarray) -> None:
         """Analyze data gaps to determine fittable frequencies"""
@@ -73,16 +85,19 @@ class PeriodicFunction(EtmFunction):
         periods_str = ' '.join('%.1f yr' % i for i in periods)
 
         self.format_str = (self.config.get_label('periodic') + f' ({periods_str})')
-        params = np.array(self.p.params) * 1000.
+        if self.p.params:
+            params = np.array(self.p.params) * 1000.
 
-        freq = int(self.param_count / 2)
-        amplitude = np.zeros((3, freq))
-        for i in range(freq):
-            amplitude[:, i] = np.sqrt(np.sum(np.square(params[:, i::freq]), axis=1))
+            freq = int(self.param_count / 2)
+            amplitude = np.zeros((3, freq))
+            for i in range(freq):
+                amplitude[:, i] = np.sqrt(np.sum(np.square(params[:, i::freq]), axis=1))
 
-        Na = ' '.join([f'{amp:.2f}' for amp in amplitude[0]])
-        Ea = ' '.join([f'{amp:.2f}' for amp in amplitude[1]])
-        Ua = ' '.join([f'{amp:.2f}' for amp in amplitude[2]])
+            Na = ' '.join([f'{amp:.2f}' for amp in amplitude[0]])
+            Ea = ' '.join([f'{amp:.2f}' for amp in amplitude[1]])
+            Ua = ' '.join([f'{amp:.2f}' for amp in amplitude[2]])
+        else:
+            Na = Ea = Ua = 0
 
         self.format_str += f' N: ({Na}) E: ({Ea}) U: ({Ua}) [mm]'
 
@@ -103,4 +118,27 @@ class PeriodicFunction(EtmFunction):
                 self._filter_fittable_frequencies(new_freqs)
                 self.param_count = self.p.frequencies.size * 2
                 self.design = self.get_design_ts(self._time_vector)
-                self.rehash()
+
+        self.rehash()
+
+    def short_name(self) -> str:
+        name = []
+        if self.p.frequencies is not None:
+            for i in range(self.p.frequencies.size):
+                name.append(f'{"FREQ " + f"S{i:d}":>10}')
+            for i in range(self.p.frequencies.size):
+                name.append(f'{"FREQ " + f"C{i:d}":>10}')
+
+        return ' '.join(name)
+
+    def __str__(self) -> str:
+        """String representation for debugging"""
+        out_str = [f"param count: {self.param_count}"]
+        if self.p.frequencies is not None:
+            for f in self.p.frequencies:
+                out_str.append(f'period: {1/f:7.3f} days')
+
+        return '; '.join(out_str)
+
+    def __repr__(self) -> str:
+        return f"Periodic({str(self)})"

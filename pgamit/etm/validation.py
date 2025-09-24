@@ -2,13 +2,13 @@ from typing import List
 import numpy as np
 
 # app
-from etm.core.etm_config import ETMConfig
+from etm.core.etm_config import EtmConfig
 
 
 class DataValidator:
     """Comprehensive data validation utilities"""
 
-    def __init__(self, config: ETMConfig):
+    def __init__(self, config: EtmConfig):
         self.config = config
 
     def validate_coordinates(self, x: np.ndarray, y: np.ndarray, z: np.ndarray) -> List[str]:
@@ -89,7 +89,7 @@ class DataValidator:
 class ParameterValidator:
     """Validation for ETM function parameters"""
 
-    def __init__(self, config: ETMConfig):
+    def __init__(self, config: EtmConfig):
         self.config = config
 
     def validate_polynomial_params(self, params: np.ndarray, terms: int) -> List[str]:
@@ -123,10 +123,10 @@ class ParameterValidator:
 
         # Check for unrealistic jump amplitudes
         max_amplitude = np.max(np.abs(params))
-        if max_amplitude > self.config.validation.max_jump_amplitude:
+        if max_amplitude > self.config.validation.max_relaxation_amplitude:
             issues.append(
                 f"Unrealistic jump amplitude: {max_amplitude:.3f} m > "
-                f"{self.config.validation.max_jump_amplitude:.3f} m"
+                f"{self.config.validation.max_relaxation_amplitude:.3f} m"
             )
 
         # Check jump type consistency

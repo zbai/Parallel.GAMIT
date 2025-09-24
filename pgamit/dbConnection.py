@@ -7,6 +7,7 @@ This class is used to connect to the database and handles inserts, updates and s
 It also handles the error, info and warning messages
 """
 
+import sys
 import platform
 import configparser
 import inspect
@@ -14,6 +15,7 @@ import re
 import psycopg2
 import psycopg2.extras
 import psycopg2.extensions
+import numpy as np
 from decimal import Decimal
 
 # app
@@ -91,6 +93,10 @@ def debug(s):
         file_append('/tmp/db.log', "DB: %s\n" % s)
 
 
+def adapt_numpy_array(numpy_array):
+    return psycopg2.extensions.adapt(numpy_array.tolist())
+
+
 class dbErrInsert (psycopg2.errors.UniqueViolation): pass
 
 
@@ -150,6 +156,7 @@ class Cnn(object):
 
         psycopg2.extensions.register_type(DEC2FLOAT)
         psycopg2.extensions.register_type(DECIMAL_ARRAY_TYPE)
+        psycopg2.extensions.register_adapter(np.ndarray, adapt_numpy_array)
 
         # open connection to server
         err = None
@@ -184,19 +191,17 @@ class Cnn(object):
     def query_float(self, command, as_dict=False):
         # deprecated: using psycopg2 now solves the problem of returning float numbers
         # still in to maintain backwards compatibility
-        try:
-            if not as_dict:
-                cursor = self.cnn.cursor()
-                cursor.execute(command)
-                recordset = cast_array_to_float(cursor.fetchall())
-            else:
-                # return results as a dictionary
-                self.cursor.execute(command)
-                recordset = cast_array_to_float(self.cursor.fetchall())
+        if not as_dict:
+            cursor = self.cnn.cursor()
+            cursor.execute(command)
+            recordset = cast_array_to_float(cursor.fetchall())
+        else:
+            # return results as a dictionary
+            self.cursor.execute(command)
+            recordset = cast_array_to_float(self.cursor.fetchall())
 
-            return recordset
-        except Exception as e:
-            raise DatabaseError(e)
+        return recordset
+
 
     def get(self, table, filter_fields, return_fields=None, limit=None):
         """
@@ -262,7 +267,7 @@ class Cnn(object):
         self.active_transaction = False
         self.cursor.execute('ROLLBACK')
 
-    def insert(self, table, **kw):
+    def insert(self, table: str, **kw):
         debug("INSERT: table=%r kw=%r" % (table, kw))
 
         # figure out any extra columns and remove them from the incoming **kw
@@ -283,7 +288,7 @@ class Cnn(object):
             self.cnn.rollback()
             raise dbErrInsert(e)
 
-    def update(self, table, set_row, **kwargs):
+    def update(self, table: str, set_clause_dict: dict, **kwargs):
         """
         Updates the specified table with new field values. The row(s) are updated based on the primary key(s)
         indicated in the 'row' dictionary. New values are specified in kwargs. Field names must be enclosed
@@ -295,7 +300,8 @@ class Cnn(object):
         kwargs: The dictionary where the keys are the primary key fields and the values are the row's identifiers.
         """
         # Build the SET clause of the query
-        set_clause = ', '.join([f'"{field}" = %s' for field in set_row.keys()])
+        cols = list(self.get_columns(table))
+        set_clause = ', '.join([f'"{field}" = %s' for field in set_clause_dict.keys() if field in cols])
 
         # Build the WHERE clause based on the row dictionary
         where_clause = ' AND '.join([f'"{key}" = %s' if val is not None else f'"{key}" IS %s'
@@ -304,12 +310,13 @@ class Cnn(object):
         query = f'UPDATE {table} SET {set_clause} WHERE {where_clause}'
 
         # Values to use in the query
-        values = list(set_row.values()) + list(kwargs.values())
+        values = (list([value for field, value in set_clause_dict.items() if field in cols])
+                  + list(kwargs.values()))
 
         try:
             self.cursor.execute(query, values)
             self.cnn.commit()
-            debug(f"UPDATE {table}: set={set_row}, where={kwargs}")
+            debug(f"UPDATE {table}: set={set_clause_dict}, where={kwargs}")
             debug(query)
         except psycopg2.Error as e:
             self.cnn.rollback()

@@ -3,207 +3,31 @@ Project: Parallel.GAMIT
 Date: 09/12/2025 09:20 AM
 Author: Demian D. Gomez
 """
-
-# etm_config.py
-from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Any, Union, Tuple
-from enum import IntEnum, auto
-from datetime import datetime
-from io import BytesIO
+from typing import Dict, List, Optional, Any
 import numpy as np
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 
 # app
 from pgamit.pyDate import Date
+from pgamit.dbConnection import Cnn
+from pgamit.etm.core.type_declarations import PeriodicStatus, JumpType
+from pgamit.etm.core.data_classes import (SolutionOptions, ModelingParameters,
+                                          ValidationRules, StationMetadata, LeastSquares, JumpParameters)
+from pgamit.etm.visualization.data_classes import PlotOutputConfig
 
 
-class JumpType(IntEnum):
-    """Enum for jump types to replace scattered constants"""
-    UNDETERMINED = -1
-    MECHANICAL_MANUAL = 1
-    MECHANICAL_ANTENNA = 2
-    REFERENCE_FRAME = 5
-    COSEISMIC_JUMP_DECAY = 10
-    COSEISMIC_ONLY = 15
-    POSTSEISMIC_ONLY = 20
-
-    @property
-    def color(self) -> str:
-        """Get the plotting color for this jump type"""
-        color_map = {
-            JumpType.UNDETERMINED: 'gray',
-            JumpType.MECHANICAL_MANUAL: 'darkcyan',
-            JumpType.MECHANICAL_ANTENNA: 'blue',
-            JumpType.REFERENCE_FRAME: 'green',
-            JumpType.COSEISMIC_JUMP_DECAY: 'red',
-            JumpType.COSEISMIC_ONLY: 'purple',
-            JumpType.POSTSEISMIC_ONLY: 'orange'
-        }
-        return color_map.get(self, 'black')
-
-    @property
-    def description(self) -> str:
-        descriptions = {
-            JumpType.UNDETERMINED: 'UNDETERMINED',
-            JumpType.MECHANICAL_MANUAL: 'MECHANICAL (MANUAL)',
-            JumpType.MECHANICAL_ANTENNA: 'MECHANICAL (ANTENNA CHANGE)',
-            JumpType.REFERENCE_FRAME: 'REFERENCE FRAME CHANGE',
-            JumpType.COSEISMIC_JUMP_DECAY: 'CO+POSTSEISMIC',
-            JumpType.COSEISMIC_ONLY: 'COSEISMIC ONLY',
-            JumpType.POSTSEISMIC_ONLY: 'POSTSEISMIC ONLY'
-        }
-        return descriptions.get(self, 'UNKNOWN')
-
-
-@dataclass
-class Earthquake:
-    id: str = None
-    lat: float = None
-    lon: float = None
-    date: Date = None
-    depth: int = None
-    magnitude: float = 0
-    distance: float = 0
-    location: str = None
-    jump_type: JumpType = None
-
-    def build_metadata(self) -> str:
-        link = ('<a href="https://earthquake.usgs.gov/earthquakes/eventpage/%s" '
-                'target="_blank">%s</a>'
-                % (self.id, self.id))
-        return f'{link}: M{self.magnitude:.1f} {self.location} -> {self.distance:.0f} km'
-
-
-class PeriodicStatus(IntEnum):
-    """Enum for periodic term status"""
-    AUTOMATICALLY_ADDED = auto()
-    ADDED_BY_USER = auto()
-    UNABLE_TO_FIT = auto()
-
-
-@dataclass
-class JumpParameters:
-    jump_type: JumpType = field(default_factory=lambda: JumpType)
-    relaxation: np.ndarray = field(default_factory=lambda: np.array([0.5]))
-    date: Date = None
-    action: str = None
-
-
-@dataclass
-class LeastSquares:
-    iterations: int = 10
-    sigma_filter_limit: float = 2.5
-
-@dataclass
-class ModelingParameters:
-    """Configuration for modeling parameters"""
-    relaxation: np.ndarray = field(default_factory=lambda: np.array([0.5]))
-    poly_terms: int = 2
-    reference_epoch: float = 0
-    frequencies: np.ndarray = field(
-        default_factory=lambda: np.array([1 / 365.25, 1 / (365.25 / 2)])
-    )
-    periodic_status: PeriodicStatus = PeriodicStatus.AUTOMATICALLY_ADDED
-    user_jumps: List[JumpParameters] = field(default_factory=lambda: [])
-    earthquake_jumps: List[Earthquake] = field(default_factory=lambda: [])
-    sigma_floor_h: float = 0.10
-    sigma_floor_v: float = 0.15
-    robust_lsq_limit: float = 2.5
-    earthquake_min_days: int = 15
-    jump_min_days: int = 5
-    post_seismic_back_lim: int = 365 * 5 # 5 years of postseismic user_jumps back in time
-    # master switches activating certain components
-    fit_earthquakes: bool = True
-    fit_generic_jumps: bool = True
-    fit_metadata_jumps: bool = True
-
-    def get_user_jump(self, date: Union[Date, datetime], jump_type: JumpType) -> Union[JumpParameters, None]:
-        """obtain a jump from the database jump config using date and type"""
-        for jump_params in self.user_jumps:
-            if jump_params.date == date:
-                # dates match, check types
-                if jump_params.jump_type == jump_type:
-                    # types match exactly, so it is the jump being looked for
-                    return jump_params
-                elif (jump_params.jump_type >= JumpType.COSEISMIC_JUMP_DECAY
-                      and jump_type >= JumpType.COSEISMIC_JUMP_DECAY):
-                    # a geophysical jump with a change in behavior, return it to the caller
-                    return jump_params
-        return None
-
-@dataclass
-class StationMetadata:
-    lat: np.ndarray = field(default_factory=lambda: np.array([0]))
-    lon: np.ndarray = field(default_factory=lambda: np.array([0]))
-    height: np.ndarray = field(default_factory=lambda: np.array([0]))
-    auto_x: np.ndarray = field(default_factory=lambda: np.array([6378137.]))
-    auto_y: np.ndarray = field(default_factory=lambda: np.array([0]))
-    auto_z: np.ndarray = field(default_factory=lambda: np.array([0]))
-    first_obs: Date = Date(year=1980, doy=1)
-    last_obs: Date = Date(datetime=datetime.now())
-    max_dist: float = 20.0
-    station_information: list = field(default_factory=lambda: [])
-
-
-@dataclass
-class SolutionOptions:
-    soln: str = 'ppp'
-    stack_name: str = 'ppp'
-
-
-@dataclass
-class ValidationRules:
-    """Configuration for validation rules"""
-    max_jump_amplitude: float = 4.0  # meters
-    min_solutions_for_etm: int = 4
-    min_data_for_jump: int = 50  # data points
-    max_condition_number: float = 1e10
-
-
-@dataclass
-class PlotOutputConfig:
-    _allowed_attributes = {
-        'filename', 'file_io', 'format', 'save_kwargs',
-        'plot_show_outliers', 'plot_residuals_mode', 'plot_time_window',
-        'plot_remove_jumps', 'plot_remove_polynomial', 'plot_remove_periodic',
-        'missing_solutions'
-    }
-    """Configuration for plot output"""
-    filename: Optional[str] = None
-    file_io: Optional[BytesIO] = None
-    format: str = 'png'
-    save_kwargs: Dict[str, Any] = None
-
-    # Plot configuration
-    plot_show_outliers: bool = True
-    plot_residuals_mode: bool = False
-    plot_time_window: Optional[Tuple[float, float]] = None
-    plot_remove_jumps: bool = False
-    plot_remove_polynomial: bool = False
-    plot_remove_periodic: bool = False
-
-    # Missing data
-    missing_solutions: Optional[List] = None
-
-    def __post_init__(self):
-        if self.save_kwargs is None:
-            self.save_kwargs = {}
-
-    def __setattr__(self, name: str, value: Any) -> None:
-        if name not in self._allowed_attributes:
-            raise AttributeError(f"'{type(self).__name__}' has no attribute '{name}'. ")
-        super().__setattr__(name, value)
-
-class ETMConfig:
+class EtmConfig:
     """Central configuration manager for ETM operations"""
 
     def __init__(self,
                  network_code: str,
                  station_code: str,
                  custom_config: Optional[Dict[str, Any]] = None,
-                 cnn: Optional = None):
+                 cnn: Cnn = None,
+                 solution_type: SolutionOptions = None):
         """
         Initialize ETM configuration
 
@@ -240,16 +64,18 @@ class ETMConfig:
                 "completion": "Completion",
                 "other": "other polynomial terms",
                 "not_enough": "Not enough solutions to fit an ETM.",
-                "table_too_long": "Table too long to print!",
+                "table_too_long": "[...]",
                 "frequency": "Frequency",
                 "N residuals": "N Residuals",
                 "E residuals": "E Residuals",
                 "U residuals": "U Residuals",
                 "histogram plot": "Histogram",
                 "residual plot": "Residual Plot",
-                "jumps removed": "Jumps Removed",
-                "polynomial removed": "Polynomial Removed",
-                "seasonal removed": "Seasonal Removed"
+                "jumps": "Jumps",
+                "polynomial": "Polynomial",
+                "seasonal": "Seasonal",
+                "stochastic": "Stochastic",
+                "removed": "Removed"
             },
             'spa': {
                 "station": "Estación",
@@ -265,18 +91,22 @@ class ETMConfig:
                 "completion": "Completitud",
                 "other": "otros términos polinómicos",
                 "not_enough": "No hay suficientes soluciones para ajustar trayectorias.",
-                "table_too_long": "Tabla demasiado larga!",
+                "table_too_long": "[...]",
                 "frequency": "Frecuencia",
                 "N residuals": "Residuos N",
                 "E residuals": "Residuos E",
                 "U residuals": "Residuos U",
                 "histogram plot": "Histograma",
                 "residual plot": "Gráfico de Residuos",
-                "jumps removed": "Saltos Removidos",
-                "polynomial removed": "Polinomio Removido",
-                "seasonal removed": "Estacionales Removidas"
+                "jumps": "Saltos",
+                "polynomial": "Polinomio",
+                "seasonal": "Estacionales",
+                "stochastic": "Estocástico",
+                "removed": "Removido(s)"
             }
         }
+        if solution_type:
+            self.solution = solution_type
 
         if cnn:
             # loading parameters from the database
@@ -288,6 +118,10 @@ class ETMConfig:
     def get_station_id(self) -> str:
         """Get formatted station identifier"""
         return f"{self.network_code}.{self.station_code}"
+
+    def build_filename(self):
+        """build a generic file name to use to save files"""
+        return self.get_station_id() + "_" + self.solution.stack_name
 
     def _load_from_database(self, cnn) -> None:
         """Load station-specific configuration from database"""
@@ -316,6 +150,8 @@ class ETMConfig:
             raise ValueError(f"No valid metadata for station {self.get_station_id()}")
 
         """Load station reference coordinates and metadata"""
+        self.metadata.name = stn[0]['StationName']
+        self.metadata.country_code = stn[0]['country_code']
         self.metadata.lat = np.array([float(stn[0]['lat'])])
         self.metadata.lon = np.array([float(stn[0]['lon'])])
         self.metadata.height = np.array([float(stn[0]['height'])])
@@ -456,3 +292,19 @@ class ETMConfig:
             issues.append("Minimum solutions for ETM must be >= 2")
 
         return issues
+
+    def load_from_json(self, filepath: Optional[str] = None, json_string: Optional[str] = None):
+        # load basic fields from json file
+        if filepath:
+            with open(filepath, 'r') as f:
+                data = json.load(f)
+        elif json_string:
+            data = json.loads(json_string)
+        else:
+            raise ValueError("Either filepath or json_string must be provided")
+
+        self.metadata = StationMetadata(**data['station_meta'])
+        #for date in ('first_obs', 'last_obs'):
+        #    data['station_meta'][date] = Date(**data['station_meta'][date])
+        #for nump in ('auto_x', 'auto_y', 'auto_z')
+        #self.metadata = StationMetadata(**data['station_meta'])
