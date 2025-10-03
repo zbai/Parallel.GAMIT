@@ -38,7 +38,7 @@ class PlotTemplate(ABC):
             'coseismic_jump': JumpType.COSEISMIC_ONLY.color,
             'coseismic_decay': JumpType.COSEISMIC_JUMP_DECAY.color,
             'postseismic': JumpType.POSTSEISMIC_ONLY.color,
-            'auto_jump': 'orange',
+            'auto_jump': JumpType.AUTO_DETECTED.color,
             'missing_solution': 'magenta'
         }
 
@@ -49,7 +49,7 @@ class PlotTemplate(ABC):
             'observations': {'marker': 'o', 'markersize': 2, 'linestyle': 'none'},
             'model': {'linewidth': 1.5},
             'confidence': {'alpha': 0.2},
-            'jumps': {'linestyle': ':', 'linewidth': 1},
+            'jumps': {'linestyle': ':', 'linewidth': 1.75},
             'auto_jumps': {'linestyle': '-.', 'linewidth': 1}
         }
 
@@ -61,7 +61,7 @@ class PlotTemplate(ABC):
     def generate_title(self, plot_data: TimeSeriesPlotData, output_config: PlotOutputConfig) -> str:
         """Generate plot title"""
         base_title = (f"{plot_data.station_id} ({plot_data.stack_name.upper()} {plot_data.completion:.2f}% - "
-                      f"{self.config.modeling.adjustment_strategy.description}) "
+                      f"{self.config.modeling.least_squares_strategy.adjustment_model.description}) "
                       f"lat: {plot_data.latitude:.5f} lon: {plot_data.longitude:.5f}")
         return base_title
 
@@ -82,7 +82,7 @@ class PlotDataPreparer:
         """Prepare data for time series plotting"""
 
         # Transform coordinates to local frame
-        local_coords = solution_data.transform_to_local(ignore_filter=True)
+        local_coords = solution_data.transform_to_local(ignore_data_window=True)
 
         # Prepare component data
         n_data, e_data, u_data = self._prepare_component_data(local_coords, solution_data, etm_fit)
@@ -185,10 +185,11 @@ class PlotDataPreparer:
                             data[i].residuals += funct.eval(i, solution_data.time_vector_mjd[mask]) * 1000.
 
                 # Add confidence bounds
+                limit = self.config.modeling.least_squares_strategy.sigma_filter_limit
                 sigma = etm_results.results[i].wrms * 1000  # Convert to mm
                 data[i].confidence_bounds = (
-                    data[i].model_values - self.config.modeling.robust_lsq_limit * sigma,
-                    data[i].model_values + self.config.modeling.robust_lsq_limit * sigma
+                    data[i].model_values - limit * sigma,
+                    data[i].model_values + limit * sigma
                 )
 
                 # Add outlier flags

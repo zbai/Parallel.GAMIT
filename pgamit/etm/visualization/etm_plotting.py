@@ -10,7 +10,6 @@ import os
 from pgamit.etm.core.etm_config import EtmConfig
 from pgamit.etm.visualization.time_series_template import TimeSeriesTemplate
 from pgamit.etm.visualization.histogram_template import HistogramTemplate
-from pgamit.etm.visualization.residuals_template import  ResidualTemplate
 from pgamit.etm.visualization.data_classes import  TimeSeriesPlotData, PlotOutputConfig, HistogramPlotData
 
 logger = logging.getLogger(__name__)
@@ -20,7 +19,6 @@ logger = logging.getLogger(__name__)
 class Templates:
     time_series: TimeSeriesTemplate
     histogram: HistogramTemplate
-    residuals: ResidualTemplate
 
 
 class EtmPlotter:
@@ -30,8 +28,7 @@ class EtmPlotter:
         self.config = config
         self.templates = Templates(
             TimeSeriesTemplate(config),
-            HistogramTemplate(config),
-            ResidualTemplate(config)
+            HistogramTemplate(config)
         )
 
         # Interactive plotting state
@@ -108,10 +105,13 @@ class EtmPlotter:
         fig.suptitle(title, fontsize=9, family='monospace')
 
         # Plot N-E scatter with error ellipse
-        template.plot_ne_scatter(axes['ne_scatter'], plot_data)
+        xlim, ylim = template.plot_ne_scatter(fig, axes['ne_scatter'], plot_data)
 
         # Plot component histograms
-        template.plot_component_histograms(axes, plot_data)
+        template.plot_component_histograms(axes, plot_data, xlim, ylim)
+
+        axes['ne_scatter'].set_xlim(xlim)
+        axes['ne_scatter'].set_ylim(ylim)
 
         return self._handle_plot_output(fig, output_config, histogram=True)
 
@@ -176,10 +176,6 @@ class EtmPlotter:
         # Plot jumps
         if plot_data.jumps:
             template.plot_jumps(ax, plot_data.jumps, data.time_range)
-
-        # Plot auto-detected jumps if requested
-        if plot_data.auto_jumps and plot_data.show_auto_jumps:
-            template.plot_auto_jumps(ax, plot_data.auto_jumps, data.time_range)
 
     def _plot_outlier_data(self, ax, plot_data: TimeSeriesPlotData,
                            component_idx: int,

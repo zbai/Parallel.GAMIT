@@ -11,8 +11,6 @@ import os
 
 from importlib.metadata import version, PackageNotFoundError
 
-from etm.data.etm_database import save_parameters_db
-
 try:
     VERSION = str(version("pgamit"))
 except PackageNotFoundError:
@@ -28,8 +26,8 @@ from pgamit.Utils import file_write
 from pgamit.pyDate import Date
 from pgamit.pyStationInfo import StationInfoRecord
 from pgamit.etm.data.solution_data import GAMITSolutionData, PPPSolutionData
-from pgamit.etm.data.etm_database import load_parameters_db
-from pgamit.etm.core.etm_config import EtmConfig
+from pgamit.etm.data.etm_database import load_parameters_db, save_parameters_db
+from pgamit.etm.core.etm_config import EtmConfig, LeastSquares
 from pgamit.etm.core.type_declarations import EtmSolutionType, SolutionType
 from pgamit.etm.least_squares.design_matrix import DesignMatrix
 from pgamit.etm.etm_functions.polynomial import PolynomialFunction
@@ -42,11 +40,50 @@ from pgamit.etm.visualization.data_prep import PlotDataPreparer
 from pgamit.etm.visualization.etm_plotting import EtmPlotter
 
 
+def enum_dict_factory(field_list):
+    """Custom dict factory that handles enums with descriptions"""
+    result = {}
+    for key, value in field_list:
+        # Check if value is an IntEnum with a description property
+        if isinstance(value, IntEnum) and hasattr(value, 'description'):
+            result[key] = {
+                'value': value.value,
+                'description': value.description
+            }
+        # Handle lists that might contain enums
+        elif isinstance(value, list):
+            result[key] = [
+                {'value': v.value, 'description': v.description}
+                if isinstance(v, IntEnum) and hasattr(v, 'description')
+                else v
+                for v in value
+            ]
+        elif isinstance(value, LeastSquares):
+            for k, v in value:
+                result[key] = {}
+                # Check if value is an IntEnum with a description property
+                if isinstance(v, IntEnum) and hasattr(v, 'description'):
+                    result[key][k] = {
+                        'value': v.value,
+                        'description': v.description
+                    }
+        else:
+            result[key] = value
+    return result
+
 
 class EtmEncoder(json.JSONEncoder):
-    """Custom JSON encoder for numpy arrays"""
+    """Custom JSON encoder for numpy arrays and float rounding"""
+
+    def __init__(self, *args, round_digits=6, no_round_fields=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.round_digits = round_digits
+        self.no_round_fields = no_round_fields or []
+        self._in_rounding_phase = False
+
     def default(self, obj):
         if isinstance(obj, np.ndarray):
+            # Just convert to list, don't round here
             return obj.tolist()
         if isinstance(obj, np.integer):
             return int(obj)
@@ -80,21 +117,53 @@ class EtmEncoder(json.JSONEncoder):
                         'second': obj.second}
         return super().default(obj)
 
+    def iterencode(self, obj, _one_shot=False):
+        """Override iterencode to apply rounding after numpy conversion"""
+        if not self._in_rounding_phase:
+            # First pass: convert all numpy types to native Python types
+            self._in_rounding_phase = True
+            temp_json = ''.join(super().iterencode(obj, _one_shot))
+            self._in_rounding_phase = False
+
+            # Parse back to Python objects
+            intermediate = json.loads(temp_json)
+
+            # Apply rounding with path tracking
+            rounded = self._round_floats(intermediate, path=[])
+
+            # Encode the rounded result
+            for chunk in super().iterencode(rounded, _one_shot):
+                yield chunk
+        else:
+            # Already in rounding phase, just do normal encoding
+            for chunk in super().iterencode(obj, _one_shot):
+                yield chunk
+
+    def _round_floats(self, obj, path):
+        """Recursively round all floats in nested structures, except excluded fields"""
+        # Check if any key in the current path is in no_round_fields
+        if any(key in self.no_round_fields for key in path):
+            return obj
+
+        if isinstance(obj, float):
+            return round(obj, self.round_digits)
+        elif isinstance(obj, dict):
+            return {key: self._round_floats(value, path=path + [key]) for key, value in obj.items()}
+        elif isinstance(obj, (list, tuple)):
+            return [self._round_floats(item, path=path) for item in obj]
+        return obj
+
 
 class EtmEngine:
     """Core mathematical engine for ETM processing, separated from business logic"""
 
     def __init__(self, cnn: Cnn, config: EtmConfig,
                  solution_type: SolutionType,
-                 stack_name: str = None,
-                 adjustment_strategy: AdjustmentModels = None):
+                 stack_name: str = None):
 
         setup_etm_logging()
 
         self.config = config
-        # save the adjustment strategy
-        if adjustment_strategy is not None:
-            self.config.modeling.adjustment_strategy = adjustment_strategy
 
         if solution_type == SolutionType.GAMIT:
             self.solution_data = GAMITSolutionData(stack_name, config)
@@ -106,20 +175,23 @@ class EtmEngine:
         # load the data
         self.solution_data.load_data(cnn)
 
+        # @todo: evaluate if mask should be applied here or inside solution_data
+        mask = self.config.modeling.get_observation_mask(self.solution_data.time_vector)
+
         # set the basic functions
         polynomial = PolynomialFunction(config, time_vector=self.solution_data.time_vector)
         periodic = PeriodicFunction(config, time_vector=self.solution_data.time_vector)
 
         self.jump_manager = JumpManager(self.solution_data, config)
-        self.jump_manager.build_jump_table(self.solution_data.time_vector)
+        self.jump_manager.build_jump_table(self.solution_data.time_vector[mask],
+                                           self.solution_data.transform_to_local())
 
-        self.design_matrix = DesignMatrix(self.solution_data.time_vector,
-                                          [polynomial, periodic] + self.jump_manager.get_jump_functions(),
-                                          config)
+        self.design_matrix = DesignMatrix(config, self.solution_data.time_vector,
+                                          [polynomial, periodic] + self.jump_manager.get_jump_functions())
 
         # if adjustment strategy is LSQ_COLLOCATION, add the stochastic function to the design matrix
         # (although it is not used during the fit)
-        if self.config.modeling.adjustment_strategy == AdjustmentModels.LSQ_COLLOCATION:
+        if self.config.modeling.least_squares_strategy.adjustment_model == AdjustmentModels.LSQ_COLLOCATION:
             self.design_matrix.functions.append(
                 StochasticSignal(self.config, self.solution_data.time_vector_cont_mjd))
 
@@ -129,8 +201,11 @@ class EtmEngine:
                        cnn: Optional[Cnn] = None) -> None:
         """Run the iterative least squares adjustment"""
         if try_loading_db and cnn:
-            success = load_parameters_db(cnn, self.fit, self.solution_data.transform_to_local(),
-                                         self.solution_data.time_vector_mjd)
+            # get mask for time vector: only needed for stochastic signal in load_parameters_db!
+            mask = self.config.modeling.get_observation_mask(self.solution_data.time_vector)
+
+            success = load_parameters_db(self.config, cnn, self.fit, self.solution_data.transform_to_local(),
+                                         self.solution_data.time_vector_mjd[mask])
             logger.info(f'Loading parameters from database: {success}')
         else:
             success = False
@@ -150,6 +225,7 @@ class EtmEngine:
                  dump_model: bool = False) -> Dict:
 
         dm = self.design_matrix
+        mask = self.config.modeling.get_observation_mask(self.solution_data.time_vector)
         # create a station_meta copy to replace the stationinforecord instances
         station_meta = copy.deepcopy(self.config.metadata)
         station_meta.station_information = [item.to_json() for item in station_meta.station_information]
@@ -165,18 +241,19 @@ class EtmEngine:
             "station_code": self.config.station_code,
             "station_meta": asdict(station_meta),
             "solution_options": asdict(self.config.solution),
-            "modeling_params": asdict(self.config.modeling),
+            "modeling_params": asdict(self.config.modeling, dict_factory=enum_dict_factory),
             "raw_results": [asdict(self.fit.results[0]),
                             asdict(self.fit.results[1]),
                             asdict(self.fit.results[2])] if dump_raw_results else None,
             "functions": [asdict(funct.p) for funct in dm.functions if funct.fit] if dump_functions else None,
             "observations": asdict(self.solution_data.coordinates) if dump_observations else None,
-            "model": {'observations_neu': self.solution_data.transform_to_local(),
+            "model": {'model_cont': model_values,
                       'time_vector_fyear': self.solution_data.time_vector_cont,
-                      'time_vector_mjd': self.solution_data.time_vector_cont_mjd,
-                      'model_cont': model_values} if dump_model else None,
+                      'time_vector_mjd': self.solution_data.time_vector_cont_mjd
+                      } if dump_model else None,
             "covariance": self.fit.covar.tolist(),
             "design_matrix": dm.matrix if dump_design_matrix else None,
+            "data_model_window": mask if dump_design_matrix else None,
             "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "localhost": platform.node(),
             "version": VERSION
@@ -193,7 +270,8 @@ class EtmEngine:
             #import bson
 
             file_write(filename,
-                       json.dumps(etm_dump, indent=4, sort_keys=False, cls=EtmEncoder))
+                       json.dumps(etm_dump, indent=4, sort_keys=False, cls=EtmEncoder,
+                                  round_digits=6, no_round_fields=['covariance', 'parameter_sigmas', 'parameters']))
 
             #binary_data = bson.encode(etm_dump, cls)
             #with open(filename + '.bson', 'wb') as f:
@@ -221,6 +299,7 @@ class EtmEngine:
         """
         model = [np.array([]), np.array([]), np.array([])]
         model_ecef = np.array([])
+        stack_name = self.solution_data.stack_name.upper()
 
         # find the model value, if fit done
         if self.config.modeling.status == self.config.modeling.FitStatus.POSTFIT:
@@ -239,19 +318,19 @@ class EtmEngine:
                 position = [self.solution_data.x[i], self.solution_data.y[i], self.solution_data.z[i]]
                 if model_ecef.size:
                     if self.fit.outlier_flags[i]:
-                        source = self.solution_data.stack_name.upper() + ' with ETM solution: good'
+                        source = stack_name + ' with ETM solution: good'
                     else:
                         # filter coordinate because it was an outlier
                         position = model_ecef
-                        source = self.solution_data.stack_name.upper() + ' with ETM solution: filtered'
+                        source = stack_name + ' with ETM solution: filtered'
                 else:
-                    source = self.solution_data.stack_name.upper() + ' solution, but no ETM'
+                    source = stack_name + ' solution, but no ETM'
             else:
                 if model_ecef.size:
                     position = model_ecef
-                    source = 'No ' + self.solution_data.stack_name.upper() + ' solution: ETM'
+                    source = 'No ' + stack_name + ' solution: ETM'
                 else:
-                    source = 'No ' + self.solution_data.stack_name.upper() + ' solution, no ETM: mean coordinate'
+                    source = 'No ' + stack_name + ' solution, no ETM: mean coordinate'
                     position = [self.solution_data.x.mean(), self.solution_data.y.mean(), self.solution_data.z.mean()]
         else:
             if model_ecef.size:

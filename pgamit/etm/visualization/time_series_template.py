@@ -10,6 +10,7 @@ from typing import List, Tuple, Dict, Any
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
+from etm.core.type_declarations import JumpType
 # app
 from pgamit.etm.visualization.data_prep import PlotTemplate
 from pgamit.etm.visualization.data_classes import TimeSeriesPlotData, PlotOutputConfig, ComponentData
@@ -56,7 +57,8 @@ class TimeSeriesTemplate(PlotTemplate):
             if output_config.plot_remove_jumps:
                 flags.append(self.config.get_label('jumps'))
             if (output_config.plot_remove_stochastic
-                    and self.config.modeling.adjustment_strategy == AdjustmentModels.LSQ_COLLOCATION):
+                    and self.config.modeling.least_squares_strategy.adjustment_model
+                    == AdjustmentModels.LSQ_COLLOCATION):
                 flags.append(self.config.get_label('stochastic'))
 
             if len(flags):
@@ -139,15 +141,12 @@ class TimeSeriesTemplate(PlotTemplate):
         """Plot jump markers"""
         for jump in jumps:
             if time_range[0] <= jump.date.fyear <= time_range[1]:
-                ax.axvline(np.array([jump.date.fyear]), color=jump.p.jump_type.color if jump.fit else 'gray',
-                           **self.styles['jumps'])
-
-    def plot_auto_jumps(self, ax, auto_jumps: List, time_range: Tuple[float, float]) -> None:
-        """Plot automatically detected jump markers"""
-        for jump in auto_jumps:
-            if time_range[0] <= jump.date.fyear <= time_range[1]:
-                ax.axvline(np.array([jump.date.fyear]), color=self.colors['auto_jump'],
-                           **self.styles['auto_jumps'])
+                if jump.p.jump_type == JumpType.AUTO_DETECTED:
+                    ax.axvline(np.array([jump.date.fyear]), color=jump.p.jump_type.color if jump.fit else 'gray',
+                               **self.styles['auto_jumps'])
+                else:
+                    ax.axvline(np.array([jump.date.fyear]), color=jump.p.jump_type.color if jump.fit else 'gray',
+                               **self.styles['jumps'])
 
     def plot_missing_solutions(self, ax, missing_solutions: List) -> None:
         """Plot missing solution markers"""

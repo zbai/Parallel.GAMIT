@@ -5,6 +5,7 @@ from typing import List
 logger = logging.getLogger(__name__)
 
 from pgamit.dbConnection import Cnn
+from pgamit.etm.core.etm_config import EtmConfig
 from pgamit.etm.least_squares.least_squares import EtmFit
 from pgamit.etm.core.type_declarations import FitStatus
 
@@ -44,11 +45,14 @@ def save_parameters_db(cnn: Cnn, etm_results: EtmFit) -> None:
         logger.debug(f'insert {repr(funct)}')
         cnn.insert('etms', **funct.get_parameter_dict())
 
-def load_parameters_db(cnn: Cnn, etm_results: EtmFit,
+def load_parameters_db(config: EtmConfig,
+                       cnn: Cnn, etm_results: EtmFit,
                        observations: List[np.ndarray],
                        time_vector_mjd: np.ndarray = None) -> bool:
 
     dm = etm_results.design_matrix
+    # shorthand notation
+    limit = etm_results.config.modeling.least_squares_strategy.sigma_filter_limit
 
     hash_sum_db = cnn.query_float(f'''
     SELECT sum(hash) FROM etms WHERE "NetworkCode" = '{etm_results.config.network_code}' AND 
@@ -70,25 +74,8 @@ def load_parameters_db(cnn: Cnn, etm_results: EtmFit,
                                         etm_results.config.station_code,
                                         etm_results.config.solution.soln,
                                         etm_results.config.solution.stack_name), as_dict=True)
-
-    # laod the parameters vector
-    var_factor = next((item for item in etms if item.get('object') == 'var_factor'), None)
-
-    for i in range(3):
-        etm_results.results[i].origin = cnn.options['hostname'] + ':' + cnn.options['database']
-        etm_results.results[i].parameters = np.array(var_factor['params'][i]).astype(float)
-        etm_results.results[i].wrms = float(var_factor['sigmas'][1][i])
-        etm_results.results[i].variance_factor = float(var_factor['sigmas'][0][i])
-
-        # compute outliers for this component
-        v = observations[i] - dm.matrix @ np.array(var_factor['params'][i]).astype(float)
-        etm_results.results[i].residuals = v
-        s = np.abs(np.divide(v, etm_results.results[i].wrms))
-        etm_results.results[i].outlier_flags = s <= etm_results.config.modeling.robust_lsq_limit
-
-    etm_results.outlier_flags = np.all((etm_results.results[0].outlier_flags,
-                                        etm_results.results[1].outlier_flags,
-                                        etm_results.results[2].outlier_flags), axis=0)
+    # placeholder to save stochastic signal object
+    stochastic_signal = None
 
     for funct in dm.functions:
         obj = next((item for item in etms if item.get('object') == funct.p.object
@@ -102,17 +89,52 @@ def load_parameters_db(cnn: Cnn, etm_results: EtmFit,
             for i in range(3):
                 funct.p.params[i] = np.array(obj['params'][i]).astype(float)
                 funct.p.sigmas[i] = np.array(obj['sigmas'][i]).astype(float)
+                # save the sigmas in continuous form to upload them to
+                if funct.p.object != 'stochastic':
+                    etm_results.results[i].parameter_sigmas = (
+                        np.concatenate((etm_results.results[i].parameter_sigmas, funct.p.sigmas[i])))
+
                 if funct.p.object == 'stochastic':
                     etm_results.results[i].stochastic_signal = np.array(obj['params'][i]).astype(float)
-                    # remove stochastic signal from the residuals!
-                    etm_results.results[i].residuals -= funct.eval(i, time_vector_mjd)
+                    stochastic_signal = funct
+
+    # laod the parameters vector
+    var_factor = next((item for item in etms if item.get('object') == 'var_factor'), None)
+
+    for i in range(3):
+        etm_results.results[i].origin = cnn.options['hostname'] + ':' + cnn.options['database']
+        etm_results.results[i].parameters = np.array(var_factor['params'][i]).astype(float)
+        etm_results.results[i].wrms = float(var_factor['sigmas'][1][i])
+        etm_results.results[i].variance_factor = float(var_factor['sigmas'][0][i])
+
+        # compute outliers for this component
+        v = observations[i] - dm.matrix @ np.array(var_factor['params'][i]).astype(float)
+
+        # check if stochastic signal present in the functions
+        if stochastic_signal is not None:
+            # remove stochastic signal from the residuals!
+            v -= stochastic_signal.eval(i, time_vector_mjd)
+
+        etm_results.results[i].residuals = v
+        s = np.abs(np.divide(v, etm_results.results[i].wrms))
+        etm_results.results[i].outlier_flags = s <= limit
+        # compute the observation sigmas
+        etm_results.results[i].obs_sigmas = np.ones(observations[i].shape[0]) * etm_results.results[i].wrms
+        # normalized residuals
+        s = np.abs(v / etm_results.results[i].wrms)
+        # compute downweighted outliers
+        sw = np.power(10, limit - s[s > limit])
+        # limit the lowest value
+        sw[sw < np.finfo(float).eps] = np.finfo(float).eps
+
+        etm_results.results[i].obs_sigmas[s > limit] = etm_results.results[i].wrms / sw
+
+    etm_results.outlier_flags = np.all((etm_results.results[0].outlier_flags,
+                                        etm_results.results[1].outlier_flags,
+                                        etm_results.results[2].outlier_flags), axis=0)
 
     # after loading all function, estimate covariance
     etm_results.process_covariance()
-
-    etm_results.outlier_flags = np.all((etm_results.results[0].outlier_flags,
-                                       etm_results.results[1].outlier_flags,
-                                       etm_results.results[2].outlier_flags), axis=0)
 
     # update status to reflect that ETM is ready to compute solutions
     etm_results.config.modeling.status = FitStatus.POSTFIT

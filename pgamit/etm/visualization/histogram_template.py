@@ -42,7 +42,7 @@ class HistogramTemplate(PlotTemplate):
 
         return base_title
 
-    def plot_ne_scatter(self, ax, plot_data: TimeSeriesPlotData) -> None:
+    def plot_ne_scatter(self, fig, ax, plot_data: TimeSeriesPlotData) -> Tuple[Tuple[float, float], Tuple[float, float]]:
         """Plot North-East scatter with error ellipse"""
         # Filter out extreme outliers for better visualization
         n_res = plot_data.north_data.residuals
@@ -66,16 +66,28 @@ class HistogramTemplate(PlotTemplate):
                      f"{self.config.get_label('north')}-{self.config.get_label('east')}")
         ax.axis('equal')
 
+        # draw to get actual xlim and ylim
+        fig.canvas.draw()
+
+        return ax.get_xlim(), ax.get_ylim()
+
     def plot_component_histograms(self, axes_dict: Dict[str, plt.Axes],
-                                  plot_data: TimeSeriesPlotData) -> None:
+                                  plot_data: TimeSeriesPlotData,
+                                  xlim: Tuple[float, float],
+                                  ylim: Tuple[float, float]) -> None:
         """Plot histograms for each component"""
         components = [
-            ('n_hist', plot_data.north_data.residuals, self.config.get_label('north')),
-            ('e_hist', plot_data.east_data.residuals, self.config.get_label('east')),
-            ('u_hist', plot_data.up_data.residuals, self.config.get_label('up'))
+            ('n_hist', plot_data.north_data.residuals, self.config.get_label('north'),
+             plot_data.north_data.outlier_flags),
+            ('e_hist', plot_data.east_data.residuals, self.config.get_label('east'),
+             plot_data.east_data.outlier_flags),
+            ('u_hist', plot_data.up_data.residuals, self.config.get_label('up'),
+             plot_data.up_data.outlier_flags)
         ]
 
-        for ax_key, residuals, label in components:
+        from scipy.stats import norm
+
+        for ax_key, residuals, label, outliers in components:
             ax = axes_dict[ax_key]
 
             # Filter extreme outliers
@@ -83,17 +95,36 @@ class HistogramTemplate(PlotTemplate):
             filtered_residuals = residuals[mask]
 
             # Create histogram
-            ax.hist(filtered_residuals, bins=100, alpha=0.75,
+            ax.hist(filtered_residuals, bins=100, alpha=0.75, density=True,
                     color='blue', orientation='horizontal' if 'n_hist' in ax_key else 'vertical')
+
+            if ax_key in ('e_hist', 'u_hist'):
+                xmin, xmax = ax.get_xlim()
+            else:
+                xmin, xmax = ax.get_ylim()
+
+            mu, std = norm.fit(residuals[outliers])
+            x = np.linspace(xmin, xmax, 100)
+            p = norm.pdf(x, mu, std)
+            if 'n_hist' in ax_key:
+                ax.plot(p, x, 'r', linewidth=2,
+                        label=f'Fit: mu={mu:.2f}, std={std:.2f}')
+            else:
+                ax.plot(x, p, 'r', linewidth=2,
+                        label=f'Fit: mu={mu:.2f}, std={std:.2f}')
 
             ax.grid(True)
 
             if ax_key == 'n_hist':
                 ax.set_xlabel(self.config.get_label('frequency'))
                 ax.set_ylabel(f"{label} {self.config.get_label('N residuals')} [mm]")
+                ax.set_ylim(ylim)
+
             else:
                 ax.set_ylabel(self.config.get_label('frequency'))
                 ax.set_xlabel(f"{label} residuals [mm]")
+                if ax_key != 'u_hist':
+                    ax.set_xlim(xlim)
 
             ax.set_title(f"{self.config.get_label('histogram plot')} {label}")
 

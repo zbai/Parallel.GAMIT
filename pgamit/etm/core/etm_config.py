@@ -45,7 +45,6 @@ class EtmConfig:
         self.plotting_config = PlotOutputConfig()
         self.validation = ValidationRules()
         self.metadata = StationMetadata()
-        self.least_squares = LeastSquares()
 
         # Language support
         self.language = 'eng'

@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 from pgamit.etm.core.etm_config import EtmConfig
 from pgamit.etm.core.type_declarations import JumpType
 from pgamit.etm.etm_functions.jumps import JumpFunction
+from pgamit.etm.etm_functions.auto_jumps import AutoJumps
 from pgamit.etm.data.solution_data import SolutionData
 
 class JumpManager:
@@ -27,13 +28,17 @@ class JumpManager:
         mask = np.where(self.config.modeling.get_observation_mask(solution_data.time_vector))[0]
         self.date_min = np.array(solution_data.date)[mask].min()
         self.date_max = np.array(solution_data.date)[mask].max()
+        # save for autodetect jumps
+        self.solution_data = solution_data
 
-    def build_jump_table(self, time_vector: np.ndarray) -> None:
+    def build_jump_table(self, time_vector: np.ndarray,
+                         observations: List[np.ndarray]) -> None:
         """
         Build complete jump table including database user_jumps and auto-detected user_jumps
 
         Args:
             time_vector: Time vector for jump evaluation
+            observations: neu list of observations to apply auto-jumps (if selected)
         """
         logger.info("Building jump table")
 
@@ -50,8 +55,11 @@ class JumpManager:
             self._load_mechanical_jumps(time_vector)
 
         # Add automatic jump detection
-        # auto_jumps = self._create_auto_detected_jumps(solution_data, time_vector)
-        # self.auto_detected_jumps = auto_jumps
+        if self.config.modeling.fit_auto_detected_jumps:
+            auto_jumps = AutoJumps(self.config,
+                                   method=self.config.modeling.fit_auto_detected_jumps_method)
+            for jump in auto_jumps.detect(time_vector, observations):
+                self.add_jump(jump)
 
         # Validate final jump configuration
         # self._validate_jump_constraints(time_vector)
@@ -116,11 +124,6 @@ class JumpManager:
 
         except Exception as e:
             logger.warning(f"Could not load station info for mechanical jumps: {e}")
-
-    def _create_auto_detected_jumps(self, solution_data: SolutionData,
-                                    time_vector: np.ndarray) -> List[JumpFunction]:
-        """Create jump functions for automatically detected discontinuities"""
-        pass
 
     def _validate_jump_constraints(self, time_vector: np.ndarray) -> None:
         """Validate final jump configuration and apply constraints"""

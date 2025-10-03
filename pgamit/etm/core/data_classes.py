@@ -11,8 +11,7 @@ from datetime import datetime
 
 # app
 from pgamit.pyDate import Date
-from pgamit.etm.core.type_declarations import JumpType, PeriodicStatus, FitStatus, AdjustmentModels
-from pgamit.etm.etm_functions.etm_function import EtmFunction
+from pgamit.etm.core.type_declarations import JumpType, PeriodicStatus, FitStatus, AdjustmentModels, CovarianceFunction
 
 
 @dataclass
@@ -40,6 +39,8 @@ class AdjustmentResults(BaseDataClass):
     empirical_covariance: np.ndarray = field(default_factory=lambda: np.array([]))
     covariance_function_params: np.ndarray = field(default_factory=lambda: np.array([]))
     stochastic_signal: np.ndarray = 0
+    spectral_index_random_noise: float = 0
+    spectral_index_stochastic_noise: float = 0
     variance_factor: float = 0
     wrms: float = 0
     obs_sigmas: np.ndarray = field(default_factory=lambda: np.array([]))
@@ -98,13 +99,21 @@ class JumpParameters(BaseDataClass):
 class LeastSquares(BaseDataClass):
     iterations: int = 10
     sigma_filter_limit: float = 2.5
+    arma_roots: int = 49
+    arma_points: int = 200
+    covariance_function: CovarianceFunction = CovarianceFunction.GAUSSIAN
+    adjustment_model: AdjustmentModels = AdjustmentModels.ROBUST_LEAST_SQUARES
+    # constraints to apply to the fit
+    constraints: List = field(default_factory=lambda: [])
 
 
 @dataclass
 class ModelingParameters(BaseDataClass):
     """Configuration for modeling parameters"""
     # default configuration for running the EtmEngine
-    relaxation: np.ndarray = field(default_factory=lambda: np.array([0.05, 1]))
+    relaxation: np.ndarray = field(
+        default_factory=lambda: np.array([0.05, 1])
+    )
     poly_terms: int = 2
     reference_epoch: float = 0
     frequencies: np.ndarray = field(
@@ -117,9 +126,9 @@ class ModelingParameters(BaseDataClass):
     # if not all data is to be fit, introduce a time window
     data_model_window: List[List[float]] = None
     # type of adjustment strategy to use
-    adjustment_strategy: AdjustmentModels = AdjustmentModels.ROBUST_LEAST_SQUARES
+    least_squares_strategy: LeastSquares = LeastSquares()
     # pre-fit models to apply to the data before doing a fit
-    prefit_models: List[EtmFunction] = field(default_factory=lambda: [])
+    prefit_models: List = field(default_factory=lambda: [])
 
     # floor_sigmas for returning coordinate uncertainties
     sigma_floor_h: float = 0.10
@@ -140,6 +149,8 @@ class ModelingParameters(BaseDataClass):
     fit_earthquakes: bool = True
     fit_generic_jumps: bool = True
     fit_metadata_jumps: bool = True
+    fit_auto_detected_jumps: bool = False
+    fit_auto_detected_jumps_method: str = 'dbscan'
 
     def get_observation_mask(self, time_vector):
         """apply the observation mask to know which observations to consider during fitting"""

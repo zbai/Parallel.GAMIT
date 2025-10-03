@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 from pgamit.pyDate import Date
 from pgamit.Utils import crc32
 from pgamit.etm.core.etm_config import EtmConfig
-from pgamit.etm.core.type_declarations import FitStatus
+
 
 class SolutionDataException(Exception):
     pass
@@ -27,40 +27,38 @@ class SolutionDataException(Exception):
 @dataclass
 class CoordinateTimeSeries:
     """Dataclass for coordinate time series data with JSON serialization support"""
-    x: np.ndarray = field(default_factory=lambda: np.array([]))
-    y: np.ndarray = field(default_factory=lambda: np.array([]))
-    z: np.ndarray = field(default_factory=lambda: np.array([]))
+    xyz: np.ndarray = field(default_factory=lambda: np.array([]))
+    neu: np.ndarray = field(default_factory=lambda: np.array([]))
     time_vector: np.ndarray = field(default_factory=lambda: np.array([]))
     time_vector_mjd: np.ndarray = field(default_factory=lambda: np.array([]))
     dates: List[Date] = field(default_factory=list)  # Store date info as dicts for JSON
 
     @classmethod
-    def from_arrays(cls, x: np.ndarray, y: np.ndarray, z: np.ndarray,
-                    time_vector: np.ndarray, time_vector_mjd: np.ndarray,
+    def from_arrays(cls, xyz: np.ndarray,
+                    time_vector: np.ndarray,
+                    time_vector_mjd: np.ndarray,
                     dates: List[Date]) -> 'CoordinateTimeSeries':
         """Create from numpy arrays and Date objects"""
         return cls(
-            x=x,
-            y=y,
-            z=z,
-            time_vector=time_vector.tolist(),
-            time_vector_mjd=time_vector_mjd.tolist(),
+            xyz=xyz,
+            time_vector=time_vector,
+            time_vector_mjd=time_vector_mjd,
             dates=dates
         )
 
     def __len__(self) -> int:
         """Return number of coordinate points"""
-        return len(self.x)
+        return self.xyz.shape[1]
 
     def is_empty(self) -> bool:
         """Check if coordinate series is empty"""
-        return len(self.x) == 0
+        return self.xyz.size == 0
 
     def validate(self) -> List[str]:
         """Validate coordinate time series consistency"""
         issues = []
-        lengths = [len(self.x), len(self.y), len(self.z), len(self.time_vector),
-                   len(self.time_vector_mjd), len(self.dates)]
+        lengths = [self.xyz.size, self.time_vector.size,
+                   self.time_vector_mjd.size, len(self.dates)]
 
         if not all(l == lengths[0] for l in lengths):
             issues.append("Coordinate and time arrays have different lengths")
@@ -70,9 +68,7 @@ class CoordinateTimeSeries:
     def to_json(self, filepath: Optional[str] = None) -> Union[str, None]:
         """Save to JSON file or return JSON string"""
         data = {
-            'x': self.x,
-            'y': self.y,
-            'z': self.z,
+            'xyz': self.xyz,
             'time_vector': self.time_vector,
             'time_vector_mjd': self.time_vector_mjd,
             'dates': self.dates
@@ -166,27 +162,27 @@ class SolutionData(ABC):
     @property
     def x(self) -> np.ndarray:
         """Get X coordinates as numpy array"""
-        return np.array(self.coordinates.x)
+        return self.coordinates.xyz[0]
 
     @property
     def y(self) -> np.ndarray:
         """Get Y coordinates as numpy array"""
-        return np.array(self.coordinates.y)
+        return self.coordinates.xyz[1]
 
     @property
     def z(self) -> np.ndarray:
         """Get Z coordinates as numpy array"""
-        return np.array(self.coordinates.z)
+        return self.coordinates.xyz[2]
 
     @property
     def time_vector(self) -> np.ndarray:
         """Get time vector as numpy array"""
-        return np.array(self.coordinates.time_vector)
+        return self.coordinates.time_vector
 
     @property
     def time_vector_mjd(self) -> np.ndarray:
         """Get MJD time vector as numpy array"""
-        return np.array(self.coordinates.time_vector_mjd)
+        return self.coordinates.time_vector_mjd
 
     @property
     def date(self) -> List[Date]:
@@ -200,14 +196,16 @@ class SolutionData(ABC):
         else:
             return self.compute_hash(self.soln + self.stack_name)
 
-    def _set_coordinates_from_arrays(self, x: np.ndarray, y: np.ndarray, z: np.ndarray,
+    def _set_coordinates_from_arrays(self, xyz: np.ndarray,
                                      time_vector: np.ndarray, time_vector_mjd: np.ndarray,
                                      dates: List[Date]) -> None:
         """Set coordinates from numpy arrays (internal method)"""
         self.coordinates = CoordinateTimeSeries.from_arrays(
-            x, y, z, time_vector, time_vector_mjd, dates
+            xyz, time_vector, time_vector_mjd, dates
         )
-        self.solutions = self.coordinates.x.size
+        # immediately transform to neu to leave them ready for export
+        self.coordinates.neu = np.array(self.transform_to_local(ignore_data_window=True))
+        self.solutions = self.coordinates.xyz.shape[1]
 
     def _process_coordinate_solutions(self, solutions: List, solution_type: str = "solutions") -> None:
         """Common processing for coordinate solutions"""
@@ -234,18 +232,13 @@ class SolutionData(ABC):
                 f"(minimum distance: {min_dist:.1f}m)"
             )
 
-        # Convert to arrays
-        x = valid_solutions[:, 0]
-        y = valid_solutions[:, 1]
-        z = valid_solutions[:, 2]
-
         # Create time vectors
         dates = [Date(year=year, doy=doy) for year, doy in valid_dates]
         time_vector = np.array([date.fyear for date in dates])
         time_vector_mjd = np.array([date.mjd for date in dates])
 
         # Set using the new dataclass
-        self._set_coordinates_from_arrays(x, y, z, time_vector, time_vector_mjd, dates)
+        self._set_coordinates_from_arrays(valid_solutions.T, time_vector, time_vector_mjd, dates)
 
     def _compute_completion_percentage(self, time_vector_ns: np.ndarray) -> None:
         """Common completion percentage calculation"""
@@ -303,12 +296,12 @@ class SolutionData(ABC):
         )
         return crc32(hash_input)
 
-    def transform_to_local(self, ignore_filter=False) -> List[np.ndarray]:
+    def transform_to_local(self, ignore_data_window=False) -> List[np.ndarray]:
         """Transform ECEF coordinates to local NEU frame"""
         from pgamit.Utils import ct2lg
 
         # apply observation mask (if any)
-        if not ignore_filter:
+        if not ignore_data_window:
             mask = self.config.modeling.get_observation_mask(self.time_vector)
         else:
             mask = np.ones(self.time_vector.shape).astype(bool)
@@ -533,7 +526,7 @@ class GAMITSolutionData(SolutionData):
                              f"in stack {self.stack_name}")
 
         # Use shared processing method
-        self._process_coordinate_solutions(polyhedrons, "PPP solutions")
+        self._process_coordinate_solutions(polyhedrons, "GAMIT solutions")
 
     def _load_missing_solutions(self, cnn) -> None:
         """Load epochs with RINEX files but no solutions"""

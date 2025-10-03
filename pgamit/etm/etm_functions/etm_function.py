@@ -9,7 +9,6 @@ from skimage.transform import order_angles_golden_ratio
 
 logger = logging.getLogger(__name__)
 
-from etm.core.etm_config import JumpType
 # app
 from pgamit.etm.core.etm_config import EtmConfig
 from pgamit.etm.core.data_classes import EtmFunctionParameterVector, AdjustmentResults

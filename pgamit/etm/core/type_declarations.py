@@ -6,12 +6,22 @@ Author: Demian D. Gomez
 
 from enum import IntEnum, auto
 
+from pgamit.etm.least_squares.ls_collocation import gaussian_func
+from pgamit.etm.least_squares.ls_collocation import cauchy_func
+
 
 class FitStatus(IntEnum):
     """Enum for fit status"""
     PREFIT = auto()
     POSTFIT = auto()
 
+    @property
+    def description(self) -> str:
+        descriptions = {
+            FitStatus.PREFIT: 'Prefit',
+            FitStatus.POSTFIT: 'Postfit'
+        }
+        return descriptions.get(self, 'UNKNOWN')
 
 class PeriodicStatus(IntEnum):
     """Enum for periodic term status"""
@@ -19,6 +29,14 @@ class PeriodicStatus(IntEnum):
     ADDED_BY_USER = auto()
     UNABLE_TO_FIT = auto()
 
+    @property
+    def description(self) -> str:
+        descriptions = {
+            PeriodicStatus.AUTOMATICALLY_ADDED: 'Automatically added by ETM',
+            PeriodicStatus.ADDED_BY_USER: 'Periodic terms added by user',
+            PeriodicStatus.UNABLE_TO_FIT: 'Unable to fit periodic terms'
+        }
+        return descriptions.get(self, 'UNKNOWN')
 
 class EtmSolutionType(IntEnum):
     """Enum for jump types to replace scattered constants"""
@@ -38,6 +56,7 @@ class JumpType(IntEnum):
     UNDETERMINED = -1
     MECHANICAL_MANUAL = 1
     MECHANICAL_ANTENNA = 2
+    AUTO_DETECTED = 3
     REFERENCE_FRAME = 5
     COSEISMIC_JUMP_DECAY = 10
     COSEISMIC_ONLY = 15
@@ -50,6 +69,7 @@ class JumpType(IntEnum):
             JumpType.UNDETERMINED: 'gray',
             JumpType.MECHANICAL_MANUAL: 'darkcyan',
             JumpType.MECHANICAL_ANTENNA: 'blue',
+            JumpType.AUTO_DETECTED: 'darkorange',
             JumpType.REFERENCE_FRAME: 'green',
             JumpType.COSEISMIC_JUMP_DECAY: 'red',
             JumpType.COSEISMIC_ONLY: 'purple',
@@ -63,6 +83,7 @@ class JumpType(IntEnum):
             JumpType.UNDETERMINED: 'UNDETERMINED',
             JumpType.MECHANICAL_MANUAL: 'MECHANICAL (MANUAL)',
             JumpType.MECHANICAL_ANTENNA: 'MECHANICAL (ANTENNA CHANGE)',
+            JumpType.AUTO_DETECTED: 'AUTO DETECTED (UNKNOWN)',
             JumpType.REFERENCE_FRAME: 'REFERENCE FRAME CHANGE',
             JumpType.COSEISMIC_JUMP_DECAY: 'CO+POSTSEISMIC',
             JumpType.COSEISMIC_ONLY: 'COSEISMIC ONLY',
@@ -79,20 +100,53 @@ class NoiseModels(IntEnum):
 
 
 class AdjustmentModels(IntEnum):
-    """Enum for noise models"""
+    """Enum for adjustment models"""
     ROBUST_LEAST_SQUARES = auto()
     LSQ_COLLOCATION = auto()
     @property
     def description(self) -> str:
         descriptions = {
-            AdjustmentModels.ROBUST_LEAST_SQUARES: 'Robust LSQ',
-            AdjustmentModels.LSQ_COLLOCATION: 'LSQ Collocation'
+            AdjustmentModels.ROBUST_LEAST_SQUARES: 'Robust Least Squares',
+            AdjustmentModels.LSQ_COLLOCATION: 'Least Squares Collocation'
         }
         return descriptions.get(self, 'UNKNOWN')
 
+
+class CovarianceFunction(IntEnum):
+    """Enum for covariance models"""
+    GAUSSIAN = auto()
+    CAUCHY = auto()
+    ARMA = auto()
+
+    @property
+    def description(self) -> str:
+        descriptions = {
+            CovarianceFunction.GAUSSIAN: 'Gaussian Covariance Function',
+            CovarianceFunction.CAUCHY: 'Cauchy Covariance Function',
+            CovarianceFunction.ARMA: 'Autoregressive Moving Average Covariance Function'
+        }
+        return descriptions.get(self, 'UNKNOWN')
+
+    @property
+    def get_function(self):
+        functions = {
+            CovarianceFunction.GAUSSIAN: gaussian_func,
+            CovarianceFunction.CAUCHY: cauchy_func,
+            CovarianceFunction.ARMA: gaussian_func # this function is the default in case ARMA fails
+        }
+        return functions.get(self, None)
 
 class SolutionType(IntEnum):
     """Enum for noise models"""
     GAMIT = auto()
     PPP = auto()
     NGL = auto()
+
+    @property
+    def description(self) -> str:
+        descriptions = {
+            SolutionType.GAMIT: 'GAMIT: GNSS at MIT',
+            SolutionType.PPP: 'Precise Point Positioning',
+            SolutionType.NGL: 'Nevada Geodetic Laboratory (GipsyX)'
+        }
+        return descriptions.get(self, 'UNKNOWN')

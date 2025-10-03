@@ -5,11 +5,12 @@ Author: Demian D. Gomez
 """
 
 from abc import ABC, abstractmethod
-from typing import List, Union
+from typing import List
 
 from scipy.optimize import curve_fit
+from scipy.signal import lombscargle
 from scipy.stats import chi2
-from scipy.linalg import cho_factor, cho_solve
+from scipy.linalg import cho_factor, cho_solve, toeplitz
 from time import time
 import numpy as np
 import logging
@@ -19,159 +20,10 @@ logger = logging.getLogger(__name__)
 # app
 from pgamit.etm.least_squares.design_matrix import DesignMatrix
 from pgamit.etm.core.etm_config import EtmConfig
-from pgamit.etm.core.type_declarations import JumpType, AdjustmentModels, NoiseModels, FitStatus
+from pgamit.etm.core.type_declarations import JumpType, AdjustmentModels, NoiseModels, FitStatus, CovarianceFunction
 from pgamit.etm.core.data_classes import AdjustmentResults
 from pgamit.etm.data.solution_data import SolutionData
-from pgamit.etm.least_squares.ls_collocation import covariance_1d, gaussian_func, cauchy_func
-from pgamit.etm.etm_functions.stochastic_signal import StochasticSignal
-
-
-def optimized_least_squares_bak(config, a, cov, csz, observations, css, dof, results):
-    """
-    Compute all quantities that depend on w = inv(cov) efficiently
-    """
-    try:
-        # Single Cholesky decomposition
-        chol_fac, lower = cho_factor(cov)
-
-        # Solve for parameters (from previous question)
-        identity = np.eye(cov.shape[0])
-        w = cho_solve((chol_fac, lower), identity)
-
-        limit = config.least_squares.sigma_filter_limit
-
-        x1 = chi2.ppf(0.05 / 2, dof)
-        x2 = chi2.ppf(1 - 0.05 / 2, dof)
-
-        for j in range(config.least_squares.iterations):
-            # save iteration number
-            iterations = j + 1
-
-            aTwA = a.T @ w @ a
-            aTwobs = a.T @ w @ observations
-
-            try:
-                chol_fac2, lower2 = cho_factor(aTwA)
-                parameters = cho_solve((chol_fac2, lower2), aTwobs)
-            except np.linalg.LinAlgError:
-                parameters = np.linalg.solve(aTwA, aTwobs)
-
-            # residuals
-            v = observations - a @ parameters
-
-            # Solve for stochastic signal
-            # remove stochastic signal to leave only the white noise
-            v -= csz @ cho_solve((chol_fac, lower), v)
-
-            # unit sigma
-            var = (v @ w @ v) / dof
-
-            logger.debug(f'LSC variance factor: {var:.3f}' )
-            # update wrms
-            results.wrms = results.wrms * np.sqrt(var)
-
-            s = np.abs(np.divide(v, results.wrms))
-
-            x = var * dof
-
-            if not x1 <= x <= x2:
-                # if it falls in here it's because it didn't pass the Chi2 test
-
-                # reweigh by Mike's method of equal weight until 2 sigma
-                f = np.ones((v.shape[0],))
-                # f[s > LIMIT] = 1. / (np.power(10, LIMIT - s[s > LIMIT]))
-                # do not allow sigmas > 100 m, which is basically not putting
-                # the observation in. Otherwise, due to a model problem
-                # (missing jump, etc) you end up with very unstable inversions
-                # f[f > 500] = 500
-                sw = np.power(10, limit - s[s > limit])
-                sw[sw < np.finfo(float).eps] = np.finfo(float).eps
-                f[s > limit] = sw
-
-                # downweight outlier observations and scale weight
-                w = w.T @ np.diag(f) * 1/var
-            else:
-                break
-
-        temp_v = cho_solve((chol_fac, lower), observations - a @ parameters)
-        stochastic_signal = css @ temp_v
-        obs_sigmas = np.sqrt(1 / np.diag(w))
-
-        return parameters, np.linalg.solve(aTwA, np.eye(parameters.shape[0])), stochastic_signal, np.sqrt(var), obs_sigmas, v
-
-    except np.linalg.LinAlgError:
-        # Fallback to standard solve
-        logger.warning("Warning: Cholesky failed, using standard solve")
-
-        # Parameters
-        X = np.linalg.solve(cov, a)
-        aTwA = a.T @ X
-        aTwobs = a.T @ np.linalg.solve(cov, observations)
-        parameters = np.linalg.solve(aTwA, aTwobs)
-
-        # residuals
-        v = observations - a @ parameters
-        # Other quantities
-        temp_v = np.linalg.solve(cov, v)
-        stochastic_signal = css @ temp_v
-        so = np.sqrt((v @ temp_v) / dof)
-
-        # Diagonal computation
-        identity = np.eye(cov.shape[0])
-        w_matrix = np.linalg.solve(cov, identity)
-        obs_sigmas = np.sqrt(1 / np.diag(w_matrix))
-
-        return parameters, np.linalg.solve(aTwA, np.eye(parameters.shape[0])), stochastic_signal, so, obs_sigmas, v
-
-
-def optimized_least_squares(config, a, cov, csz, observations, css, dof, results):
-    """
-    Compute all quantities that depend on w = inv(cov) efficiently
-    """
-    # find where the covariance drops below eps
-    idx = 1000 #np.where(cov[0, :] <= (np.finfo(float).eps / 1000))[0].min()
-
-    # remainder
-    r = np.mod(a.shape[0], idx)
-    # idx parts to split the matrix
-    parts = int(np.floor(a.shape[0] / idx))
-    # actual chunks
-    chunks = parts * [idx] + [r] if r > 0 else []
-
-    n = []
-    c = []
-    s = 0
-    for e in np.cumsum(chunks).tolist():
-        actual_end = e - 1
-        block_size = actual_end - s + 1
-
-        # Solve with correct eye matrix size
-        tn = np.linalg.solve(cov[s:actual_end + 1, s:actual_end + 1], np.eye(block_size))
-        n.append(a[s:actual_end + 1, :].T @ tn @ a[s:actual_end + 1, :])
-        c.append(a[s:actual_end + 1, :].T @ tn @ observations[s:actual_end + 1])
-
-        # Next chunk starts after current chunk ends
-        s = e  # or s = actual_end + 1
-
-    # stack n and c
-    n = np.sum(n, axis=0)
-    c = np.sum(c, axis=0)
-
-    parameters = np.linalg.solve(n, c)
-
-    # residuals
-    v = observations - a @ parameters
-
-    # Solve for stochastic signal and variance factor
-    chol_fac, lower = cho_factor(cov)
-    temp_v = cho_solve((chol_fac, lower), v)
-    stochastic_signal = css @ temp_v
-    so = 1#np.sqrt((v @ w @ v) / dof)
-
-    obs_sigmas = np.sqrt(1 / np.diag(cov))
-
-    return parameters, np.linalg.solve(n, np.eye(parameters.shape[0])), stochastic_signal, so, obs_sigmas, v
-
+from pgamit.etm.least_squares.ls_collocation import gaussian_func
 
 
 class WeightBuilder(ABC):
@@ -208,6 +60,26 @@ class AdjustmentStrategy(ABC):
         """Perform the least squares adjustment"""
         pass
 
+    @staticmethod
+    def compute_plomb(residuals, time_vector_mjd) -> float:
+        # estimate the spectral index of the residuals
+        T_total = np.max(time_vector_mjd) - np.min(time_vector_mjd)  # Total duration in days
+        dt_min = 1  # Minimum sampling interval in days
+
+        # Define frequency range
+        f_min = 1 / T_total  # or 2/T_total for more conservative estimate
+        f_max = 1 / (2 * dt_min)  # Nyquist frequency = 0.5 cycles/day
+
+        # Create frequency vector
+        fvec = np.linspace(f_min, f_max, 2000)  # 1000 frequency points
+        angular_freqs = 2 * np.pi * fvec
+        pxx = lombscargle(time_vector_mjd, residuals, angular_freqs)
+
+        # Linear fit to the LogLog spectrum plot
+        fit_psd = np.polyfit(np.log10(fvec), np.log10(pxx), 1)
+
+        return fit_psd[0]  # Slope (spectral index)
+
 
 class WhiteNoise(WeightBuilder):
     """Implementation of WeightBuilder for different noise processes"""
@@ -239,11 +111,194 @@ class WhiteNoise(WeightBuilder):
         return self._w[:, np.newaxis] * design_matrix
 
 
+class EmpiricalCovariance:
+    def __init__(self, time_vector_mjd: np.ndarray,
+                 residuals: np.ndarray,
+                 obs_sigmas: np.ndarray,
+                 outlier_flags: np.ndarray,
+                 function: CovarianceFunction = CovarianceFunction.GAUSSIAN,
+                 arma_roots: int = 10,
+                 arma_points: int = 500
+                 ):
+
+        logger.debug(f'EmpiricalCovariance: {function.description}')
+
+        self.time_vector_mjd = time_vector_mjd
+        self.obs_sigmas = obs_sigmas
+        self.outlier_flags = outlier_flags
+
+        # compute the empirical covariance values
+        self.bins_mjd, self.bins_fyr, self.empirical_covariance = (
+            self._compute_empirical_covariance(time_vector_mjd[outlier_flags], residuals[outlier_flags]))
+
+        self.method = function
+        self.params = np.array([])
+        self.n = arma_points
+        self.roots = arma_roots
+        self.empirical_func = function.get_function
+        self.arma_failed = False
+
+        if self.method != CovarianceFunction.ARMA:
+            self.params, _ = self.fit_empirical_covariance(self.empirical_func)
+
+        self.crr = np.diag(obs_sigmas ** 2)
+
+    @ staticmethod
+    def _compute_empirical_covariance(time_vector_mjd: np.ndarray, data: np.ndarray):
+        n = int(np.floor(time_vector_mjd.size / 2))
+
+        # Normalize time indices
+        tx = (time_vector_mjd - np.min(time_vector_mjd) + 1).astype(int) - 1  # Convert to 0-based indexing
+
+        # Outer product with upper triangular
+        dd = np.triu(np.outer(data, data))
+
+        # Create time matrix
+        time_range = np.max(time_vector_mjd) - np.min(time_vector_mjd) + 1
+        tc = np.zeros((time_range, time_range))
+        tc[np.ix_(tx, tx)] = dd
+
+        # Calculate covariance along diagonals
+        max_offset = min(n, tc.shape[0] - 1)
+        cov = np.zeros(max_offset)
+
+        for k in range(max_offset):
+            diag_vals = np.diagonal(tc, offset=k)
+            diag_vals = diag_vals[diag_vals != 0]  # Remove zeros
+            if len(diag_vals) > 0:
+                cov[k] = np.mean(diag_vals)
+
+        # Create bins
+        bins_mjd = np.arange(max_offset)
+        bins_fyr = np.arange(max_offset) / 365.25
+
+        return bins_mjd, bins_fyr, cov
+
+    def get_covariance_matrix(self, time_vector_mjd: np.ndarray):
+
+        if self.method == CovarianceFunction.ARMA and not self.arma_failed:
+            roots = self.roots
+            while roots > 3:
+                try:
+                    pk, Ak = self.arma_covariance(roots, self.n)
+                    csz, empirical_cov_function = self.arma_compute(pk, Ak, time_vector_mjd)
+
+                    np.linalg.cholesky(csz)
+                    logger.debug(f'EmpiricalCovariance: Matrix is symmetric positive definite with {roots} roots '
+                                 f'and {self.n} points')
+                    # find which columns of csz to remove (because there are no observations on those positions)
+                    # those columns also need to be removed as rows to form css
+                    idx = np.isin(time_vector_mjd, self.time_vector_mjd)
+                    # fill the params with the cov function
+                    self.params = empirical_cov_function
+                    # removing those columns and rows essentially gives the observation covariance matrix (css)
+                    return csz[np.ix_(idx, idx)], csz[:, idx]
+                except ValueError:
+                    logger.debug(f'EmpiricalCovariance: Bad roots found for {roots} roots and {self.n} points, '
+                                 f'reducing and trying again')
+                    roots -= 1
+                except np.linalg.LinAlgError:
+                    # let cholesky raise an error if not positive definite
+                    logger.debug(f'EmpiricalCovariance: Matrix is not symmetric positive definite for {roots} roots '
+                                 f'and {self.n} points, reducing and trying again')
+                    roots -= 1
+
+            # if we got here is because we could not find a valid covariance matrix
+            logger.debug('EmpiricalCovariance: Could not find symmetric positive definite matrix using ARMA, '
+                         'switching to gaussian covariance')
+            self.arma_failed = True
+            self.params, _ = self.fit_empirical_covariance(self.empirical_func)
+
+        if self.method in (CovarianceFunction.GAUSSIAN, CovarianceFunction.CAUCHY) or self.arma_failed:
+            # get the lags of all the data to build the interpolation matrix (csz)
+            lag = np.abs(time_vector_mjd - time_vector_mjd[:, np.newaxis])
+            csz = self.empirical_func(lag, *self.params)
+            # find which columns of csz to remove (because there are no observations on those positions)
+            # those columns also need to be removed as rows to form css
+            idx = np.isin(time_vector_mjd, self.time_vector_mjd)
+            # removing those columns and rows essentially gives the observation covariance matrix (css)
+            return csz[np.ix_(idx, idx)], csz[:, idx]
+        else:
+            raise ValueError('Method ' + self.method.description + ' not implemented')
+
+    def arma_covariance(self, p: int = 10, n: int = 500):
+        # equation 14c of
+        # Schubert, T., Korte, J., Brockmann, J. M., & Schuh, W.-D. (2020). A Generic Approach to Covariance Function
+        # Estimation Using ARMA-Models. Mathematics, 8(4), 591. https://doi.org/10.3390/math8040591
+        # empirical_covariance[0] is the first point (with nugget effect) and needs to be
+        # excluded
+
+        e = self.empirical_covariance[1:n + 1]
+        A = np.zeros((n - p, p))
+        for i in range(p):
+            A[:, i] = e[p - i - 1:n - i - 1]
+
+        L = e[p:n]
+
+        # alpha values
+        alpha = np.linalg.lstsq(A, L, rcond=None)[0]
+
+        # find the roots of eq 11
+        coeffs = np.concatenate(([1], -alpha))
+        pk = np.roots(coeffs)
+
+        # all nks need to be < 1
+        nk = np.abs(pk)
+
+        if np.any(nk >= 1):
+            raise ValueError('Bad roots in ARMA found!')
+
+        # now build the matrix to find the Ap coefficients
+        tau = np.arange(n + 1).reshape(-1, 1)
+        Gk = pk.reshape(1, -1) ** tau
+        Lk = self.empirical_covariance[0:n + 1]
+
+        # find the Ak terms
+        Ak = np.linalg.lstsq(Gk, Lk, rcond=None)[0]
+
+        return pk, Ak
+
+    @staticmethod
+    def arma_compute(pk, Ak, time_vector_mjd: np.ndarray):
+        tau = time_vector_mjd - np.min(time_vector_mjd)
+        tau = tau.reshape(-1, 1)  # Make it a column vector
+        Gk = pk.reshape(1, -1) ** tau
+
+        # output the modeled covariance as a vector
+        empirical_cov_function = np.real(Gk @ Ak)
+
+        # output the matrix
+        css = toeplitz(np.real(Gk @ Ak).flatten())
+
+        return css, empirical_cov_function
+
+    def fit_empirical_covariance(self, empirical_func=gaussian_func):
+        """ Estimate the covariance of the signals.
+            The given residuals are used to calculate the covariance of the signals.
+        """
+
+        init_scale = np.floor(np.log10(np.abs(self.bins_mjd).max()))
+
+        if empirical_func.__name__ == 'gaussian_func':
+            init_values = [self.empirical_covariance[0], 10 ** (init_scale - 1), 10 ** (init_scale - 1)]
+        elif empirical_func.__name__ == 'exponential_func':
+            init_values = [self.empirical_covariance[0], 10 ** (init_scale)]
+        else:
+            init_values = [self.empirical_covariance[0], 10 ** init_scale]
+
+        params, _, opt = curve_fit(empirical_func, self.bins_mjd, self.empirical_covariance,
+                                    p0=init_values, full_output=True)[0:3]
+
+        rms_params = np.sqrt((opt['fvec'] ** 2).mean())
+
+        return params, rms_params
+
+
 class RobustLeastSquares(AdjustmentStrategy):
     """Robust least squares with iterative reweighting"""
 
     def adjust(self, design_matrix: DesignMatrix, observations: np.ndarray,
-               weights: WeightBuilder, **kwargs) -> AdjustmentResults:
+               weights: WeightBuilder, time_vector_mjd: np.ndarray = None, **kwargs) -> AdjustmentResults:
         """
         Robust least squares adjustment with outlier detection and reweighting
         """
@@ -252,7 +307,8 @@ class RobustLeastSquares(AdjustmentStrategy):
         a = design_matrix.matrix
 
         wrms = 1
-        limit = self.config.least_squares.sigma_filter_limit
+        limit = self.config.modeling.least_squares_strategy.sigma_filter_limit
+        iterations = self.config.modeling.least_squares_strategy.iterations
 
         self.dof = (a.shape[0] - a.shape[1])
         self.x1 = chi2.ppf(0.05 / 2, self.dof)
@@ -260,7 +316,7 @@ class RobustLeastSquares(AdjustmentStrategy):
 
         s = np.array([])
 
-        for j in range(self.config.least_squares.iterations):
+        for j in range(iterations):
             # save iteration number
             results.iterations = j + 1
 
@@ -288,22 +344,21 @@ class RobustLeastSquares(AdjustmentStrategy):
 
             logger.debug(f'RobustLeastSquares so: {self.so:.4f} it: {j:2d} pass: {self.x1 <= x <= self.x2}')
 
-            if not self.x1 <= x <= self.x2:
-                # if it falls in here it's because it didn't pass the Chi2 test
+            # DDG: took this condition out of the chi2 if so that weights get
+            # updated using the latest so value
+            # reweigh by Mike's method of equal weight until 2 sigma
+            f = np.ones((v.shape[0],))
+            # f[s > LIMIT] = 1. / (np.power(10, LIMIT - s[s > LIMIT]))
+            # do not allow sigmas > 1/eps m, which is basically not putting
+            # the observation in. This is to avoid unstable inversions
+            sw = np.power(10, limit - s[s > limit])
+            sw[sw < np.finfo(float).eps] = np.finfo(float).eps
+            f[s > limit] = sw
 
-                # reweigh by Mike's method of equal weight until 2 sigma
-                f = np.ones((v.shape[0],))
-                # f[s > LIMIT] = 1. / (np.power(10, LIMIT - s[s > LIMIT]))
-                # do not allow sigmas > 100 m, which is basically not putting
-                # the observation in. Otherwise, due to a model problem
-                # (missing jump, etc) you end up with very unstable inversions
-                # f[f > 500] = 500
-                sw = np.power(10, limit - s[s > limit])
-                sw[sw < np.finfo(float).eps] = np.finfo(float).eps
-                f[s > limit] = sw
+            weights.update_weights(np.square(np.divide(f, wrms)))
 
-                weights.update_weights(np.square(np.divide(f, wrms)))
-            else:
+            if self.x1 <= x <= self.x2:
+                # if it falls in here it's because it did pass the Chi2 test
                 results.converged = True
                 break
 
@@ -317,11 +372,18 @@ class RobustLeastSquares(AdjustmentStrategy):
             logger.info('np.linalg.inv failed to obtain covariance matrix: %s' % str(e))
             results.covariance_matrix = np.ones((design_matrix.matrix.shape[0],
                                                  design_matrix.matrix.shape[0]))
+
         # extract the parameter sigmas
         results.parameter_sigmas =  np.sqrt(np.diag(results.covariance_matrix))
         # mark observations with sigma <= LIMIT
         results.outlier_flags = s <= limit
         results.obs_sigmas = np.sqrt(1 / np.diag(weights.matrix))
+
+        # compute spectral index of residuals
+        si = self.compute_plomb(results.residuals[results.outlier_flags], time_vector_mjd[results.outlier_flags])
+        results.spectral_index_random_noise = si
+        logger.info(f'Spectral index of residuals: {si:.4f}')
+
         # declare the origin of the fit
         results.origin = 'RobustLeastSquares'
         # log the results for inspection by user
@@ -330,6 +392,8 @@ class RobustLeastSquares(AdjustmentStrategy):
         logger.debug(f'{"RobustLeastSquares [mm]":>28}: ' +
                      ' '.join([f'{p*1000.:10.3e}' for p in results.parameters.tolist()]))
 
+        logger.info(f'RobustLeastSquares rejected outliers: '
+                    f'{np.sum(~results.outlier_flags) / results.outlier_flags.shape[0] * 100:.1f}%')
         return results
 
 
@@ -342,29 +406,24 @@ class LeastSquaresCollocation(AdjustmentStrategy):
 
         tt = time()
         a = design_matrix.matrix
-        limit = self.config.least_squares.sigma_filter_limit
+        limit = self.config.modeling.least_squares_strategy.sigma_filter_limit
 
         # first need to run the RobustAdjustment to get residuals
         lsq = RobustLeastSquares(self.config)
         white_noise = WhiteNoise(observations.size)
 
-        results = lsq.adjust(design_matrix, observations, white_noise)
+        results = lsq.adjust(design_matrix, observations, white_noise, time_vector_mjd)
         wrms = results.wrms
         ###################################################################################################
         # now use residuals to run lsc
         self.dof = (a.shape[0] - a.shape[1])
 
-        # fit the covariance function (using Kevin Wang's code)
-        cov, csz, css, _, para, empirical_cov = self._estimate_covariance_matrices(time_vector_mjd,
-                                                                                   time_vector_cont_mjd,
-                                                                                   results.residuals,
-                                                                                   results.obs_sigmas,
-                                                                                   results.outlier_flags)
         # find the parameters
-        results = self._least_squares_non_it(a, cov, observations, css, csz)
+        results = self._least_squares(a, observations, results, time_vector_mjd, time_vector_cont_mjd)
+
         # save covariance parameters
-        results.covariance_function_params = para
-        results.empirical_covariance = np.array(empirical_cov)
+        #results.covariance_function_params = empirical_cov.params
+        #results.empirical_covariance = np.array([empirical_cov.bins_mjd, empirical_cov.empirical_covariance])
         results.wrms = wrms * self.so
         results.variance_factor = self.so ** 2
         #results = self._least_squares_chunks(a, observations, results, time_vector_mjd, time_vector_cont_mjd)
@@ -383,80 +442,31 @@ class LeastSquaresCollocation(AdjustmentStrategy):
 
         # mark observations with sigma <= LIMIT
         results.outlier_flags = s <= limit
+
+        # compute spectral index of residuals
+        si = self.compute_plomb(results.residuals[results.outlier_flags], time_vector_mjd[results.outlier_flags])
+        results.spectral_index_random_noise = si
+        logger.info(f'Spectral index of residuals: {si:.4f}')
+
+        si = self.compute_plomb(results.stochastic_signal, time_vector_cont_mjd)
+        results.spectral_index_stochastic_noise = si
+        logger.info(f'Spectral index of stochastic noise: {si:.4f}')
+
         # declare the origin of the fit
         results.origin = 'LeastSquaresCollocation'
 
         logger.debug(f'LeastSquaresCollocation in {time() - tt:.3f} s')
+        logger.info(f'LeastSquaresCollocation rejected outliers: '
+                    f'{np.sum(~results.outlier_flags) / results.outlier_flags.shape[0] * 100:.1f}%')
 
         return results
 
-    def _least_squares_chunks(self, a, observations, robust_results, time_vector_mjd, time_vector_cont_mjd):
+    def _least_squares(self, a, observations, rls, time_vector_mjd, time_vector_cont_mjd):
         """
         Compute all quantities that depend on w = inv(cov) efficiently
         """
         # find where the covariance drops below eps
-        idx = 500  # np.where(cov[0, :] <= (np.finfo(float).eps / 1000))[0].min()
-
-        results = AdjustmentResults()
-
-        # remainder
-        r = np.mod(a.shape[0], idx)
-        # idx parts to split the matrix
-        parts = int(np.floor(a.shape[0] / idx))
-        # actual chunks
-        chunks = parts * [idx] + [r] if r > 0 else []
-
-        n = []
-        c = []
-        s = 0
-        for e in np.cumsum(chunks).tolist():
-            actual_end = e - 1
-            block_size = actual_end - s + 1
-
-            cov, _, _, _ = self._estimate_covariance_matrices(time_vector_mjd[s:actual_end + 1],
-                                                              time_vector_cont_mjd,
-                                                              robust_results.residuals[s:actual_end + 1],
-                                                              robust_results.obs_sigmas[s:actual_end + 1],
-                                                              robust_results.oulier_flags[s:actual_end + 1])
-
-            # Solve with correct eye matrix size
-            tn = np.linalg.solve(cov, np.eye(block_size))
-            n.append(a[s:actual_end + 1, :].T @ tn @ a[s:actual_end + 1, :])
-            c.append(a[s:actual_end + 1, :].T @ tn @ observations[s:actual_end + 1])
-
-            # Next chunk starts after current chunk ends
-            s = e  # or s = actual_end + 1
-
-        # stack n and c
-        n = np.sum(n, axis=0)
-        c = np.sum(c, axis=0)
-
-        results.parameters = np.linalg.solve(n, c)
-
-        # residuals
-        #v = observations - a @ results.parameters
-        results.residuals = observations - a @ results.parameters
-
-        # Solve for stochastic signal and variance factor
-        #w = np.linalg.solve(cov, np.eye(cov.shape[0]))
-        results.stochastic_signal = np.zeros(time_vector_cont_mjd.shape)
-
-        #results.residuals = v - csz @ (w @ v)
-        # wrms of the database
-        # self.so = np.sqrt((v @ w @ v) / self.dof)
-        results.wrms = np.sqrt((results.residuals.T @ results.residuals) / self.dof) * self.so
-
-        results.covariance_matrix = np.linalg.solve(n, np.eye(results.parameters.shape[0])) * self.so
-        # results.obs_sigmas = np.sqrt(1 / np.diag(cov))
-
-        return results
-
-    def _least_squares_non_it(self, a, cov, observations, css, csz):
-        """
-        Compute all quantities that depend on w = inv(cov) efficiently
-        """
-        # find where the covariance drops below eps
-        idx = 1000  # np.where(cov[0, :] <= (np.finfo(float).eps / 1000))[0].min()
+        idx = int(a.shape[0] / 1)  # np.where(cov[0, :] <= (np.finfo(float).eps / 1000))[0].min()
 
         results = AdjustmentResults()
 
@@ -466,19 +476,45 @@ class LeastSquaresCollocation(AdjustmentStrategy):
         parts = int(np.floor(a.shape[0] / idx))
         # actual chunks
         chunks = parts * [idx]
-        chunks += [r] if r > 0 else []
+        if r > 0:
+            # add the remainder to the last entry
+            chunks[-1] += r
 
         n = []
         c = []
+        p = []
+        w = []
+        z = []
         s = 0
-        for e in np.cumsum(chunks).tolist():
+        for i, e in enumerate(np.cumsum(chunks).tolist()):
+            logger.debug(f'LeastSquaresCollocation: processing covariance block {i}')
+
             actual_end = e - 1
             block_size = actual_end - s + 1
 
+            tv = time_vector_mjd[s:actual_end + 1]
+            tc = time_vector_cont_mjd[np.logical_and(time_vector_cont_mjd >= tv.min(),
+                                                     time_vector_cont_mjd <= tv.max())]
+            empirical_cov = EmpiricalCovariance(tv,
+                                                rls.residuals[s:actual_end + 1],
+                                                rls.obs_sigmas[s:actual_end + 1],
+                                                rls.outlier_flags[s:actual_end + 1],
+                                                self.config.modeling.least_squares_strategy.covariance_function,
+                                                arma_roots=self.config.modeling.least_squares_strategy.arma_roots,
+                                                arma_points=self.config.modeling.least_squares_strategy.arma_points)
+
+            css, csz = empirical_cov.get_covariance_matrix(tc)
+            cov = css + empirical_cov.crr
+            # cov = css + np.eye(block_size) * rls.wrms ** 2
+
+            ap = a[s:actual_end + 1, :]
             # Solve with correct eye matrix size
-            p = np.linalg.solve(cov[s:actual_end + 1, s:actual_end + 1], np.eye(block_size))
-            n.append(a[s:actual_end + 1, :].T @ p @ a[s:actual_end + 1, :])
-            c.append(a[s:actual_end + 1, :].T @ p @ observations[s:actual_end + 1])
+            p.append(np.linalg.solve(cov, np.eye(block_size)))
+            w.append(csz)
+            z.append(css)
+
+            n.append(ap.T @ p[-1] @ ap)
+            c.append(ap.T @ p[-1] @ observations[s:actual_end + 1])
 
             # Next chunk starts after current chunk ends
             s = e  # or s = actual_end + 1
@@ -492,78 +528,33 @@ class LeastSquaresCollocation(AdjustmentStrategy):
         # residuals
         v = observations - a @ results.parameters
 
+        # create the vector to store the stochastic signal
+        results.stochastic_signal = np.zeros_like(time_vector_cont_mjd, dtype=float)
+        results.obs_sigmas = np.zeros_like(time_vector_mjd, dtype=float)
+        results.residuals = np.zeros_like(time_vector_mjd, dtype=float)
         # Solve for stochastic signal and variance factor
-        w = np.linalg.solve(cov, np.eye(cov.shape[0]))
-        results.stochastic_signal = css @ w @ v
+        s = 0
+        omega = 0
+        for i, e in enumerate(np.cumsum(chunks).tolist()):
+            actual_end = e - 1
+            tv = time_vector_mjd[s:actual_end + 1]
+            idx = np.logical_and(time_vector_cont_mjd >= tv.min(),
+                                 time_vector_cont_mjd <= tv.max())
+            vp = v[s:actual_end + 1]
+            results.obs_sigmas[s:actual_end + 1] = np.sqrt(1 / np.diag(p[i]))
 
-        results.residuals = v - csz @ (w @ v)
+            results.stochastic_signal[idx] = w[i] @ p[i] @ vp
+            results.residuals[s:actual_end + 1] = vp - z[i] @ p[i] @ vp
+            omega += vp.T @ p[i] @ vp
+            s = e
+
         # wrms of the database
-        self.so = np.sqrt((results.residuals @ w @ results.residuals) / self.dof)
+        self.so = np.sqrt(np.sum(omega) / self.dof)
         # results.wrms = np.sqrt((results.residuals.T @ results.residuals) / self.dof) * self.so
 
         results.covariance_matrix = np.linalg.solve(n, np.eye(results.parameters.shape[0])) * (self.so ** 2)
-        results.obs_sigmas = np.sqrt(1 / np.diag(cov))
 
         return results
-
-    def _estimate_covariance_matrices(self, time_vector_mjd, time_vector_cont_mjd, residuals, obs_sigmas, outliers):
-        # obtain covariance function
-        c_obs_s, para, bins_mjd, emp_cov, rms_para = self.get_covariance(time_vector_mjd[outliers], residuals[outliers])
-
-        logger.debug(f'LeastSquaresCollocation covariance parameters: {para}')
-
-        # to get the full stochastic signal, find the lag between the point to be predicted and observations
-        lag = np.abs(time_vector_mjd - time_vector_cont_mjd[:, np.newaxis])
-        css = gaussian_func(lag, *para)
-        # noise matrix
-        # crr = np.eye(observations.shape[0]) * (results.wrms ** 2)
-        crr = np.diag(obs_sigmas ** 2)
-        idx = np.where(~np.isin(time_vector_cont_mjd, time_vector_mjd))[0]
-        # find which elements to remove from css (gaps) to obtain the covariance of observations ONLY
-        csz = np.delete(css, idx, axis=0)
-        cov = csz + crr
-
-        return cov, csz, css, crr, para, [bins_mjd, emp_cov]
-
-    @staticmethod
-    def get_covariance(time_vector_mjd, residuals, empirical_func=gaussian_func):
-        """ Estimate the covariance of the signals.
-            The given residuals are used to calculate the covariance of the signals.
-
-        Parameters: xy_interp          : 2D np.ndarray in the size of (num_obs, 2), xy coordinates of the observations.
-                    xy_residuals    : 2D np.ndarray in the size of (num_residuals, 2), xy coordinates of the residuals.
-                    residuals       : 1D np.ndarray in the size of (num_residuals,), residuals used to calculate the covariance of the signals.
-                    bin             : integer, number interval in the lag
-                    empir_func      : function, empirical function used to fit the covariance
-
-        Returns:    C_obs_s         : 2D np.ndarray in the size of (num_obs, num_obs), covariance matrix of the signals
-                    para            : 1D np.ndarray, parameters of the empirical function
-                    lag             : 1D np.ndarray in the size of (bin + 1,), lag in the covariance
-                    cov             : 2D np.ndarray in the size of (bin + 1,), covariance values
-                    trend           : 1D np.ndarray, trend in the observations.
-                    trend_std       : 1D np.ndarray, standard deviation of the trend
-                    rms_para        : float, root mean square difference between covariance and the fitting results.
-        """
-        # now begin the collocation process using the residuals
-        bins_mjd, _, cov = covariance_1d(time_vector_mjd, residuals)
-
-        init_scale = np.floor(np.log10(np.abs(bins_mjd).max()))
-
-        if empirical_func.__name__ == 'gaussian_func':
-            init_values = [cov[0], 10 ** (init_scale - 1), 10 ** (init_scale - 1)]
-        elif empirical_func.__name__ == 'exponential_func':
-            init_values = [cov[0], 10 ** (init_scale)]
-        else:
-            init_values = [cov[0], 10 ** init_scale]
-
-        para, pcov, opt = curve_fit(empirical_func, bins_mjd, cov, p0=init_values, full_output=True)[0:3]
-
-        rms_para = np.sqrt((opt['fvec'] ** 2).mean())
-
-        c_obs_s = empirical_func(bins_mjd, *para)
-        c_obs_s[c_obs_s < np.finfo(float).eps] = np.finfo(float).eps
-
-        return c_obs_s, para, bins_mjd, cov, rms_para
 
 
 class EtmFit:
@@ -584,19 +575,24 @@ class EtmFit:
         """wrapper to run adjustment. Returns runtime of the operation"""
         run_time = time()
         # shorthand notation
-        adjustment_strategy = self.config.modeling.adjustment_strategy
+        adjustment_model = self.config.modeling.least_squares_strategy.adjustment_model
 
         # allow replacing the design matrix
         if design_matrix:
             self.design_matrix = design_matrix
 
+        # get mask for least squares collocation
+        mask = self.config.modeling.get_observation_mask(solution_data.time_vector)
+
         # transform solutions to NEU
         neu = solution_data.transform_to_local()
 
+        # @ todo: apply detrending models in config.modeling.prefit_models
+
         # create instances of the adjustment strategy to use
-        if adjustment_strategy == AdjustmentModels.ROBUST_LEAST_SQUARES:
+        if adjustment_model == AdjustmentModels.ROBUST_LEAST_SQUARES:
             lsq = RobustLeastSquares(self.config)
-        elif adjustment_strategy == AdjustmentModels.LSQ_COLLOCATION:
+        elif adjustment_model == AdjustmentModels.LSQ_COLLOCATION:
             lsq = LeastSquaresCollocation(self.config)
         else:
             raise Exception('Adjustment strategy not implemented')
@@ -609,13 +605,11 @@ class EtmFit:
                 else:
                     raise Exception('Noise model not implemented')
 
-                if adjustment_strategy == AdjustmentModels.ROBUST_LEAST_SQUARES:
-                    self.results[i] = lsq.adjust(design_matrix, neu[i], white_noise)
+                if adjustment_model == AdjustmentModels.ROBUST_LEAST_SQUARES:
+                    self.results[i] = lsq.adjust(design_matrix, neu[i], white_noise,
+                                                 solution_data.time_vector_mjd[mask])
 
-                elif adjustment_strategy == AdjustmentModels.LSQ_COLLOCATION:
-                    # get mask for least squares collocation
-                    mask = self.config.modeling.get_observation_mask(solution_data.time_vector)
-
+                elif adjustment_model == AdjustmentModels.LSQ_COLLOCATION:
                     self.results[i] = lsq.adjust(design_matrix, neu[i],white_noise,
                                                  solution_data.time_vector_mjd[mask],
                                                  solution_data.time_vector_cont_mjd)

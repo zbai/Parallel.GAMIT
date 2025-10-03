@@ -35,7 +35,8 @@ class StochasticSignal(EtmFunction):
         if hasattr(self, '_time_vector_cont_mjd'):
             self.p.hash = crc32(f'stochastic_signal'
                                 f'{self._time_vector_cont_mjd.min()}'
-                                f'{self._time_vector_cont_mjd.min()}')
+                                f'{self._time_vector_cont_mjd.min()}'
+                                f'{self.config.modeling.least_squares_strategy.covariance_function.description}')
         else:
             self.p.hash = crc32(f'stochastic_signal')
 

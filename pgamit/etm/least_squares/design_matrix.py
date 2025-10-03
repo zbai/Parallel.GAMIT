@@ -17,8 +17,10 @@ from pgamit.etm.core.type_declarations import FitStatus
 class DesignMatrix:
     """Enhanced design matrix with validation and optimization"""
 
-    def __init__(self, time_vector: np.ndarray, functions: List[EtmFunction],
-                 config: EtmConfig):
+    def __init__(self, config: EtmConfig,
+                 time_vector: np.ndarray,
+                 functions: List[EtmFunction]):
+
         self.time_vector = time_vector
         self.functions = functions
         self.config = config
@@ -59,6 +61,13 @@ class DesignMatrix:
                 validation.extend(f.validate_design())
 
         return validation
+
+    def get_constraints_normal_eq(self):
+        """
+        method to obtain N and c for constraints declared in
+        config.modeling.least_squares_strategy.constraints
+        """
+        pass
 
     def _build_matrix(self, time_vector: np.ndarray) -> np.ndarray:
         """Build the complete design matrix"""
