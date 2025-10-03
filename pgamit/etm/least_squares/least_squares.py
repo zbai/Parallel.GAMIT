@@ -581,13 +581,11 @@ class EtmFit:
         if design_matrix:
             self.design_matrix = design_matrix
 
-        # get mask for least squares collocation
+        # get mask for least squares collocation and prefit models
         mask = self.config.modeling.get_observation_mask(solution_data.time_vector)
 
         # transform solutions to NEU
         neu = solution_data.transform_to_local()
-
-        # @ todo: apply detrending models in config.modeling.prefit_models
 
         # create instances of the adjustment strategy to use
         if adjustment_model == AdjustmentModels.ROBUST_LEAST_SQUARES:
@@ -662,7 +660,7 @@ class EtmFit:
             'NetworkCode': self.config.network_code,
             'StationCode': self.config.station_code,
             'object': 'var_factor',
-            'soln': self.config.solution.soln,
+            'soln': self.config.solution.solution_type.code,
             'stack': self.config.solution.stack_name,
             'params': [result.parameters for result in self.results],
             'sigmas': [[result.variance_factor for result in self.results],
@@ -720,10 +718,10 @@ class EtmFit:
         self.covar[0, 2] = cov[2]
         self.covar[2, 0] = cov[2]
 
-        if not self._isPD(self.covar):
-            self.covar = self._nearestPD(self.covar)
+        if not self._is_pd(self.covar):
+            self.covar = self._nearest_pd(self.covar)
 
-    def _nearestPD(self, a):
+    def _nearest_pd(self, a):
         """Find the nearest positive-definite matrix to input
 
         A Python/Numpy port of John D'Errico's `nearestSPD` MATLAB code [1], which
@@ -744,7 +742,7 @@ class EtmFit:
 
         a3 = (a2 + a2.T) / 2
 
-        if self._isPD(a3):
+        if self._is_pd(a3):
             return a3
 
         spacing = np.spacing(np.linalg.norm(a))
@@ -760,7 +758,7 @@ class EtmFit:
         i = np.eye(a.shape[0])
         k = 1
 
-        while not self._isPD(a3):
+        while not self._is_pd(a3):
             mineig = np.min(np.real(np.linalg.eigvals(a3)))
             a3 += i * (-mineig * k ** 2 + spacing)
             k += 1
@@ -768,7 +766,7 @@ class EtmFit:
         return a3
 
     @staticmethod
-    def _isPD(b):
+    def _is_pd(b):
         """Returns true when input is positive-definite, via Cholesky"""
         try:
             _ = np.linalg.cholesky(b)

@@ -23,11 +23,12 @@ class EtmConfig:
     """Central configuration manager for ETM operations"""
 
     def __init__(self,
-                 network_code: str,
-                 station_code: str,
+                 network_code: str = '',
+                 station_code: str = '',
                  custom_config: Optional[Dict[str, Any]] = None,
                  cnn: Cnn = None,
-                 solution_type: SolutionOptions = None):
+                 solution_type: SolutionOptions = None,
+                 json_file: str = None):
         """
         Initialize ETM configuration
 
@@ -37,14 +38,17 @@ class EtmConfig:
             network_code: Station network code (if loading from database)
             station_code: Station code (if loading from database)
         """
-        self.network_code = network_code
-        self.station_code = station_code
+        if not json_file:
+            self.network_code = network_code
+            self.station_code = station_code
 
-        self.solution = SolutionOptions()
-        self.modeling = ModelingParameters()
-        self.plotting_config = PlotOutputConfig()
-        self.validation = ValidationRules()
-        self.metadata = StationMetadata()
+            self.solution = SolutionOptions()
+            self.modeling = ModelingParameters()
+            self.plotting_config = PlotOutputConfig()
+            self.validation = ValidationRules()
+            self.metadata = StationMetadata()
+        else:
+            self.load_from_json(json_file)
 
         # Language support
         self.language = 'eng'
@@ -302,6 +306,12 @@ class EtmConfig:
         else:
             raise ValueError("Either filepath or json_string must be provided")
 
+        self.network_code = data['network_code']
+        self.station_code = data['station_code']
+        self.solution = SolutionOptions(**data['solution_options'])
+        self.modeling = ModelingParameters(**data['modeling_params'])
+        self.plotting_config = PlotOutputConfig()
+        self.validation = ValidationRules()
         self.metadata = StationMetadata(**data['station_meta'])
         #for date in ('first_obs', 'last_obs'):
         #    data['station_meta'][date] = Date(**data['station_meta'][date])

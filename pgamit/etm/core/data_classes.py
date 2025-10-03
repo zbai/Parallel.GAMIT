@@ -11,7 +11,8 @@ from datetime import datetime
 
 # app
 from pgamit.pyDate import Date
-from pgamit.etm.core.type_declarations import JumpType, PeriodicStatus, FitStatus, AdjustmentModels, CovarianceFunction
+from pgamit.etm.core.type_declarations import (JumpType, PeriodicStatus, FitStatus,
+                                               AdjustmentModels, CovarianceFunction, SolutionType)
 
 
 @dataclass
@@ -80,6 +81,16 @@ class Earthquake(BaseDataClass):
     location: str = None
     jump_type: JumpType = None
 
+    def __post_init__(self):
+        super().__post_init__()
+
+        # Convert dict to custom objects
+        if isinstance(self.jump_type, dict):
+            self.jump_type = JumpType(self.jump_type['value'])
+
+        if isinstance(self.date, dict):
+            self.date = Date(**self.date)
+
     def build_metadata(self) -> str:
         link = ('<a href="https://earthquake.usgs.gov/earthquakes/eventpage/%s" '
                 'target="_blank">%s</a>'
@@ -94,6 +105,19 @@ class JumpParameters(BaseDataClass):
     date: Date = None
     action: str = None
 
+    def __post_init__(self):
+        super().__post_init__()
+
+        # Convert dict to custom objects
+        if isinstance(self.jump_type, dict):
+            self.jump_type = JumpType(self.jump_type['value'])
+
+        if isinstance(self.date, dict):
+            self.date = Date(**self.date)
+
+        # Convert lists to numpy arrays if needed
+        if isinstance(self.relaxation, list):
+            self.relaxation = np.array(self.relaxation)
 
 @dataclass
 class LeastSquares(BaseDataClass):
@@ -105,6 +129,16 @@ class LeastSquares(BaseDataClass):
     adjustment_model: AdjustmentModels = AdjustmentModels.ROBUST_LEAST_SQUARES
     # constraints to apply to the fit
     constraints: List = field(default_factory=lambda: [])
+
+    def __post_init__(self):
+        super().__post_init__()
+
+        # Convert dict to custom objects
+        if isinstance(self.covariance_function, dict):
+            self.covariance_function = CovarianceFunction(self.covariance_function['value'])
+
+        if isinstance(self.adjustment_model, dict):
+            self.adjustment_model = AdjustmentModels(self.adjustment_model['value'])
 
 
 @dataclass
@@ -133,8 +167,6 @@ class ModelingParameters(BaseDataClass):
     # floor_sigmas for returning coordinate uncertainties
     sigma_floor_h: float = 0.10
     sigma_floor_v: float = 0.15
-    # limit of sigma filter for robust least squares
-    robust_lsq_limit: float = 2.5
     # minimum number of days between earthquakes
     earthquake_min_days: int = 30
     # minimum number of days between jumps
@@ -151,6 +183,34 @@ class ModelingParameters(BaseDataClass):
     fit_metadata_jumps: bool = True
     fit_auto_detected_jumps: bool = False
     fit_auto_detected_jumps_method: str = 'dbscan'
+
+    def __post_init__(self):
+        super().__post_init__()
+
+        # Convert dict to custom objects
+        if isinstance(self.periodic_status, dict):
+            self.periodic_status = PeriodicStatus(self.periodic_status['value'])
+
+        if isinstance(self.status, dict):
+            self.status = FitStatus(self.status['value'])
+
+        if isinstance(self.least_squares_strategy, dict):
+            self.least_squares_strategy = LeastSquares(**self.least_squares_strategy)
+
+        # Convert lists to numpy arrays if needed
+        array_fields = ['relaxation', 'frequencies']
+        for field_name in array_fields:
+            value = getattr(self, field_name)
+            if isinstance(value, list):
+                setattr(self, field_name, np.array(value))
+
+        for i, eq in enumerate(self.earthquake_jumps):
+            if isinstance(eq, dict):
+                self.earthquake_jumps[i] = Earthquake(**eq)
+
+        for i, uj in enumerate(self.user_jumps):
+            if isinstance(uj, dict):
+                self.user_jumps[i] = JumpParameters(**uj)
 
     def get_observation_mask(self, time_vector):
         """apply the observation mask to know which observations to consider during fitting"""
@@ -217,10 +277,18 @@ class StationMetadata(BaseDataClass):
 
 @dataclass
 class SolutionOptions(BaseDataClass):
-    soln: str = 'ppp'
+    solution_type: SolutionType = SolutionType.PPP
     stack_name: str = 'ppp'
+    project: str = '' # to store the project name for GAMIT solutions
 
+    def __post_init__(self):
+        super().__post_init__()
 
+        # Convert dict to custom objects
+        if isinstance(self.solution_type, dict):
+            self.solution_type = SolutionType(self.solution_type['value'])
+
+# @ todo: analyze if this class belongs inside of modeling
 @dataclass
 class ValidationRules(BaseDataClass):
     """Configuration for validation rules"""

@@ -1,4 +1,4 @@
-from typing import Optional, Union, List, Tuple, Dict, Any
+from typing import List, Tuple
 import numpy as np
 import logging
 
@@ -57,7 +57,6 @@ class StochasticSignal(EtmFunction):
         mask = np.isin(self._time_vector_cont_mjd, override_time_vector)
 
         return self.p.params[component][mask]
-
 
     def load_parameters(self, etm_results: List[AdjustmentResults]) -> None:
         """Load estimated parameters and their uncertainties"""

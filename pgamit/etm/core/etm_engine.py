@@ -25,10 +25,10 @@ from dbConnection import Cnn
 from pgamit.Utils import file_write
 from pgamit.pyDate import Date
 from pgamit.pyStationInfo import StationInfoRecord
-from pgamit.etm.data.solution_data import GAMITSolutionData, PPPSolutionData
+from pgamit.etm.data.solution_data import SolutionData
 from pgamit.etm.data.etm_database import load_parameters_db, save_parameters_db
-from pgamit.etm.core.etm_config import EtmConfig, LeastSquares
-from pgamit.etm.core.type_declarations import EtmSolutionType, SolutionType
+from pgamit.etm.core.etm_config import EtmConfig, LeastSquares, SolutionOptions
+from pgamit.etm.core.type_declarations import EtmSolutionType
 from pgamit.etm.least_squares.design_matrix import DesignMatrix
 from pgamit.etm.etm_functions.polynomial import PolynomialFunction
 from pgamit.etm.etm_functions.periodic import PeriodicFunction
@@ -58,7 +58,7 @@ def enum_dict_factory(field_list):
                 else v
                 for v in value
             ]
-        elif isinstance(value, LeastSquares):
+        elif isinstance(value, (LeastSquares, SolutionOptions)):
             for k, v in value:
                 result[key] = {}
                 # Check if value is an IntEnum with a description property
@@ -157,23 +157,19 @@ class EtmEncoder(json.JSONEncoder):
 class EtmEngine:
     """Core mathematical engine for ETM processing, separated from business logic"""
 
-    def __init__(self, cnn: Cnn, config: EtmConfig,
-                 solution_type: SolutionType,
-                 stack_name: str = None):
+    def __init__(self, config: EtmConfig,
+                 cnn: Cnn = None,
+                 json_file: str = None):
 
         setup_etm_logging()
 
         self.config = config
 
-        if solution_type == SolutionType.GAMIT:
-            self.solution_data = GAMITSolutionData(stack_name, config)
-        elif solution_type == SolutionType.PPP:
-            self.solution_data = PPPSolutionData(config)
-        else:
-            self.solution_data = PPPSolutionData(config)
+        # determine the type of object within the SolutionData class
+        self.solution_data = SolutionData.create_instance(config)
 
-        # load the data
-        self.solution_data.load_data(cnn)
+        # load the data from connection or json file
+        self.solution_data.load_data(cnn, json_file)
 
         # @todo: evaluate if mask should be applied here or inside solution_data
         mask = self.config.modeling.get_observation_mask(self.solution_data.time_vector)
@@ -240,7 +236,7 @@ class EtmEngine:
             "network_code": self.config.network_code,
             "station_code": self.config.station_code,
             "station_meta": asdict(station_meta),
-            "solution_options": asdict(self.config.solution),
+            "solution_options": asdict(self.config.solution, dict_factory=enum_dict_factory),
             "modeling_params": asdict(self.config.modeling, dict_factory=enum_dict_factory),
             "raw_results": [asdict(self.fit.results[0]),
                             asdict(self.fit.results[1]),

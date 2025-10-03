@@ -150,3 +150,12 @@ class SolutionType(IntEnum):
             SolutionType.NGL: 'Nevada Geodetic Laboratory (GipsyX)'
         }
         return descriptions.get(self, 'UNKNOWN')
+
+    @property
+    def code(self) -> str:
+        code = {
+            SolutionType.GAMIT: 'gamit',
+            SolutionType.PPP: 'ppp',
+            SolutionType.NGL: 'ngl'
+        }
+        return code.get(self, 'UNKNOWN')

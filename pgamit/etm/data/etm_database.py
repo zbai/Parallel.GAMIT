@@ -25,7 +25,7 @@ def save_parameters_db(cnn: Cnn, etm_results: EtmFit) -> None:
     # then invalidate the entire etm solution
     var_factor = cnn.query_float(query.format(etm_results.config.network_code,
                                               etm_results.config.station_code,
-                                              etm_results.config.solution.soln,
+                                              etm_results.config.solution.solution_type.code,
                                               'var_factor',
                                               etm_results.config.solution.stack_name), as_dict=True)
     if var_factor:
@@ -34,7 +34,7 @@ def save_parameters_db(cnn: Cnn, etm_results: EtmFit) -> None:
             'etms',
             StationCode=etm_results.config.station_code,
             NetworkCode=etm_results.config.network_code,
-            soln=etm_results.config.solution.soln,
+            soln=etm_results.config.solution.solution_type.code,
             stack=etm_results.config.solution.stack_name)
 
     logger.debug(f'insert new ver_factor hash {etm_results.hash}')
@@ -56,7 +56,8 @@ def load_parameters_db(config: EtmConfig,
 
     hash_sum_db = cnn.query_float(f'''
     SELECT sum(hash) FROM etms WHERE "NetworkCode" = '{etm_results.config.network_code}' AND 
-    "StationCode" = '{etm_results.config.station_code}' AND soln = '{etm_results.config.solution.soln}' AND 
+    "StationCode" = '{etm_results.config.station_code}' 
+    AND soln = '{etm_results.config.solution.solution_type.code}' AND 
     stack = '{etm_results.config.solution.stack_name}'
     ''')
 
@@ -72,7 +73,7 @@ def load_parameters_db(config: EtmConfig,
 
     etms = cnn.query_float(query.format(etm_results.config.network_code,
                                         etm_results.config.station_code,
-                                        etm_results.config.solution.soln,
+                                        etm_results.config.solution.solution_type.code,
                                         etm_results.config.solution.stack_name), as_dict=True)
     # placeholder to save stochastic signal object
     stochastic_signal = None

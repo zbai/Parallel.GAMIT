@@ -16,7 +16,7 @@ class PeriodicFunction(EtmFunction):
         self.dt_max = 1.0
         super().__init__(config, **kwargs)
 
-    def initialize(self, time_vector: np.ndarray, **kwargs) -> None:
+    def initialize(self, time_vector: np.ndarray = np.array([]), **kwargs) -> None:
         """Initialize periodic-specific parameters"""
         self.p.object = 'periodic'
         self._time_vector = time_vector
@@ -64,14 +64,20 @@ class PeriodicFunction(EtmFunction):
         self.param_count = int(np.sum(fittable_mask)) * 2
         self.p.frequencies = self.config.modeling.frequencies[fittable_mask]
 
-    def get_design_ts(self, time_series: np.ndarray) -> np.ndarray:
+    def get_design_ts(self, time_vector: np.ndarray) -> np.ndarray:
         """Generate design matrix for periodic terms"""
-        if self.param_count == 0 or time_series.size == 0:
-            return np.array([]).reshape(time_series.size, 0)
+        if self.param_count == 0:
+            if time_vector.size > 0:
+                # maybe the object was initialized without time_vector, try analyzing gaps again
+                self._analyze_data_gaps(time_vector)
+                self._filter_fittable_frequencies(self.config.modeling.frequencies)
+            # if still unable to fit, then return nothing
+            if self.param_count == 0:
+                return np.array([]).reshape(time_vector.size, 0)
 
         # Create frequency matrix
-        f_matrix = np.tile(self.p.frequencies, (time_series.shape[0], 1))
-        t_matrix = np.tile(time_series[:, np.newaxis], (1, len(self.p.frequencies)))
+        f_matrix = np.tile(self.p.frequencies, (time_vector.shape[0], 1))
+        t_matrix = np.tile(time_vector[:, np.newaxis], (1, len(self.p.frequencies)))
 
         # Calculate sin and cos components
         sin_components = np.sin(2 * np.pi * f_matrix * 365.25 * t_matrix)

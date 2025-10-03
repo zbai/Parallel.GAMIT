@@ -20,12 +20,14 @@ class PolynomialFunction(EtmFunction):
         """Initialize polynomial-specific parameters"""
 
         self.p.object = 'polynomial'
-        self.p.t_ref = self.config.modeling.reference_epoch
 
         # Set reference time
-        if self.config.modeling.reference_epoch == 0:
+        if self.config.modeling.reference_epoch == 0 and time_vector.size > 0:
             self.config.modeling.reference_epoch = np.min(time_vector)
-            self.p.t_ref = self.config.modeling.reference_epoch
+        else:
+            self.config.modeling.reference_epoch = 2015.0
+
+        self.p.t_ref = self.config.modeling.reference_epoch
 
         # Initialize design matrix if time vector available
         self._time_vector = time_vector

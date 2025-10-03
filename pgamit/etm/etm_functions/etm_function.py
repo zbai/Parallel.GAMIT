@@ -108,7 +108,7 @@ class EtmFunction(ABC):
         parameter_dict = asdict(self.p)
         parameter_dict['NetworkCode'] = self.config.network_code
         parameter_dict['StationCode'] = self.config.station_code
-        parameter_dict['soln'] = self.config.solution.soln
+        parameter_dict['soln'] = self.config.solution.solution_type.code
         parameter_dict['stack'] = self.config.solution.stack_name
 
         return parameter_dict
@@ -125,6 +125,9 @@ class EtmFunction(ABC):
                 self.p.metadata = value
             elif hasattr(self, condition):
                 setattr(self, condition, value)
+
+    def to_json(self):
+        return asdict(self.p)
 
     @abstractmethod
     def short_name(self) -> str:

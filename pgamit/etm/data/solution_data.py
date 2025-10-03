@@ -15,9 +15,11 @@ import logging
 logger = logging.getLogger(__name__)
 
 # app
+from pgamit.dbConnection import Cnn
 from pgamit.pyDate import Date
 from pgamit.Utils import crc32
 from pgamit.etm.core.etm_config import EtmConfig
+from pgamit.etm.core.type_declarations import SolutionType
 
 
 class SolutionDataException(Exception):
@@ -292,6 +294,7 @@ class SolutionData(ABC):
             f"{self.time_vector.min() if len(self.coordinates) > 0 else 0}_"
             f"{self.time_vector.max() if len(self.coordinates) > 0 else 0}_"
             f"{self.config.modeling.data_model_window}_"
+            f"{','.join([repr(model) for model in self.config.modeling.prefit_models])}_"
             f"{additional_data}"
         )
         return crc32(hash_input)
@@ -311,8 +314,20 @@ class SolutionData(ABC):
             self.y[mask] - self.auto_y[0],
             self.z[mask] - self.auto_z[0]
         ])
-        neu = ct2lg(ecef_diff[0], ecef_diff[1], ecef_diff[2], self.lat[0], self.lon[0])
+        neu = list(ct2lg(ecef_diff[0], ecef_diff[1], ecef_diff[2], self.lat[0], self.lon[0]))
+
+        # @ todo: apply detrending models to x y z as well?
+        neu = self.apply_prefit_models(self.time_vector[mask], neu)
+
         return neu
+
+    def apply_prefit_models(self, time_vector: np.ndarray, observations: List[np.ndarray]):
+        """detrend the data using the provided models"""
+        for model in self.config.modeling.prefit_models:
+            for i in range(3):
+                observations[i] -= model.eval(i, time_vector)
+
+        return observations
 
     def transform_to_ecef(self, neu_coords: List[np.ndarray]) -> List[np.ndarray]:
         """Transform local NEU coordinates back to ECEF"""
@@ -351,37 +366,24 @@ class SolutionData(ABC):
         logger.info(f"Saved solution data to {filepath}")
 
     @classmethod
-    def load_from_json(cls, filepath: str, config: EtmConfig) -> 'SolutionData':
-        """Load solution data from JSON file (factory method)"""
-        with open(filepath, 'r') as f:
-            data = json.load(f)
+    def create_instance(cls, config: EtmConfig) -> 'SolutionData':
+        """Determine the type of object needed and return it to the called"""
 
         # Determine which subclass to create based on solution type
-        if data['soln'] == 'ppp':
+        if config.solution.solution_type == SolutionType.PPP:
             instance = PPPSolutionData(config)
-        elif data['soln'] == 'gamit':
-            instance = GAMITSolutionData(data['stack_name'], config)
+        elif config.solution.solution_type == SolutionType.GAMIT:
+            instance = GAMITSolutionData(config.solution.stack_name, config)
         else:
-            raise ValueError(f"Unknown solution type: {data['soln']}")
+            raise ValueError(f"Unknown solution type "
+                             f"{config.solution.solution_type.description} not implemented")
 
-        # Load the data
-        instance.solutions = data['solutions']
-        instance.completion = data['completion']
-        instance.soln = data['soln']
-        instance.stack_name = data['stack_name']
-        instance.project = data['project']
-        instance.coordinates = CoordinateTimeSeries(**data['coordinates'])
-        instance.time_vector_ns = np.array(data['time_vector_ns'])
-        instance.gaps = np.array(data['gaps'])
-        instance.excluded = data['excluded']
-        instance.rnx_no_ppp = data['rnx_no_ppp']
-
-        logger.info(f"Loaded solution data from {filepath}")
         return instance
 
     # Abstract methods
     @abstractmethod
-    def load_data(self, cnn, **kwargs) -> None:
+    def load_data(self, cnn: Cnn = None,
+                  json_file: str = None, **kwargs) -> None:
         """Load data from database or other source"""
         pass
 
@@ -410,12 +412,13 @@ class PPPSolutionData(SolutionData):
         self.project = 'from_ppp'
 
         # Update config to reflect which solution we are working with
-        config.solution.soln = 'ppp'
         config.solution.stack_name = 'ppp'
         self.config = config
 
-    def load_data(self, cnn, **kwargs) -> None:
+    def load_data(self, cnn: Cnn = None,
+                  json_file: str = None, **kwargs) -> None:
         """Load PPP solutions from database"""
+
         self._load_ppp_solutions(cnn)
         self._load_excluded_solutions(cnn)
         self._compute_completion_stats(cnn)
@@ -485,19 +488,57 @@ class GAMITSolutionData(SolutionData):
         self.stack_name = stack_name
 
         # Update config to reflect which solution we are working with
-        config.solution.soln = 'gamit'
         config.solution.stack_name = stack_name
         self.config = config
 
-    def load_data(self, cnn, polyhedrons: Optional[List] = None, **kwargs) -> None:
+    def load_data(self, cnn: Cnn = None,
+                  json_file: str = None,
+                  polyhedrons: Optional[List] = None, **kwargs) -> None:
         """Load GAMIT solutions from database or polyhedron list"""
-        if polyhedrons is None:
+        if polyhedrons is None and cnn:
             polyhedrons = self._load_polyhedrons_from_db(cnn)
+        elif json_file:
+            self._load_json(json_file)
+        else:
+            raise SolutionDataException('No source for solution given')
+        if cnn:
+            self._process_polyhedrons(polyhedrons)
+            self._load_project_info(cnn)
+            self._load_missing_solutions(cnn)
 
-        self._load_project_info(cnn)
-        self._process_polyhedrons(polyhedrons)
-        self._load_missing_solutions(cnn)
         self.create_continuous_time_vector()
+
+    def _load_json(self, filepath: str):
+        # load basic fields from json file
+        if filepath:
+            with open(filepath, 'r') as f:
+                data = json.load(f)
+        elif filepath:
+            data = json.loads(filepath)
+        else:
+            raise ValueError("Either filepath or json_string must be provided")
+
+        if data['observations'] is not None:
+            x = data['observations']['xyz'][0]
+            y = data['observations']['xyz'][1]
+            z = data['observations']['xyz'][2]
+            yr = [d['year'] for d in data['observations']['dates']]
+            doy = [d['doy'] for d in data['observations']['dates']]
+
+            self._process_polyhedrons([[x,y,z,yr,doy] for x,y,z,yr,doy in zip(x,y,z,yr,doy)])
+
+            self.project = data['solution_options']['project']
+            # no info on missing solutions when coming from json
+            self.rnx_no_ppp = []
+            self.time_vector_ns = np.array([])
+
+            total_epochs = len(self.time_vector_ns) + len(self.time_vector)
+            if total_epochs > 0:
+                self.completion = 100.0 - (len(self.time_vector_ns) / total_epochs * 100.0)
+            else:
+                self.completion = 0.0
+        else:
+            raise SolutionDataException('observations section not present in json file')
 
     def _load_polyhedrons_from_db(self, cnn) -> List:
         """Load polyhedrons from stacks table"""
@@ -518,6 +559,7 @@ class GAMITSolutionData(SolutionData):
         result = cnn.query_float(query, as_dict=True)
         if result:
             self.project = result[0]['Project']
+            self.config.solution.project = self.project
 
     def _process_polyhedrons(self, polyhedrons: List) -> None:
         """Process polyhedron data into coordinate arrays"""
