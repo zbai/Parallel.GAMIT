@@ -140,7 +140,7 @@ def main():
     parser.add_argument('-iter', '--max_iterations', type=int, default=10,
                         help="Maximum number of iterations during outlier detection. Default is 10")
 
-    parser.add_argument('-options', '--plot_options', nargs='*',
+    parser.add_argument('-plot', '--plot_options', nargs='*',
                         choices=['out', 'hist', 'missing', 'residuals', 'no-model', 'no-plots'],
                         default=[],
                         help="Plotting options: "
