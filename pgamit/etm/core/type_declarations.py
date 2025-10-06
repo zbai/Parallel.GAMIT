@@ -14,12 +14,14 @@ class FitStatus(IntEnum):
     """Enum for fit status"""
     PREFIT = auto()
     POSTFIT = auto()
+    UNABLE_TO_FIT = auto()
 
     @property
     def description(self) -> str:
         descriptions = {
             FitStatus.PREFIT: 'Prefit',
-            FitStatus.POSTFIT: 'Postfit'
+            FitStatus.POSTFIT: 'Postfit',
+            FitStatus.UNABLE_TO_FIT: 'Unable to fit data'
         }
         return descriptions.get(self, 'UNKNOWN')
 

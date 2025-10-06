@@ -8,7 +8,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 from pgamit.etm.core.etm_config import EtmConfig
-from pgamit.etm.core.type_declarations import JumpType
+from pgamit.etm.core.type_declarations import JumpType, FitStatus
 from pgamit.etm.data.solution_data import SolutionData
 from pgamit.etm.least_squares.least_squares import EtmFit
 from pgamit.etm.visualization.data_classes import TimeSeriesPlotData, ComponentData, PlotOutputConfig
@@ -100,7 +100,7 @@ class PlotDataPreparer:
             east_data=e_data,
             up_data=u_data,
             covariance_matrix=etm_fit.covar,
-            has_etm_results=etm_fit.design_matrix is not None,
+            has_etm_results=self.config.modeling.status == FitStatus.POSTFIT,
             jump_tables=(jump_tables[0], jump_tables[1], jump_tables[2]),
             jumps=jump_tables[3]
         )
@@ -161,7 +161,7 @@ class PlotDataPreparer:
                 for funct in etm_results.design_matrix.functions:
                     if ((funct.p.object == 'periodic' and self.output_config.plot_remove_periodic)
                             or (funct.p.object == 'polynomial' and self.output_config.plot_remove_polynomial)
-                            or (funct.p.object == 'jump' and self.output_config.plot_remove_jumps) and funct.fit):
+                            or (funct.p.object == 'jump' and self.output_config.plot_remove_jumps)) and funct.fit:
                         data[i].observations -= funct.eval(i) * 1000.
                         data[i].observations_fit -= funct.eval(i, data[i].time_vector_fit) * 1000.
                         if np.any(~mask):
@@ -205,7 +205,7 @@ class PlotDataPreparer:
         output = ['']
 
         for funct in etm_results.design_matrix.functions:
-            if funct.p.object == 'polynomial':
+            if funct.p.object == 'polynomial' and funct.fit:
                 # retrieve conventional epoch position
                 ce_position =  solution_data.transform_to_ecef(
                     etm_results.get_time_continuous_model(np.array([funct.p.t_ref])))

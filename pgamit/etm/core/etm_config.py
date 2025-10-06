@@ -3,15 +3,15 @@ Project: Parallel.GAMIT
 Date: 09/12/2025 09:20 AM
 Author: Demian D. Gomez
 """
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Union
 import numpy as np
 import logging
-import json
 
 logger = logging.getLogger(__name__)
 
 # app
 from pgamit.pyDate import Date
+from pgamit.Utils import load_json
 from pgamit.dbConnection import Cnn
 from pgamit.etm.core.type_declarations import PeriodicStatus, JumpType
 from pgamit.etm.core.data_classes import (SolutionOptions, ModelingParameters,
@@ -28,7 +28,7 @@ class EtmConfig:
                  custom_config: Optional[Dict[str, Any]] = None,
                  cnn: Cnn = None,
                  solution_type: SolutionOptions = None,
-                 json_file: str = None):
+                 json_file: Union[str, dict] = None):
         """
         Initialize ETM configuration
 
@@ -37,7 +37,11 @@ class EtmConfig:
             cnn: Database connection (if loading from database)
             network_code: Station network code (if loading from database)
             station_code: Station code (if loading from database)
+            json_file: either a json file path or a json dict or string to load data from
         """
+
+        self.json_file: Union[str, dict] = json_file
+
         if not json_file:
             self.network_code = network_code
             self.station_code = station_code
@@ -296,15 +300,9 @@ class EtmConfig:
 
         return issues
 
-    def load_from_json(self, filepath: Optional[str] = None, json_string: Optional[str] = None):
+    def load_from_json(self, _json: Union[dict, str] = None):
         # load basic fields from json file
-        if filepath:
-            with open(filepath, 'r') as f:
-                data = json.load(f)
-        elif json_string:
-            data = json.loads(json_string)
-        else:
-            raise ValueError("Either filepath or json_string must be provided")
+        data = load_json(_json)
 
         self.network_code = data['network_code']
         self.station_code = data['station_code']
@@ -313,7 +311,4 @@ class EtmConfig:
         self.plotting_config = PlotOutputConfig()
         self.validation = ValidationRules()
         self.metadata = StationMetadata(**data['station_meta'])
-        #for date in ('first_obs', 'last_obs'):
-        #    data['station_meta'][date] = Date(**data['station_meta'][date])
-        #for nump in ('auto_x', 'auto_y', 'auto_z')
-        #self.metadata = StationMetadata(**data['station_meta'])
+

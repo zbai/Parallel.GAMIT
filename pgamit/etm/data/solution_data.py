@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 # app
 from pgamit.dbConnection import Cnn
 from pgamit.pyDate import Date
-from pgamit.Utils import crc32
+from pgamit.Utils import crc32, load_json
 from pgamit.etm.core.etm_config import EtmConfig
 from pgamit.etm.core.type_declarations import SolutionType
 
@@ -382,8 +382,7 @@ class SolutionData(ABC):
 
     # Abstract methods
     @abstractmethod
-    def load_data(self, cnn: Cnn = None,
-                  json_file: str = None, **kwargs) -> None:
+    def load_data(self, cnn: Cnn = None, **kwargs) -> None:
         """Load data from database or other source"""
         pass
 
@@ -492,13 +491,13 @@ class GAMITSolutionData(SolutionData):
         self.config = config
 
     def load_data(self, cnn: Cnn = None,
-                  json_file: str = None,
                   polyhedrons: Optional[List] = None, **kwargs) -> None:
         """Load GAMIT solutions from database or polyhedron list"""
         if polyhedrons is None and cnn:
             polyhedrons = self._load_polyhedrons_from_db(cnn)
-        elif json_file:
-            self._load_json(json_file)
+        elif self.config.json_file:
+            # if self.config.json_file is set, try to load
+            self._load_json(self.config.json_file)
         else:
             raise SolutionDataException('No source for solution given')
         if cnn:
@@ -508,15 +507,9 @@ class GAMITSolutionData(SolutionData):
 
         self.create_continuous_time_vector()
 
-    def _load_json(self, filepath: str):
+    def _load_json(self, json_: Union[str, dict]):
         # load basic fields from json file
-        if filepath:
-            with open(filepath, 'r') as f:
-                data = json.load(f)
-        elif filepath:
-            data = json.loads(filepath)
-        else:
-            raise ValueError("Either filepath or json_string must be provided")
+        data = load_json(json_)
 
         if data['observations'] is not None:
             x = data['observations']['xyz'][0]

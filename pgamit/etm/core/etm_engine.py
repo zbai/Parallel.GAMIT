@@ -1,7 +1,7 @@
-from enum import IntEnum, auto
+from enum import IntEnum
 from dataclasses import asdict
 from datetime import datetime
-from typing import Dict, Optional
+from typing import Dict, Optional, Union
 import logging
 import json
 import numpy as np
@@ -10,6 +10,9 @@ import platform
 import os
 
 from importlib.metadata import version, PackageNotFoundError
+
+from pgamit.etm.core.data_classes import AdjustmentResults
+from pgamit.etm.core.type_declarations import FitStatus
 
 try:
     VERSION = str(version("pgamit"))
@@ -22,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 # app
 from dbConnection import Cnn
-from pgamit.Utils import file_write
+from pgamit.Utils import file_write, load_json
 from pgamit.pyDate import Date
 from pgamit.pyStationInfo import StationInfoRecord
 from pgamit.etm.data.solution_data import SolutionData
@@ -158,8 +161,7 @@ class EtmEngine:
     """Core mathematical engine for ETM processing, separated from business logic"""
 
     def __init__(self, config: EtmConfig,
-                 cnn: Cnn = None,
-                 json_file: str = None):
+                 cnn: Cnn = None):
 
         setup_etm_logging()
 
@@ -169,7 +171,7 @@ class EtmEngine:
         self.solution_data = SolutionData.create_instance(config)
 
         # load the data from connection or json file
-        self.solution_data.load_data(cnn, json_file)
+        self.solution_data.load_data(cnn)
 
         # @todo: evaluate if mask should be applied here or inside solution_data
         mask = self.config.modeling.get_observation_mask(self.solution_data.time_vector)
@@ -196,21 +198,42 @@ class EtmEngine:
     def run_adjustment(self, try_loading_db=True, try_save_to_db=True,
                        cnn: Optional[Cnn] = None) -> None:
         """Run the iterative least squares adjustment"""
-        if try_loading_db and cnn:
-            # get mask for time vector: only needed for stochastic signal in load_parameters_db!
-            mask = self.config.modeling.get_observation_mask(self.solution_data.time_vector)
+        if self.config.json_file is None:
+            if try_loading_db and cnn:
+                # get mask for time vector: only needed for stochastic signal in load_parameters_db!
+                mask = self.config.modeling.get_observation_mask(self.solution_data.time_vector)
 
-            success = load_parameters_db(self.config, cnn, self.fit, self.solution_data.transform_to_local(),
-                                         self.solution_data.time_vector_mjd[mask])
-            logger.info(f'Loading parameters from database: {success}')
+                success = load_parameters_db(self.config, cnn, self.fit, self.solution_data.transform_to_local(),
+                                             self.solution_data.time_vector_mjd[mask])
+                logger.info(f'Loading parameters from database: {success}')
+            else:
+                success = False
         else:
-            success = False
+            # information in the json, see if required data is present
+            success = self.load_from_json(self.config.json_file)
 
         if not success:
             run_time = self.fit.run_fit(self.solution_data, self.design_matrix)
-            if cnn and try_save_to_db:
+            if cnn and try_save_to_db and self.config.modeling.status == FitStatus.POSTFIT:
                 save_parameters_db(cnn, self.fit)
             logger.info(f'Estimated parameters in {run_time} seconds')
+
+    def load_from_json(self, json_: Union[str, dict] = None) -> bool:
+        """
+        load ETM solution from json file
+        """
+        data = load_json(json_)
+
+        if 'raw_results' in data.keys():
+            self.fit.results = []
+            for i in range(3):
+                self.fit.results.append(AdjustmentResults(**data['raw_results'][i]))
+
+            self.fit.load_results_to_functions()
+
+            return True
+        else:
+            return False
 
     def save_etm(self,
                  filename: str = None,
@@ -267,7 +290,8 @@ class EtmEngine:
 
             file_write(filename,
                        json.dumps(etm_dump, indent=4, sort_keys=False, cls=EtmEncoder,
-                                  round_digits=6, no_round_fields=['covariance', 'parameter_sigmas', 'parameters']))
+                                  round_digits=6, no_round_fields=['covariance', 'parameter_sigmas',
+                                                                   'parameters', 'covariance_matrix']))
 
             #binary_data = bson.encode(etm_dump, cls)
             #with open(filename + '.bson', 'wb') as f:
@@ -284,10 +308,11 @@ class EtmEngine:
 
     def plot_hist(self) -> None:
 
-        plotter = EtmPlotter(self.config)
-        plot_data = PlotDataPreparer(self.config).prepare_time_series_data(self.solution_data, self.fit)
+        if self.config.modeling.status == FitStatus.POSTFIT:
+            plotter = EtmPlotter(self.config)
+            plot_data = PlotDataPreparer(self.config).prepare_time_series_data(self.solution_data, self.fit)
 
-        plotter.plot_histogram(plot_data)
+            plotter.plot_histogram(plot_data)
 
     def get_position(self, date: Date, etm_solution: EtmSolutionType = EtmSolutionType.MODEL) -> Dict:
         """

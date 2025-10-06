@@ -90,7 +90,7 @@ class PlotOutputConfig(BaseDataClass):
     filename: Optional[str] = None
     file_io: Optional[BytesIO] = None
     format: str = 'png'
-    save_kwargs: Dict[str, Any] = dict
+    save_kwargs: Dict[str, Any] = None
 
     # Plot configuration
     plot_show_outliers: bool = False

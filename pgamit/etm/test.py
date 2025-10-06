@@ -14,9 +14,11 @@ setup_etm_logging(level=logging.DEBUG)
 
 cnn = Cnn('/home/demian/pg_osu/gnss_data.cfg')
 
-config = EtmConfig(json_file='/home/demian/pg_osu/arg.igm1_igs14.json')
-etm = EtmEngine(config, json_file='/home/demian/pg_osu/arg.igm1_igs14.json')
-etm.run_adjustment(try_loading_db=False, try_save_to_db=False)
+#config = EtmConfig(json_file='/home/demian/pg_osu/arg.igm1_igs14.json')
+#etm = EtmEngine(config)
+#etm.run_adjustment(try_loading_db=False, try_save_to_db=False)
+#config.plotting_config.filename = '/home/demian/pg_osu/'
+#etm.plot()
 
 config = EtmConfig('arg', 'igm1', cnn=cnn)
 config.solution.solution_type = SolutionType.GAMIT

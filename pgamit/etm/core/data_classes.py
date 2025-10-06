@@ -11,6 +11,7 @@ from datetime import datetime
 
 # app
 from pgamit.pyDate import Date
+from pgamit.pyStationInfo import StationInfoRecord
 from pgamit.etm.core.type_declarations import (JumpType, PeriodicStatus, FitStatus,
                                                AdjustmentModels, CovarianceFunction, SolutionType)
 
@@ -49,6 +50,18 @@ class AdjustmentResults(BaseDataClass):
     outlier_flags: np.ndarray = field(default_factory=lambda: np.array([]))
     converged: bool = False
     iterations: int = 0
+
+    def __post_init__(self):
+        super().__post_init__()
+
+        # Convert lists to numpy arrays if needed
+        array_fields = ['parameters', 'parameter_sigmas', 'residuals', 'empirical_covariance',
+                        'covariance_function_params', 'stochastic_signal', 'obs_sigmas', 'covariance_matrix',
+                        'outlier_flags']
+        for field_name in array_fields:
+            value = getattr(self, field_name)
+            if isinstance(value, list):
+                setattr(self, field_name, np.array(value))
 
 
 @dataclass
@@ -266,6 +279,10 @@ class StationMetadata(BaseDataClass):
 
         if isinstance(self.last_obs, dict):
             self.last_obs = Date(**self.last_obs)
+
+        if isinstance(self.station_information, list):
+            for i, stn in enumerate(self.station_information):
+                self.station_information[i] = StationInfoRecord(stn['NetworkCode'], stn['StationCode'], stn)
 
         # Convert lists to numpy arrays if needed
         array_fields = ['lat', 'lon', 'height', 'auto_x', 'auto_y', 'auto_z']

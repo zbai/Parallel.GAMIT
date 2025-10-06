@@ -222,6 +222,9 @@ class EtmPlotter:
         else:
             filename = output_config.filename
 
+        if not output_config.save_kwargs:
+            output_config.save_kwargs = {}
+
         if not output_config:
             # Interactive mode
             self._setup_interactive_mode(fig)

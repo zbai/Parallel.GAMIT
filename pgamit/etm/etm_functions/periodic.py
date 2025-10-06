@@ -13,7 +13,7 @@ from pgamit.etm.core.etm_config import EtmConfig
 class PeriodicFunction(EtmFunction):
     """Enhanced periodic function with improved frequency management"""
     def __init__(self, config: EtmConfig, **kwargs):
-        self.dt_max = 1.0
+        self.dt_max = np.inf
         super().__init__(config, **kwargs)
 
     def initialize(self, time_vector: np.ndarray = np.array([]), **kwargs) -> None:
@@ -44,6 +44,10 @@ class PeriodicFunction(EtmFunction):
         """Analyze data gaps to determine fittable frequencies"""
         # wrap around the solutions
         wt = np.sort(np.unique(time_vector - np.fix(time_vector)))
+        if wt.size < 2:
+            # to handle a call with a single epoch on stations without periodic
+            self.dt_max = np.inf
+            return
         # analyze the gaps in the data
         dt = np.diff(wt)
         # max dt (internal)

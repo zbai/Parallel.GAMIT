@@ -32,6 +32,18 @@ class WeightBuilder(ABC):
         self.matrix = np.array([])
         pass
 
+    @classmethod
+    def create_instance(cls, noise_model: NoiseModels = NoiseModels.WHITE_ONLY,
+                        observation_count: int = 0) -> 'WeightBuilder':
+        """Determine the type of object needed and return it to the called"""
+
+        if noise_model == NoiseModels.WHITE_ONLY:
+            instance = WhiteNoise(observation_count)
+        else:
+            raise Exception('Noise model not implemented')
+
+        return instance
+
     @abstractmethod
     def update_weights(self, new_weights):
         pass
@@ -59,6 +71,22 @@ class AdjustmentStrategy(ABC):
                weights: WeightBuilder, **kwargs) -> AdjustmentResults:
         """Perform the least squares adjustment"""
         pass
+
+    @classmethod
+    def create_instance(cls, config: EtmConfig) -> 'AdjustmentStrategy':
+        """Determine the type of object needed and return it to the called"""
+
+        strategy = config.modeling.least_squares_strategy.adjustment_model
+        # Determine which subclass to create based on solution type
+        if strategy == AdjustmentModels.ROBUST_LEAST_SQUARES:
+            instance = RobustLeastSquares(config)
+        elif strategy == AdjustmentModels.LSQ_COLLOCATION:
+            instance = LeastSquaresCollocation(config)
+        else:
+            raise ValueError(f"Adjustment strategy type "
+                             f"{strategy.description} not implemented")
+
+        return instance
 
     @staticmethod
     def compute_plomb(residuals, time_vector_mjd) -> float:
@@ -402,7 +430,8 @@ class LeastSquaresCollocation(AdjustmentStrategy):
     def adjust(self, design_matrix: DesignMatrix, observations: np.ndarray,
                weights: WeightBuilder,
                time_vector_mjd: np.ndarray = None,
-               time_vector_cont_mjd: np.ndarray = None) -> AdjustmentResults:
+               time_vector_cont_mjd: np.ndarray = None,
+               **kwargs) -> AdjustmentResults:
 
         tt = time()
         a = design_matrix.matrix
@@ -574,8 +603,6 @@ class EtmFit:
                 noise_model: NoiseModels = NoiseModels.WHITE_ONLY) -> float:
         """wrapper to run adjustment. Returns runtime of the operation"""
         run_time = time()
-        # shorthand notation
-        adjustment_model = self.config.modeling.least_squares_strategy.adjustment_model
 
         # allow replacing the design matrix
         if design_matrix:
@@ -587,61 +614,63 @@ class EtmFit:
         # transform solutions to NEU
         neu = solution_data.transform_to_local()
 
-        # create instances of the adjustment strategy to use
-        if adjustment_model == AdjustmentModels.ROBUST_LEAST_SQUARES:
-            lsq = RobustLeastSquares(self.config)
-        elif adjustment_model == AdjustmentModels.LSQ_COLLOCATION:
-            lsq = LeastSquaresCollocation(self.config)
+        lsq = AdjustmentStrategy.create_instance(self.config)
+
+        if solution_data.solutions > 4:
+            while True:
+                for i in range(3):
+                    # select the noise model
+                    noise = WeightBuilder.create_instance(noise_model, neu[i].shape[0])
+
+                    self.results[i] = lsq.adjust(design_matrix=design_matrix,
+                                                 observations=neu[i],
+                                                 weights=noise,
+                                                 time_vector_mjd=solution_data.time_vector_mjd[mask],
+                                                 time_vector_cont_mjd=solution_data.time_vector_cont_mjd)
+
+                self.load_results_to_functions()
+
+                # validate results and redo fit if needed
+                validation = design_matrix.validate_parameters()
+                if not validation:
+                    # no issue found, break
+                    break
+
+                for f, message in validation:
+                    logger.info(message)
+                    if message.startswith('Unrealistic amplitude'):
+                        f.configure_behavior({'jump_type': JumpType.POSTSEISMIC_ONLY})
+
+            self.config.modeling.status = FitStatus.POSTFIT
         else:
-            raise Exception('Adjustment strategy not implemented')
+            self.results = [AdjustmentResults()] * 3
+            self.config.modeling.status = FitStatus.UNABLE_TO_FIT
+            self.outlier_flags = np.ones(solution_data.solutions).astype(bool)
+            # deactivate all functions
+            for funct in design_matrix.functions:
+                funct.fit = False
 
-        while True:
-            for i in range(3):
-                # select the noise model
-                if noise_model == NoiseModels.WHITE_ONLY:
-                    white_noise = WhiteNoise(neu[i].shape[0])
-                else:
-                    raise Exception('Noise model not implemented')
-
-                if adjustment_model == AdjustmentModels.ROBUST_LEAST_SQUARES:
-                    self.results[i] = lsq.adjust(design_matrix, neu[i], white_noise,
-                                                 solution_data.time_vector_mjd[mask])
-
-                elif adjustment_model == AdjustmentModels.LSQ_COLLOCATION:
-                    self.results[i] = lsq.adjust(design_matrix, neu[i],white_noise,
-                                                 solution_data.time_vector_mjd[mask],
-                                                 solution_data.time_vector_cont_mjd)
-
-            # insert stochastic signal if it was estimates
-            for f in design_matrix.functions:
-                if f.p.object == 'stochastic':
-                    f.p.params = [rs.stochastic_signal for rs in self.results]
-
-            # populate results onto etm_function
-            for func in design_matrix.functions:
-                if func.fit and func.param_count > 0:
-                    func.load_parameters(self.results)
-
-            # single outlier flag
-            self.outlier_flags = np.all((self.results[0].outlier_flags,
-                                         self.results[1].outlier_flags,
-                                         self.results[2].outlier_flags), axis=0)
-
-            self.process_covariance()
-
-            # validate results and redo fit if needed
-            validation = design_matrix.validate_parameters()
-            if not validation:
-                # no issue found, break
-                break
-
-            for f, message in validation:
-                logger.info(message)
-                if message.startswith('Unrealistic amplitude'):
-                    f.configure_behavior({'jump_type': JumpType.POSTSEISMIC_ONLY})
-
-        self.config.modeling.status = FitStatus.POSTFIT
         return time() - run_time
+
+    def load_results_to_functions(self):
+        """load the results to the design matrix functions"""
+
+        # insert stochastic signal if it was estimates
+        for f in self.design_matrix.functions:
+            if f.p.object == 'stochastic':
+                f.p.params = [rs.stochastic_signal for rs in self.results]
+
+        # populate results onto etm_function
+        for func in self.design_matrix.functions:
+            if func.fit and func.param_count > 0:
+                func.load_parameters(self.results)
+
+        # single outlier flag
+        self.outlier_flags = np.all((self.results[0].outlier_flags,
+                                     self.results[1].outlier_flags,
+                                     self.results[2].outlier_flags), axis=0)
+
+        self.process_covariance()
 
     def _validate_function_design_matrix(self):
 

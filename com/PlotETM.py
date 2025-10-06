@@ -12,6 +12,7 @@ import argparse
 import os
 import traceback
 import json
+import logging
 
 # deps
 import numpy as np
@@ -20,9 +21,12 @@ from io import BytesIO
 import xml.etree.ElementTree as ET
 
 # app
-from pgamit import pyETM
 from pgamit import dbConnection
-from pgamit import pyDate
+from pgamit.pyDate import Date
+from pgamit.etm.core.logging_config import setup_etm_logging
+from pgamit.etm.core.etm_engine import EtmEngine
+from pgamit.etm.core.etm_config import EtmConfig
+from pgamit.etm.core.data_classes import AdjustmentModels, SolutionType, CovarianceFunction
 from pgamit.Utils import (process_date,
                           process_stnlist,
                           file_write,
@@ -32,241 +36,192 @@ from pgamit.Utils import (process_date,
                           add_version_argument)
 
 
-def read_kml_or_kmz(file_path):
-    # Check if the file is a KMZ (by its extension)
-    if file_path.endswith('.kmz'):
-        # Open the KMZ file and read it in memory
-        with zipfile.ZipFile(file_path, 'r') as kmz:
-            # List all files in the KMZ archive
-            kml_file = None
-            for file_name in kmz.namelist():
-                if file_name.endswith(".kml"):
-                    kml_file = file_name
-                    break
+# Map verbosity to logging levels
+VERBOSITY_MAP = {
+    'quiet': logging.CRITICAL,  # or logging.NOTSET to disable all
+    'info': logging.INFO,
+    'debug': logging.DEBUG
+}
 
-            if not kml_file:
-                raise Exception("No KML file found in the KMZ archive")
+ADJUSTMENT_MODEL_MAP = {
+    'rls': AdjustmentModels.ROBUST_LEAST_SQUARES,
+    'lsc': AdjustmentModels.LSQ_COLLOCATION
+}
 
-            # Extract the KML file into memory (as a BytesIO object)
-            kml_content = kmz.read(kml_file)
-            kml_file = BytesIO(kml_content)
+COVARIANCE_MAP = {
+    'arma': CovarianceFunction.ARMA,
+    'gaussian': CovarianceFunction.GAUSSIAN
+}
 
-    else:
-        # If the file is a regular KML, process it directly
-        kml_file = open(file_path, 'r')
+def process_plot_dates(args):
+    dates = None
+    if args.plot_window is not None:
+        if len(args.plot_window) == 1:
+            try:
+                dates = process_date(args.plot_window, missing_input=None, allow_days=False)
+                dates = (dates[0].fyear, )
+            except ValueError:
+                # an integer value
+                dates = float(args.plot_window[0])
+        else:
+            dates = process_date(args.plot_window)
+            dates = (dates[0].fyear, dates[1].fyear)
 
-    # Extract coordinates from the KML file
-    placemarks = extract_placemarks(kml_file)
-
-    # Close the file if it was opened from the filesystem
-    if isinstance(kml_file, BytesIO) == False:
-        kml_file.close()
-
-    return placemarks
-
-
-# Helper function to extract placemark and coordinates from a KML file
-def extract_placemarks(kml_file):
-    tree = ET.parse(kml_file)
-    root = tree.getroot()
-
-    # Define the KML namespace
-    ns = {'kml': 'http://www.opengis.net/kml/2.2'}
-
-    # Initialize list to store placemark names and coordinates
-    placemarks = []
-
-    # Loop through all placemarks
-    for placemark in root.findall('.//kml:Placemark', ns):
-        # Extract the placemark name (if available)
-        name_element = placemark.find('kml:name', ns)
-        name = name_element.text if name_element is not None else "Unnamed"
-
-        # Extract the coordinates for the placemark
-        coordinates_list = []
-        for coord in placemark.findall('.//kml:coordinates', ns):
-            coords = coord.text.strip().split()
-            for coord_str in coords:
-                lon, lat, height = coord_str.split(',')  # Ignore the altitude (third value)
-                coordinates_list.append((float(lon), float(lat), float(height)))
-
-        # Store the placemark name and its coordinates
-        for coord in coordinates_list:
-            placemarks.append((name, coord))
-
-    return placemarks
+    return dates
 
 
-def gamit_soln(args, cnn, stn):
-    polyhedrons = cnn.query_float('SELECT "X", "Y", "Z", "Year", "DOY" FROM stacks '
-                                  'WHERE "name" = \'%s\' AND "NetworkCode" = \'%s\' AND '
-                                  '"StationCode" = \'%s\' '
-                                  'ORDER BY "Year", "DOY", "NetworkCode", "StationCode"'
-                                  % (args.gamit[0], stn['NetworkCode'], stn['StationCode']))
+def process_fit_dates(args):
+    dates = []
+    if args.fit_window is not None:
+        if np.mod(args.fit_window, 2):
+            raise ValueError('Fit dates must be given in start/end pairs')
 
-    soln = pyETM.GamitSoln(cnn, polyhedrons, stn['NetworkCode'], stn['StationCode'], args.gamit[0])
+    for i in range(0, len(args.fit_window), 2):
+        try:
+            dates.append(process_date(args.fit_window[i:i+1]))
+        except ValueError:
+            raise ValueError('Invalid fit dates')
 
-    etm = pyETM.GamitETM(cnn, stn['NetworkCode'], stn['StationCode'], False,
-                         args.no_model, gamit_soln=soln, plot_remove_jumps=args.remove_jumps,
-                         plot_polynomial_removed=args.remove_polynomial)
-    #   postseismic=[{'date': pyDate.Date(year=2010,doy=58),
-    #  'relaxation': [0.5],
-    #  'amplitude': [[-0.0025, -0.0179, -0.005]]}])
-
-    # print ' > %5.2f %5.2f %5.2f %i %i' % \
-    #      (etm.factor[0]*1000, etm.factor[1]*1000, etm.factor[2]*1000, etm.soln.t.shape[0],
-    #       etm.soln.t.shape[0] -
-    #       np.sum(np.logical_and(np.logical_and(etm.F[0], etm.F[1]), etm.F[2])))
-
-    # print two largest outliers
-    if etm.A is not None:
-        lres = np.sqrt(np.sum(np.square(etm.R), axis=0))
-        slres = lres[np.argsort(-lres)]
-
-        print(' >> Two largest residuals:')
-        for i in [0, 1]:
-            print(' %s %6.3f %6.3f %6.3f'
-                  % (pyDate.Date(mjd=etm.soln.mjd[lres == slres[i]]).yyyyddd(),
-                     etm.R[0, lres == slres[i]][0],
-                     etm.R[1, lres == slres[i]][0],
-                     etm.R[2, lres == slres[i]][0]))
-
-    return etm
+    return None if not dates else dates
 
 
-def from_file(args, cnn, stn, placemarks):
+def print_query(args, etm: EtmEngine):
+    model = (args.query[0] == 'model')
+    q_date = Date(fyear=float(args.query[1]))
 
-    # replace any variables with the station name
-    filename = args.filename.replace('{net}', stn['NetworkCode']).replace('{stn}', stn['StationCode'])
+    xyz, _, _, txt = etm.get_position(q_date.year, q_date.doy, force_model=model)
 
-    # execute on a file with wk XYZ coordinates
-    ts = np.genfromtxt(filename)
+    strp = ''
+    # if user requests velocity too, output it
+    if etm.config.modeling.status == etm.config.modeling.status.POSTFIT:
+        if 'vel' in args.query:
+            vxyz = [x.p.params[:, 1].tolist() for x in
+                              etm.design_matrix.functions if x.p.object == 'polynomial']
+            strp = '%8.5f %8.5f %8.5f ' % (vxyz[0], vxyz[0], vxyz[0])
 
-    # read the format options
-    if args.format is None:
-        raise Exception('A format should be specified using the -format switch')
+        if 'per' in args.query:
+            # also output seasonal terms, if requested
+            strp += ' '.join(['%8.5f' % (x.p.params.flatten() * 1000).tolist() for x in
+                              etm.design_matrix.functions if x.p.object == 'periodic'])
 
-    dd = []
-    x = []
-    y = []
-    z = []
-    for k in ts:
-        d = {}
-        for i, f in enumerate(args.format):
-            if f in ('gpsWeek', 'gpsWeekDay', 'year', 'doy', 'fyear', 'month', 'day', 'mjd'):
-                d[f] = k[i]
-
-            if f == 'x':
-                x.append(k[i])
-            elif f == 'y':
-                y.append(k[i])
-            elif f == 'z':
-                z.append(k[i])
-        dd.append(d)
-
-    dd = [pyDate.Date(**d) for d in dd]
-
-    polyhedrons = np.array((x, y, z, [d.year for d in dd], [d.doy for d in dd])).transpose()
-
-    if args.override_database:
-        placemark = [pl for pl in placemarks if stationID(stn) == pl[0]]
-        soln = pyETM.ListSoln(cnn, polyhedrons.tolist(), stn['NetworkCode'], stn['StationCode'],
-                              station_metadata=placemark[0])
-    else:
-        soln = pyETM.ListSoln(cnn, polyhedrons.tolist(), stn['NetworkCode'], stn['StationCode'])
-
-    etm  = pyETM.FileETM(cnn, soln, False, args.no_model, args.remove_jumps, args.remove_polynomial)
-
-    return etm
-
+    print(' %s %14.5f %14.5f %14.5f %8.3f %s -> %s' \
+          % (etm.config.get_station_id(), xyz[0], xyz[1], xyz[2], q_date.fyear, strp, txt))
 
 def main():
-    parser = argparse.ArgumentParser(description='Plot ETM for stations in the database')
+    parser = argparse.ArgumentParser(description='Plot extended trajectory models (ETMs) '
+                                                 'for station data stored in the database, json files, or text files')
 
     parser.add_argument('stnlist', type=str, nargs='+',
                         help=station_list_help())
 
-    parser.add_argument('-nop', '--no_plots', action='store_true',
-                        help="Do not produce plots", default=False)
+    parser.add_argument('-sol', '--solution', type=str, metavar='{stack|ppp}', default='ppp',
+                        help="Required: specify the GAMIT stack name or ppp to use GPSPACE solutions.")
 
-    parser.add_argument('-pm', '--plot_missing_data', action='store_true',
-                        help="Show missing days as magenta lines in the plot", default=False)
+    parser.add_argument('-lsq', '--least_squares_strategy',
+                        choices=['lsc', 'rls'], default='rls',
+                        help="Adjustment strategy to fit the time series. Choose between least squares collocation "
+                             "(lsc) and robust least squares (rls)")
 
-    parser.add_argument('-nm', '--no_model', action='store_true',
-                        help="Plot time series without fitting a model")
+    parser.add_argument('-cova', '--covariance', nargs='+',
+                        choices=['arma', 'gaussian'], default=['arma', 49, 200],
+                        help="To use with strategy lsc, provide the method to estimate the covariance matrix. "
+                             "Choose between Autoregressive Moving Average (arma, default) and gaussian covariance "
+                             "function. If arma is used, optionally provide the number of roots for the decomposition "
+                             "(49 by default) and the number of points to estimate the AR process (200 by default)")
 
-    parser.add_argument('-r', '--residuals', action='store_true',
-                        help="Plot time series residuals", default=False)
+    parser.add_argument('-fit_win', '--fit_window', nargs='+', metavar='interval',
+                        help='Date range to window data fit. Can be specified in yyyy/mm/dd, yyyy_doy '
+                             'in pairs for data ranges to be included in the ETM fit. Data outside '
+                             'the range will be plotted but not included in the fit')
 
-    parser.add_argument('-dir', '--directory', type=str,
-                        help="Directory to save the resulting PNG files. If not specified, assumed to be the "
-                             "production directory")
+    parser.add_argument('-sigma', '--sigma_limit', type=float, default=2.5,
+                        help="Number of sigmas for the limit of outlier detection. Default is 2.5 sigma")
 
-    parser.add_argument('-json', '--json', type=int,
-                        help="Export ETM adjustment to JSON. Append '0' to just output "
-                        "the ETM parameters, '1' to export time series without "
-                        "model and '2' to export both time series and model.")
+    parser.add_argument('-iter', '--max_iterations', type=int, default=10,
+                        help="Maximum number of iterations during outlier detection. Default is 10")
+
+    parser.add_argument('-options', '--plot_options', nargs='*',
+                        choices=['out', 'hist', 'missing', 'residuals', 'no-model', 'no-plots'],
+                        default=[],
+                        help="Plotting options: "
+                             "out -> plot right panel with the outliers marked in cyan; "
+                             "hist -> plot additional file with histograms of residuals; "
+                             "residuals -> show only residuals (remove all ETM functions); "
+                             "missing -> show missing solution days as magenta lines in the plot; "
+                             "no-model -> plot time series without fitting a model (do not estimate parameters); "
+                             "no-plots -> to use for querying, do not produce plots but estimate parameters")
+
+    parser.add_argument('-dir', '--directory', type=str, default='production/',
+                        help="Directory to save the time series PNG files. If not specified, "
+                             "files will be saved in the production directory")
+
+    parser.add_argument('-json', '--json',
+                        choices=['dmx', 'obs', 'raw', 'mod'], nargs='*',
+                        help="Export ETM to JSON. By default the json will contain the "
+                             "station metadata and the functions fit by the ETM (with "
+                             "parameters and sigmas). Append additional output options: "
+                             "dmx (design matrix), obs (observations), raw (raw results), "
+                             "mod (model)")
 
     parser.add_argument('-gui', '--interactive', action='store_true',
                         help="Interactive mode: allows to zoom and view the plot interactively")
 
-    parser.add_argument('-rj', '--remove_jumps', action='store_true', default=False,
-                        help="Remove jumps from model and time series before plotting")
+    parser.add_argument('-rm', '--remove', nargs='+', choices=['poly', 'per', 'jumps', 'stoch'],
+                        default=[],
+                        help="Remove components from model and time series before plotting. Options are: "
+                             "poly -> polynomial; per -> periodic; jumps -> mechanical and geophysical jumps; "
+                             "stoch -> stochastic noise if adjustment strategy is 'least squares collocation'")
 
-    parser.add_argument('-rp', '--remove_polynomial', action='store_true', default=False,
-                        help="Remove polynomial terms from model and time series before plotting")
+    parser.add_argument('-plot_win', '--plot_window', nargs='+', metavar='interval',
+                        default=[],
+                        help='Date range to window plot. Can be specified in yyyy/mm/dd, yyyy_doy or as a single '
+                             'integer value (N) which shall be interpreted as last epoch minus N days')
 
-    parser.add_argument('-win', '--time_window', nargs='+', metavar='interval',
-                        help='Date range to window data. Can be specified in yyyy/mm/dd, yyyy.doy or as a single '
-                             'integer value (N) which shall be interpreted as last epoch-N')
-
-    parser.add_argument('-q', '--query', nargs=2, metavar='{type} {date}', type=str,
-                        help='Dates to query the ETM. Specify "model" or "solution" to get the ETM value or the value '
-                             'of the daily solution (if exists). Output is in XYZ.')
-
-    parser.add_argument('-gamit', '--gamit', type=str, nargs=1, metavar='{stack}',
-                        help="Plot the GAMIT time series specifying which stack name to plot.")
-
-    parser.add_argument('-lang', '--language', type=str,
+    parser.add_argument('-lang', '--language', type=str, default='ENG',
                         help="Change the language of the plots. Default is English. "
                         "Use ESP to select Spanish. To add more languages, "
-                        "include the ISO 639-1 code in pyETM.py", default='ENG')
+                        "include the ISO 639-1 code in pyETM.py")
 
-    parser.add_argument('-hist', '--histogram', action='store_true',
-                        help="Plot histogram of residuals")
-
-    parser.add_argument('-file', '--filename', type=str,
-                        help="Obtain data from an external source (filename). This name accepts variables for {net} "
-                             "and {stn} to specify more than one file based on a list of stations. If a single file is "
-                             "used (no variables), then only the first station is processed. File column format should "
-                             "be specified with -format (required).")
+    parser.add_argument('-file', '--filename', type=str, default=None,
+                        help="Obtain data from an external source (filename, json or text format). This name accepts "
+                             "variables for {net} and {stn} to specify more than one file based on a list of "
+                             "stations. If a single file is used (no variables), then only the first station "
+                             "is processed. File column format should be specified with -format (required) "
+                             "unless files are in json format")
 
     parser.add_argument('-format', '--format', nargs='+', type=str,
                         help="To be used together with --filename. Specify order of the fields as found in the input "
                              "file. Format strings are gpsWeek, gpsWeekDay, year, doy, fyear, month, day, mjd, "
                              "x, y, z, na. Use 'na' to specify a field that should be ignored. If fields to be ignored "
-                             "are at the end of the line, then there is no need to specify those.")
+                             "are at the end of the line, then there is no need to specify those")
 
-    parser.add_argument('-no_db', '--override_database', nargs=1, type=str, default=None,
+    parser.add_argument('-kmz', '--kmz', nargs=1, type=str, default=None,
                         help="To be used together with --filename and --format. Do not fetch station metadata from "
                              "the database but rather use the provided kmz/kml file to obtain station coordinates "
                              "and other relevant metadata. When using this option, the station list is ignored and "
                              "only one station is processed.")
 
-    parser.add_argument('-outliers', '--plot_outliers', action='store_true',
-                        help="Plot an additional panel with the outliers")
+    parser.add_argument('-fit_auto', '--fit_auto_jumps', nargs='?',
+                        choices=['angry', 'dbscan'], default=['angy'],
+                        help="Fit unmodeled but automatically detected jumps. "
+                             "Choose between two algorithms: "
+                             "angry (used and provided by JPL) and dbscan")
 
-    parser.add_argument('-dj', '--detected_jumps', action='store_true',
-                        help="Plot unmodeled detected jumps")
+    parser.add_argument('-q', '--query', nargs='*',
+                        metavar='{type} {date} ', default=[],
+                        help='Specify "model" or "solution" to get the '
+                             'ETM value or the value of the daily solution (if exists). '
+                             'Specify the date of the desired output. Append "vel" and "per" '
+                             'to also include the velocity and seasonal (periodic) components. '
+                             'Output is in XYZ.')
 
-    parser.add_argument('-vel', '--velocity', action='store_true',
-                        help="During query, output the velocity in XYZ.")
+    parser.add_argument('-no_save', '--no_save_database', action='store_true', default=False,
+                        help="Do not fetch / save ETM solution from / to database")
 
-    parser.add_argument('-seasonal', '--seasonal_terms', action='store_true',
-                        help="During query, output the seasonal terms in NEU.")
-
-    parser.add_argument('-quiet', '--suppress_messages', action='store_true',
-                        help="Quiet mode: suppress information messages")
+    parser.add_argument('-verbosity', '--verbosity',
+                        choices=['quiet', 'info', 'debug'], default='info',
+                        help="Determine how detailed the execution messages should be. "
+                             "Default is 'info'")
 
     add_version_argument(parser)
 
@@ -274,139 +229,63 @@ def main():
 
     cnn = dbConnection.Cnn('gnss_data.cfg', write_cfg_file=True)
 
-    if args.override_database:
-        # user selected database override
-        placemarks = read_kml_or_kmz(args.override_database[0])
-        stnlist = [{'NetworkCode': stnm.split('.')[0], 'StationCode': stnm.split('.')[1]} for stnm, _ in placemarks]
+    setup_etm_logging(level=VERBOSITY_MAP[args.verbosity])
 
-        print(' >> Station from kml/kmz file %s' % args.override_database[0])
-        print_columns([stationID(item) for item in stnlist])
-    else:
-        placemarks = []
-        stnlist = process_stnlist(cnn, args.stnlist)
+    stnlist = process_stnlist(cnn, args.stnlist)
 
-    # define the language
-    pyETM.LANG = args.language.lower()
-    # set the logging level
-    if not args.suppress_messages:
-        pyETM.logger.setLevel(pyETM.INFO)
-    #####################################
-    # date filter
+    plot_dates = process_plot_dates(args)
 
-    dates = None
-    if args.time_window is not None:
-        if len(args.time_window) == 1:
-            try:
-                dates = process_date(args.time_window, missing_input=None, allow_days=False)
-                dates = (dates[0].fyear,)
-            except ValueError:
-                # an integer value
-                dates = float(args.time_window[0])
-        else:
-            dates = process_date(args.time_window)
-            dates = (dates[0].fyear,
-                     dates[1].fyear)
+    for stn in stnlist:
 
-    if stnlist:
-        # do the thing
-        if args.directory:
-            if not os.path.exists(args.directory):
-                os.mkdir(args.directory)
-        else:
-            if not os.path.exists('production'):
-                os.mkdir('production')
-            args.directory = 'production'
+        config = EtmConfig(stn['NetworkCode'], stn['StationCode'], cnn=cnn)
 
-        # flag to stop plotting time series when using external files
-        stop = False
+        config.solution.solution_type = SolutionType.PPP if args.solution == 'ppp' else SolutionType.GAMIT
+        config.solution.stack_name = args.solution
 
-        for stn in stnlist:
-            try:
+        config.plotting_config.plot_time_window = plot_dates
 
-                if args.gamit is None and args.filename is None:
-                    etm = pyETM.PPPETM(cnn, stn['NetworkCode'], stn['StationCode'], False, args.no_model,
-                                       plot_remove_jumps=args.remove_jumps,
-                                       plot_polynomial_removed=args.remove_polynomial)
+        config.plotting_config.plot_remove_polynomial = 'poly' in args.remove
+        config.plotting_config.plot_remove_jumps = 'jumps' in args.remove
+        config.plotting_config.plot_remove_periodic = 'per' in args.remove
+        config.plotting_config.plot_remove_stochastic = 'stoch' in args.remove
 
-                elif args.filename is not None:
-                    if '{stn}' in args.filename or '{net}' in args.filename:
-                        # repeat the process for each station
-                        stop = False
-                    else:
-                        # stop on the first station since no variables were passed
-                        stop = True
+        config.plotting_config.plot_show_outliers = 'out' in args.plot_options
+        config.plotting_config.plot_residuals_mode = 'residuals' in args.plot_options
 
-                    etm = from_file(args, cnn, stn, placemarks)
-                else:
-                    etm = gamit_soln(args, cnn, stn)
+        config.modeling.data_model_window = process_fit_dates(args)
 
-                if args.interactive:
-                    xfile = None
-                else:
-                    postfix = "gamit"
-                    if args.gamit is None:
-                        postfix = "ppp" if args.filename is None else "file"
+        config.modeling.least_squares_strategy.adjustment_model = ADJUSTMENT_MODEL_MAP[args.least_squares_strategy]
+        config.modeling.least_squares_strategy.iterations = args.max_iterations
+        config.modeling.least_squares_strategy.sigma_filter_limit = args.sigma_limit
+        config.modeling.least_squares_strategy.covariance_function = COVARIANCE_MAP[args.covariance[0]]
+        if args.covariance[0] == 'arma' and len(args.covariance) > 1:
+            config.modeling.least_squares_strategy.arma_roots = args.covariance[1]
+        if args.covariance[0] == 'arma' and len(args.covariance) > 2:
+            config.modeling.least_squares_strategy.arma_points = args.covariance[2]
 
-                    xfile = os.path.join(args.directory, '%s.%s_%s' % (etm.NetworkCode,
-                                                                       etm.StationCode,
-                                                                       postfix))
+        if not os.path.exists(args.directory):
+            os.mkdir(args.directory)
 
-                # leave pngfile empty to enter interactive mode (GUI)
-                if not args.no_plots:
-                    etm.plot(xfile + '.png',
-                             t_win          = dates,
-                             residuals      = args.residuals,
-                             plot_missing   = args.plot_missing_data,
-                             plot_outliers  = args.plot_outliers,
-                             plot_auto_jumps= args.detected_jumps)
+        etm = EtmEngine(config, cnn=cnn)
+        etm.run_adjustment(cnn=cnn,
+                           try_save_to_db=not args.save_database,
+                           try_loading_db=not args.save_database)
 
-                    if args.histogram:
-                        etm.plot_hist(xfile + '_hist.png')
+        etm.save_etm(filename=args.directory,
+                     dump_observations='obs' in args.json,
+                     dump_design_matrix='dmx' in args.json,
+                     dump_raw_results='raw' in args.json,
+                     dump_model='mod' in args.json)
 
-                if args.json is not None:
-                    if args.json == 1:
-                        obj = etm.todictionary(time_series=True)
-                    elif args.json == 2:
-                        obj = etm.todictionary(time_series=True, model=True)
-                    else:
-                        obj = etm.todictionary(False)
+        if 'no-plots' not in args.plot_options:
+            etm.plot()
+            if 'hist' in args.plot_options:
+                etm.plot_hist()
 
-                    file_write(xfile + '.json',
-                               json.dumps(obj, indent=4, sort_keys=False))
+        if args.query:
+            print_query(args, etm)
 
-                if args.query is not None:
-                    model  = (args.query[0] == 'model')
-                    q_date = pyDate.Date(fyear = float(args.query[1]))
-
-                    xyz, _, _, txt = etm.get_xyz_s(q_date.year, q_date.doy, force_model=model)
-
-                    strp = ''
-                    # if user requests velocity too, output it
-                    if args.velocity:
-                        if etm.A is not None:
-                            vxyz = etm.rotate_2xyz(etm.Linear.p.params[:, 1])
-                            strp = '%8.5f %8.5f %8.5f ' \
-                                   % (vxyz[0, 0], vxyz[1, 0], vxyz[2, 0])
-
-                    # also output seasonal terms, if requested
-                    if args.seasonal_terms and etm.Periodic.frequency_count > 0:
-                        strp += ' '.join(['%8.5f' % (x * 1000) for x in etm.Periodic.p.params.flatten().tolist()])
-
-                    print(' %s.%s %14.5f %14.5f %14.5f %8.3f %s -> %s' \
-                          % (etm.NetworkCode, etm.StationCode, xyz[0], xyz[1], xyz[2], q_date.fyear, strp, txt))
-
-                print('Successfully plotted ' + stn['NetworkCode'] + '.' + stn['StationCode'])
-                # print(etm.pull_params())
-                # if the stop flag is true, stop processing after the first station
-                if stop:
-                    break
-
-            except pyETM.pyETMException as e:
-                print(str(e))
-
-            except Exception:
-                print('Error during processing of ' + stn['NetworkCode'] + '.' + stn['StationCode'])
-                print(traceback.format_exc())
+        print('Successfully plotted ' + stn['NetworkCode'] + '.' + stn['StationCode'])
 
 
 if __name__ == '__main__':

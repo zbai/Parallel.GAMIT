@@ -9,10 +9,11 @@ import stat
 import shutil
 import io
 import base64
+import json
 from datetime import datetime
 from zlib import crc32 as zlib_crc32
 from pathlib import Path
-
+from typing import Union
 
 # deps
 import numpy
@@ -898,6 +899,19 @@ def json_converter(obj):
     elif isinstance(obj, numpy.ndarray):
         return obj.tolist()
         
+
+def load_json(input_json: Union[str, dict] = None):
+    """load json file, string, or dict, will always return dict"""
+    if isinstance(input_json, dict):
+        return input_json
+    elif os.path.isfile(input_json):
+        with open(input_json, 'r') as f:
+            return json.load(f)
+    elif isinstance(input_json, str):
+        return json.loads(input_json)
+    else:
+        raise ValueError("Either filepath or json_dict or json_string must be provided")
+
 
 def create_empty_cfg():
     """
