@@ -15,12 +15,26 @@ from pgamit.etm.core.type_declarations import JumpType
 
 class JumpFunction(EtmFunction):
     """Enhanced jump function with improved management and validation"""
-    def __init__(self, config: EtmConfig, **kwargs):
-        self.date = Date(year=1980, doy=1)
-        self.magnitude = 0
-        self.epi_distance = 0
-        self.user_action = 'A'
-        super().__init__(config, **kwargs)
+    def __init__(self, config: EtmConfig,
+                 time_vector: np.ndarray,
+                 date: Union[Date, datetime],
+                 jump_type: JumpType = JumpType.MECHANICAL_MANUAL,
+                 magnitude: Optional[int] = 0,
+                 epi_distance: Optional[float] = 0,
+                 user_action: Optional[str] = 'A',
+                 fit: bool = True, **kwargs):
+
+        self.date = date
+        self.magnitude = magnitude
+        self.epi_distance = epi_distance
+        self.user_action = user_action
+        self.fit = fit
+        super().__init__(config, time_vector=time_vector,
+                         date=date,
+                         jump_type=jump_type,
+                         magnitude=magnitude,
+                         epi_distance=epi_distance,
+                         user_action=user_action, **kwargs)
 
 
     def initialize(self, time_vector: np.ndarray, date: Union[Date, datetime],
@@ -369,7 +383,10 @@ class JumpFunction(EtmFunction):
         else:
             # Two mechanical/generic user_jumps
             if lt_jump_min_days or lt_design_jump_min_days:
-                return True, other  # Prefer the latest jump
+                if other.p.jump_type != JumpType.AUTO_DETECTED:
+                    return True, other  # Prefer the latest jump (if latest is not an auto jump)
+                else:
+                    return True, self
             else:
                 return False, None  # Can coexist
 

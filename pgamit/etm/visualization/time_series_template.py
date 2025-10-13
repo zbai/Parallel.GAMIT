@@ -10,11 +10,11 @@ from typing import List, Tuple, Dict, Any
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
-from etm.core.type_declarations import JumpType
+
 # app
-from pgamit.etm.visualization.data_prep import PlotTemplate
-from pgamit.etm.visualization.data_classes import TimeSeriesPlotData, PlotOutputConfig, ComponentData
-from pgamit.etm.core.type_declarations import AdjustmentModels
+from ..visualization.data_prep import PlotTemplate
+from ..visualization.data_classes import TimeSeriesPlotData, PlotOutputConfig, ComponentData
+from ..core.type_declarations import AdjustmentModels, JumpType
 
 
 class TimeSeriesTemplate(PlotTemplate):

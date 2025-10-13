@@ -5,6 +5,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # app
+from pgamit.pyDate import Date
 from pgamit.etm.core.etm_config import  EtmConfig
 from pgamit.etm.etm_functions.etm_function import EtmFunction
 from pgamit.etm.core.type_declarations import FitStatus
@@ -62,12 +63,44 @@ class DesignMatrix:
 
         return validation
 
-    def get_constraints_normal_eq(self):
+    def get_constraints_normal_eq(self, comp: int):
         """
         method to obtain N and c for constraints declared in
         config.modeling.least_squares_strategy.constraints
         """
-        pass
+        const = self.config.modeling.least_squares_strategy.constraints
+
+        _, params = self.matrix.shape
+
+        n = np.zeros((params, params))
+        c = np.zeros((params,))
+
+        for funct in const:
+            # find the function type in the design matrix
+            for f in self.functions:
+                if funct.p.object == f.p.object:
+                    # functions of same type. Simplify jump comparison to just date, ignore time
+                    if (f.p.object == 'jump' and Date(datetime=f.p.jump_date) == Date(datetime=funct.p.jump_date)
+                        and f.p.jump_type == funct.p.jump_type) or f.p.object != 'jump':
+                        # find the columns and add ones
+                        # params with NaNs are not constrained
+                        c_params = int(np.sum(np.logical_not(np.isnan(funct.p.params[comp]))))
+                        nt = np.zeros((c_params, params))
+                        pt = np.zeros((c_params, c_params))
+                        k = 0
+                        for i in range(f.param_count):
+                            if not np.isnan(funct.p.params[comp][i]):
+                                j = f.column_index[i]
+                                nt[k, j:j+1] = 1
+                                # pseudo observation weights
+                                pt[k, k] = 1 / funct.p.sigmas[comp][i] ** 2
+                                k += 1
+
+                        # create vector for A.T @ P @ L
+                        n = n + nt.T  @ pt @ nt
+                        c = c + nt.T  @ pt @ funct.p.params[comp][np.logical_not(np.isnan(funct.p.params[comp]))]
+                        break
+        return n, c
 
     def _build_matrix(self, time_vector: np.ndarray) -> np.ndarray:
         """Build the complete design matrix"""

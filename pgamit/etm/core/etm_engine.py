@@ -24,14 +24,15 @@ except PackageNotFoundError:
 logger = logging.getLogger(__name__)
 
 # app
-from dbConnection import Cnn
-from pgamit.Utils import file_write, load_json
-from pgamit.pyDate import Date
-from pgamit.pyStationInfo import StationInfoRecord
+from ...dbConnection import Cnn
+from ...Utils import file_write, load_json
+from ...pyDate import Date
+from ...pyStationInfo import StationInfoRecord
 from pgamit.etm.data.solution_data import SolutionData
 from pgamit.etm.data.etm_database import load_parameters_db, save_parameters_db
-from pgamit.etm.core.etm_config import EtmConfig, LeastSquares, SolutionOptions
+from pgamit.etm.core.etm_config import EtmConfig, SolutionOptions
 from pgamit.etm.core.type_declarations import EtmSolutionType
+from pgamit.etm.core.data_classes import LeastSquares
 from pgamit.etm.least_squares.design_matrix import DesignMatrix
 from pgamit.etm.etm_functions.polynomial import PolynomialFunction
 from pgamit.etm.etm_functions.periodic import PeriodicFunction
@@ -291,7 +292,8 @@ class EtmEngine:
             file_write(filename,
                        json.dumps(etm_dump, indent=4, sort_keys=False, cls=EtmEncoder,
                                   round_digits=6, no_round_fields=['covariance', 'parameter_sigmas',
-                                                                   'parameters', 'covariance_matrix']))
+                                                                   'parameters', 'covariance_matrix',
+                                                                   'lat', 'lon', 'params', 'sigmas']))
 
             #binary_data = bson.encode(etm_dump, cls)
             #with open(filename + '.bson', 'wb') as f:
@@ -323,12 +325,14 @@ class EtmEngine:
         stack_name = self.solution_data.stack_name.upper()
 
         # find the model value, if fit done
-        if self.config.modeling.status == self.config.modeling.FitStatus.POSTFIT:
+        if self.config.modeling.status == self.config.modeling.status.POSTFIT:
             for i in range(3):
-                model[i] = self.design_matrix.alternate_time_vector(
-                    np.array([date.fyear])) @ self.fit.results[i].parameters
+                model[i] = (self.design_matrix.alternate_time_vector(
+                    np.array([date.fyear])) @ self.fit.results[i].parameters)[0]
+
             # transform back to ecef
-            model_ecef = np.array(self.solution_data.transform_to_ecef(model))
+            model_ecef = self.solution_data.transform_to_ecef(model)
+            model_ecef = np.array([model_ecef[0][0], model_ecef[1][0], model_ecef[2][0]])
 
         if etm_solution == EtmSolutionType.OBSERVATION:
             # find the date of the request
@@ -336,7 +340,7 @@ class EtmEngine:
 
             if i:
                 # solution found, save it
-                position = [self.solution_data.x[i], self.solution_data.y[i], self.solution_data.z[i]]
+                position = np.array([self.solution_data.x[i], self.solution_data.y[i], self.solution_data.z[i]])
                 if model_ecef.size:
                     if self.fit.outlier_flags[i]:
                         source = stack_name + ' with ETM solution: good'
@@ -352,7 +356,9 @@ class EtmEngine:
                     source = 'No ' + stack_name + ' solution: ETM'
                 else:
                     source = 'No ' + stack_name + ' solution, no ETM: mean coordinate'
-                    position = [self.solution_data.x.mean(), self.solution_data.y.mean(), self.solution_data.z.mean()]
+                    position = np.array([self.solution_data.x.mean(),
+                                         self.solution_data.y.mean(),
+                                         self.solution_data.z.mean()])
         else:
             if model_ecef.size:
                 source = 'ETM solution requested'

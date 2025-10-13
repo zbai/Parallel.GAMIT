@@ -326,7 +326,8 @@ class RobustLeastSquares(AdjustmentStrategy):
     """Robust least squares with iterative reweighting"""
 
     def adjust(self, design_matrix: DesignMatrix, observations: np.ndarray,
-               weights: WeightBuilder, time_vector_mjd: np.ndarray = None, **kwargs) -> AdjustmentResults:
+               weights: WeightBuilder, time_vector_mjd: np.ndarray = None,
+               n_neq_left: np.ndarray = 0, c_neq_right: np.ndarray = 0, **kwargs) -> AdjustmentResults:
         """
         Robust least squares adjustment with outlier detection and reweighting
         """
@@ -351,7 +352,7 @@ class RobustLeastSquares(AdjustmentStrategy):
             aw = weights.weight_design(a)
             lw = weights.weight_observations(observations)
 
-            results.parameters = np.linalg.lstsq(aw, lw, rcond=-1)[0]
+            results.parameters = np.linalg.solve(aw.T @ aw + n_neq_left, aw.T @ lw + c_neq_right)
             results.residuals = observations - a @ results.parameters
 
             v = results.residuals
@@ -431,6 +432,8 @@ class LeastSquaresCollocation(AdjustmentStrategy):
                weights: WeightBuilder,
                time_vector_mjd: np.ndarray = None,
                time_vector_cont_mjd: np.ndarray = None,
+               n_neq_left: np.ndarray = 0,
+               c_neq_right: np.ndarray = 0,
                **kwargs) -> AdjustmentResults:
 
         tt = time()
@@ -441,14 +444,16 @@ class LeastSquaresCollocation(AdjustmentStrategy):
         lsq = RobustLeastSquares(self.config)
         white_noise = WhiteNoise(observations.size)
 
-        results = lsq.adjust(design_matrix, observations, white_noise, time_vector_mjd)
+        results = lsq.adjust(design_matrix, observations, white_noise, time_vector_mjd, n_neq_left, c_neq_right)
         wrms = results.wrms
         ###################################################################################################
         # now use residuals to run lsc
         self.dof = (a.shape[0] - a.shape[1])
 
         # find the parameters
-        results = self._least_squares(a, observations, results, time_vector_mjd, time_vector_cont_mjd)
+        results = self._least_squares(a, observations, results,
+                                      time_vector_mjd, time_vector_cont_mjd,
+                                      n_neq_left, c_neq_right)
 
         # save covariance parameters
         #results.covariance_function_params = empirical_cov.params
@@ -490,7 +495,12 @@ class LeastSquaresCollocation(AdjustmentStrategy):
 
         return results
 
-    def _least_squares(self, a, observations, rls, time_vector_mjd, time_vector_cont_mjd):
+    def _least_squares(self, a, observations,
+                       rls,
+                       time_vector_mjd,
+                       time_vector_cont_mjd,
+                       n_neq_left: np.ndarray = 0,
+                       c_neq_right: np.ndarray = 0):
         """
         Compute all quantities that depend on w = inv(cov) efficiently
         """
@@ -552,7 +562,7 @@ class LeastSquaresCollocation(AdjustmentStrategy):
         n = np.sum(n, axis=0)
         c = np.sum(c, axis=0)
 
-        results.parameters = np.linalg.solve(n, c)
+        results.parameters = np.linalg.solve(n + n_neq_left, c + c_neq_right)
 
         # residuals
         v = observations - a @ results.parameters
@@ -622,11 +632,15 @@ class EtmFit:
                     # select the noise model
                     noise = WeightBuilder.create_instance(noise_model, neu[i].shape[0])
 
+                    n_neq_left, c_neq_right = design_matrix.get_constraints_normal_eq(i)
+
                     self.results[i] = lsq.adjust(design_matrix=design_matrix,
                                                  observations=neu[i],
                                                  weights=noise,
                                                  time_vector_mjd=solution_data.time_vector_mjd[mask],
-                                                 time_vector_cont_mjd=solution_data.time_vector_cont_mjd)
+                                                 time_vector_cont_mjd=solution_data.time_vector_cont_mjd,
+                                                 n_neq_left=n_neq_left,
+                                                 c_neq_right=c_neq_right)
 
                 self.load_results_to_functions()
 

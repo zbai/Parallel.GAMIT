@@ -5,8 +5,6 @@ from typing import Dict, Any, Optional, List, Tuple
 import numpy as np
 import logging
 
-from skimage.transform import order_angles_golden_ratio
-
 logger = logging.getLogger(__name__)
 
 # app

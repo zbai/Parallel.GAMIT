@@ -178,6 +178,12 @@ class JumpManager:
                     if preferred is jump:
                         existing_jump.remove_from_fit()
                     else:
+                        # if the jump that is going to be deactivated is an auto jump,
+                        # do not add it to the list!
+                        if jump.p.jump_type == JumpType.AUTO_DETECTED:
+                            logger.info('DETECTED BUT REMOVED: ' + str(jump))
+                            return
+
                         jump.remove_from_fit()
                     break
 

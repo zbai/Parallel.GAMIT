@@ -10,6 +10,10 @@ from pgamit.etm.least_squares.ls_collocation import gaussian_func
 from pgamit.etm.least_squares.ls_collocation import cauchy_func
 
 
+class EtmException(Exception):
+    pass
+
+
 class FitStatus(IntEnum):
     """Enum for fit status"""
     PREFIT = auto()

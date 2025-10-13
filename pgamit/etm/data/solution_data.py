@@ -212,7 +212,7 @@ class SolutionData(ABC):
     def _process_coordinate_solutions(self, solutions: List, solution_type: str = "solutions") -> None:
         """Common processing for coordinate solutions"""
         if not solutions:
-            raise ValueError(f"No {solution_type} for {self.get_station_id()}")
+            raise SolutionDataException(f"No {solution_type} for {self.get_station_id()}")
 
         # Filter by distance from reference coordinates
         coordinates = np.array([(s[0], s[1], s[2]) for s in solutions])
@@ -229,7 +229,7 @@ class SolutionData(ABC):
         valid_dates = dates[valid_mask]
         if not valid_solutions.any():
             min_dist = np.sqrt(np.sum(np.square(coordinates - reference), axis=1)).min()
-            raise ValueError(
+            raise SolutionDataException(
                 f"No viable {solution_type} for {self.get_station_id()} "
                 f"(minimum distance: {min_dist:.1f}m)"
             )
@@ -557,8 +557,8 @@ class GAMITSolutionData(SolutionData):
     def _process_polyhedrons(self, polyhedrons: List) -> None:
         """Process polyhedron data into coordinate arrays"""
         if not polyhedrons:
-            raise ValueError(f"No GAMIT polyhedrons available for {self.get_station_id()} "
-                             f"in stack {self.stack_name}")
+            raise SolutionDataException(f"No GAMIT polyhedrons available for {self.get_station_id()} "
+                                        f"in stack {self.stack_name}")
 
         # Use shared processing method
         self._process_coordinate_solutions(polyhedrons, "GAMIT solutions")

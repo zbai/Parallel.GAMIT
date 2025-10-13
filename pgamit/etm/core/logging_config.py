@@ -10,7 +10,10 @@ def setup_etm_logging(level=logging.INFO, format_string=' -- %(name)s: %(message
     # Avoid duplicate handlers
     if not etm_logger.handlers:
         handler = StreamHandler()
-        handler.setFormatter(Formatter(format_string))
+        if level == logging.INFO:
+            handler.setFormatter(Formatter(' -- %(message)s'))
+        else:
+            handler.setFormatter(Formatter(format_string))
         etm_logger.addHandler(handler)
         etm_logger.setLevel(level)
         # Prevent propagation to root logger to avoid duplicate messages

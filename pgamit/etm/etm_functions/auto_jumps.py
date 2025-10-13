@@ -10,10 +10,12 @@ Modified from
 from typing import List
 from sklearn.cluster import DBSCAN
 import numpy as np
+import logging
+
+logger = logging.getLogger(__name__)
 
 from pgamit.etm.core.etm_config import EtmConfig
 from pgamit.etm.core.type_declarations import JumpType
-from pgamit.etm.data.solution_data import SolutionData
 from pgamit.etm.etm_functions.jumps import JumpFunction
 from pgamit.pyDate import Date
 
@@ -27,6 +29,8 @@ class AutoJumps:
         self.config = config
         self.jumps = []
         self.method = method
+
+        logger.info('Detecting jumps using method ' + method)
 
     def detect(self, time_vector: np.ndarray, observations: List[np.ndarray]):
         if self.method.lower() == 'angry':
@@ -107,7 +111,7 @@ class AutoJumps:
                 jump_type=JumpType.AUTO_DETECTED
             ))
 
-    def _dbscan(self, time_vector: np.ndarray, observations: List[np.ndarray], eps_value: float = 0.003):
+    def _dbscan(self, time_vector: np.ndarray, observations: List[np.ndarray], eps_value: float = 0.002):
         # scale the time to match the scale of the gnss positions
         time_scaled = (time_vector - time_vector.min()) / (1 / 365.25) * 0.0001
 

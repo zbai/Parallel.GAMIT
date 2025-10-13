@@ -10,13 +10,13 @@ import logging
 logger = logging.getLogger(__name__)
 
 # app
-from pgamit.pyDate import Date
-from pgamit.Utils import load_json
-from pgamit.dbConnection import Cnn
-from pgamit.etm.core.type_declarations import PeriodicStatus, JumpType
-from pgamit.etm.core.data_classes import (SolutionOptions, ModelingParameters,
-                                          ValidationRules, StationMetadata, LeastSquares, JumpParameters)
-from pgamit.etm.visualization.data_classes import PlotOutputConfig
+from ...pyDate import Date
+from ...Utils import load_json
+from ...dbConnection import Cnn
+from ..core.type_declarations import PeriodicStatus, JumpType, EtmException
+from ..core.data_classes import (SolutionOptions, ModelingParameters,
+                                 ValidationRules, StationMetadata, JumpParameters)
+from ..visualization.data_classes import PlotOutputConfig
 
 
 class EtmConfig:
@@ -110,6 +110,33 @@ class EtmConfig:
                 "seasonal": "Estacionales",
                 "stochastic": "Estocástico",
                 "removed": "Removido(s)"
+            },
+            'fra': {
+                "station": "Station",
+                "north": "Nord",
+                "east": "Est",
+                "up": "Haut",
+                "table_title": "  An   Jou Relx    [mm] Mag D [km]",
+                "periodic": "Amplitude Saisonnière",
+                "velocity": "Vélocité",
+                "from_model": "du modèle",
+                "acceleration": "Accélération",
+                "position": "Position d'Époque Conventionnelle",
+                "completion": "Achèvement",
+                "other": "autres termes polynomiaux",
+                "not_enough": "Pas assez de solutions pour ajuster un ETM.",
+                "table_too_long": "[...]",
+                "frequency": "Fréquence",
+                "N residuals": "Résidus N",
+                "E residuals": "Résidus E",
+                "U residuals": "Résidus U",
+                "histogram plot": "Histogramme",
+                "residual plot": "Graphique des Résidus",
+                "jumps": "Sauts",
+                "polynomial": "Polynôme",
+                "seasonal": "Saisonnier",
+                "stochastic": "Stochastique",
+                "removed": "Supprimé"
             }
         }
         if solution_type:
@@ -130,7 +157,7 @@ class EtmConfig:
         """build a generic file name to use to save files"""
         return self.get_station_id() + "_" + self.solution.stack_name
 
-    def _load_from_database(self, cnn) -> None:
+    def _load_from_database(self, cnn: Cnn) -> None:
         """Load station-specific configuration from database"""
         try:
             self._load_station_metadata(cnn)
@@ -140,7 +167,7 @@ class EtmConfig:
 
             logger.info(f"Loaded configuration from database for {self.network_code}.{self.station_code}")
 
-        except Exception as e:
+        except EtmException as e:
             logger.warning(f"Failed to load database config for {self.network_code}.{self.station_code}: {e}")
             logger.info("Using default configuration")
 
@@ -201,7 +228,7 @@ class EtmConfig:
                     ref_date = pyDate.Date(year=int(row['Year']), doy=int(row['DOY']))
                     self.modeling.reference_epoch = ref_date.fyear
 
-        except Exception as e:
+        except EtmException as e:
             logger.debug(f"No polynomial config in database: {e}")
 
     def _load_periodic_config(self, cnn) -> None:
@@ -223,12 +250,12 @@ class EtmConfig:
                     self.modeling.frequencies = np.array(freqs)
                     self.modeling.periodic_status = PeriodicStatus.ADDED_BY_USER
 
-        except Exception as e:
+        except EtmException as e:
             logger.debug(f"No periodic config in database: {e}")
 
     def _load_jump_config(self, cnn) -> None:
         """Load jump configuration from etm_params table"""
-        from etm.core.s_score import ScoreTable
+        from ..core.s_score import ScoreTable
 
         # @todo: analyze if "soln" = 'gamit' always or should also allow 'ppp'
         query = '''
@@ -268,7 +295,7 @@ class EtmConfig:
                                self.metadata.last_obs)
             self.modeling.earthquake_jumps = score.table
 
-        except Exception as e:
+        except EtmException as e:
             logger.debug(f"No jump config in database: {e}")
             self.modeling.user_jumps = []
 

@@ -24,9 +24,10 @@ import xml.etree.ElementTree as ET
 from pgamit import dbConnection
 from pgamit.pyDate import Date
 from pgamit.etm.core.logging_config import setup_etm_logging
-from pgamit.etm.core.etm_engine import EtmEngine
+from pgamit.etm.core.etm_engine import EtmEngine, EtmSolutionType
 from pgamit.etm.core.etm_config import EtmConfig
-from pgamit.etm.core.data_classes import AdjustmentModels, SolutionType, CovarianceFunction
+from pgamit.etm.data.solution_data import SolutionDataException
+from pgamit.etm.core.data_classes import AdjustmentModels, SolutionType, CovarianceFunction, ModelingParameters
 from pgamit.Utils import (process_date,
                           process_stnlist,
                           file_write,
@@ -55,7 +56,7 @@ COVARIANCE_MAP = {
 
 def process_plot_dates(args):
     dates = None
-    if args.plot_window is not None:
+    if args.plot_window:
         if len(args.plot_window) == 1:
             try:
                 dates = process_date(args.plot_window, missing_input=None, allow_days=False)
@@ -76,36 +77,45 @@ def process_fit_dates(args):
         if np.mod(args.fit_window, 2):
             raise ValueError('Fit dates must be given in start/end pairs')
 
-    for i in range(0, len(args.fit_window), 2):
-        try:
-            dates.append(process_date(args.fit_window[i:i+1]))
-        except ValueError:
-            raise ValueError('Invalid fit dates')
+        for i in range(0, len(args.fit_window), 2):
+            try:
+                dates.append(process_date(args.fit_window[i:i+1]))
+            except ValueError:
+                raise ValueError('Invalid fit dates')
 
     return None if not dates else dates
 
 
 def print_query(args, etm: EtmEngine):
-    model = (args.query[0] == 'model')
+
+    mode_obs = EtmSolutionType.MODEL if args.query[0] == 'model' else EtmSolutionType.OBSERVATION
     q_date = Date(fyear=float(args.query[1]))
 
-    xyz, _, _, txt = etm.get_position(q_date.year, q_date.doy, force_model=model)
+    solution = etm.get_position(q_date, mode_obs)
 
     strp = ''
     # if user requests velocity too, output it
     if etm.config.modeling.status == etm.config.modeling.status.POSTFIT:
         if 'vel' in args.query:
-            vxyz = [x.p.params[:, 1].tolist() for x in
-                              etm.design_matrix.functions if x.p.object == 'polynomial']
-            strp = '%8.5f %8.5f %8.5f ' % (vxyz[0], vxyz[0], vxyz[0])
+            vxyz = []
+            for x in etm.design_matrix.functions:
+                if x.p.object == 'polynomial':
+                    vxyz += [p[1] for p in x.p.params]
+            if vxyz:
+                strp = '%8.5f %8.5f %8.5f ' % (vxyz[0], vxyz[1], vxyz[2])
 
         if 'per' in args.query:
-            # also output seasonal terms, if requested
-            strp += ' '.join(['%8.5f' % (x.p.params.flatten() * 1000).tolist() for x in
-                              etm.design_matrix.functions if x.p.object == 'periodic'])
+            pxyz = []
+            for x in etm.design_matrix.functions:
+                if x.p.object == 'periodic':
+                    for i in range(3):
+                        pxyz += ['%8.5f' % (p * 1000) for p in x.p.params[i].tolist()]
+                    # also output seasonal terms, if requested
+                    strp += ' '.join(pxyz)
 
     print(' %s %14.5f %14.5f %14.5f %8.3f %s -> %s' \
-          % (etm.config.get_station_id(), xyz[0], xyz[1], xyz[2], q_date.fyear, strp, txt))
+          % (etm.config.get_station_id(), solution['position'][0],
+             solution['position'][1], solution['position'][2], q_date.fyear, strp, solution['source']))
 
 def main():
     parser = argparse.ArgumentParser(description='Plot extended trajectory models (ETMs) '
@@ -140,6 +150,11 @@ def main():
     parser.add_argument('-iter', '--max_iterations', type=int, default=10,
                         help="Maximum number of iterations during outlier detection. Default is 10")
 
+    parser.add_argument('-relax', '--default_relax', type=float, nargs='+',
+                        default=ModelingParameters().relaxation,
+                        help="Relaxation value(s) to use during the fit. Default as defined by the station in "
+                             "the database or in the ETM module (0.05 and 1 years)")
+
     parser.add_argument('-plot', '--plot_options', nargs='*',
                         choices=['out', 'hist', 'missing', 'residuals', 'no-model', 'no-plots'],
                         default=[],
@@ -156,7 +171,7 @@ def main():
                              "files will be saved in the production directory")
 
     parser.add_argument('-json', '--json',
-                        choices=['dmx', 'obs', 'raw', 'mod'], nargs='*',
+                        choices=['dmx', 'obs', 'raw', 'mod'], nargs='*', default=None,
                         help="Export ETM to JSON. By default the json will contain the "
                              "station metadata and the functions fit by the ETM (with "
                              "parameters and sigmas). Append additional output options: "
@@ -166,21 +181,23 @@ def main():
     parser.add_argument('-gui', '--interactive', action='store_true',
                         help="Interactive mode: allows to zoom and view the plot interactively")
 
-    parser.add_argument('-rm', '--remove', nargs='+', choices=['poly', 'per', 'jumps', 'stoch'],
-                        default=[],
+    parser.add_argument('-rm', '--remove', nargs='+',
+                        choices=['poly', 'per', 'jumps', 'stoch'], default=None,
                         help="Remove components from model and time series before plotting. Options are: "
                              "poly -> polynomial; per -> periodic; jumps -> mechanical and geophysical jumps; "
-                             "stoch -> stochastic noise if adjustment strategy is 'least squares collocation'")
+                             "stoch -> stochastic noise if adjustment strategy is 'least squares collocation'. "
+                             "If no arguments are given, then all components are removed (same output as "
+                             "residuals mode)")
 
     parser.add_argument('-plot_win', '--plot_window', nargs='+', metavar='interval',
                         default=[],
                         help='Date range to window plot. Can be specified in yyyy/mm/dd, yyyy_doy or as a single '
                              'integer value (N) which shall be interpreted as last epoch minus N days')
 
-    parser.add_argument('-lang', '--language', type=str, default='ENG',
+    parser.add_argument('-lang', '--language', type=str, default='eng',
                         help="Change the language of the plots. Default is English. "
                         "Use ESP to select Spanish. To add more languages, "
-                        "include the ISO 639-1 code in pyETM.py")
+                        "include the ISO 639-1 code in etm_config")
 
     parser.add_argument('-file', '--filename', type=str, default=None,
                         help="Obtain data from an external source (filename, json or text format). This name accepts "
@@ -201,11 +218,10 @@ def main():
                              "and other relevant metadata. When using this option, the station list is ignored and "
                              "only one station is processed.")
 
-    parser.add_argument('-fit_auto', '--fit_auto_jumps', nargs='?',
-                        choices=['angry', 'dbscan'], default=['angy'],
+    parser.add_argument('-fit_auto', '--fit_auto_jumps', nargs=1,
+                        choices=['angry', 'dbscan'], default=[None],
                         help="Fit unmodeled but automatically detected jumps. "
-                             "Choose between two algorithms: "
-                             "angry (used and provided by JPL) and dbscan")
+                             "Choose between two algorithms: angry (used and provided by JPL) and dbscan")
 
     parser.add_argument('-q', '--query', nargs='*',
                         metavar='{type} {date} ', default=[],
@@ -235,57 +251,79 @@ def main():
 
     plot_dates = process_plot_dates(args)
 
+    # make sure dir ends in /
+    if args.directory[-1] != '/':
+        args.directory += '/'
+
     for stn in stnlist:
 
-        config = EtmConfig(stn['NetworkCode'], stn['StationCode'], cnn=cnn)
+        try:
+            print('About to process ' + stn['NetworkCode'] + '.' + stn['StationCode'])
 
-        config.solution.solution_type = SolutionType.PPP if args.solution == 'ppp' else SolutionType.GAMIT
-        config.solution.stack_name = args.solution
+            config = EtmConfig(stn['NetworkCode'], stn['StationCode'], cnn=cnn)
 
-        config.plotting_config.plot_time_window = plot_dates
+            # select language for plots
+            config.language = args.language.lower()
 
-        config.plotting_config.plot_remove_polynomial = 'poly' in args.remove
-        config.plotting_config.plot_remove_jumps = 'jumps' in args.remove
-        config.plotting_config.plot_remove_periodic = 'per' in args.remove
-        config.plotting_config.plot_remove_stochastic = 'stoch' in args.remove
+            config.solution.solution_type = SolutionType.PPP if args.solution == 'ppp' else SolutionType.GAMIT
+            config.solution.stack_name = args.solution
 
-        config.plotting_config.plot_show_outliers = 'out' in args.plot_options
-        config.plotting_config.plot_residuals_mode = 'residuals' in args.plot_options
+            config.plotting_config.plot_time_window = plot_dates
 
-        config.modeling.data_model_window = process_fit_dates(args)
+            if args.remove is not None:
+                if not len(args.remove):
+                    args.remove = ['poly', 'per', 'jumps', 'stoch']
 
-        config.modeling.least_squares_strategy.adjustment_model = ADJUSTMENT_MODEL_MAP[args.least_squares_strategy]
-        config.modeling.least_squares_strategy.iterations = args.max_iterations
-        config.modeling.least_squares_strategy.sigma_filter_limit = args.sigma_limit
-        config.modeling.least_squares_strategy.covariance_function = COVARIANCE_MAP[args.covariance[0]]
-        if args.covariance[0] == 'arma' and len(args.covariance) > 1:
-            config.modeling.least_squares_strategy.arma_roots = args.covariance[1]
-        if args.covariance[0] == 'arma' and len(args.covariance) > 2:
-            config.modeling.least_squares_strategy.arma_points = args.covariance[2]
+                config.plotting_config.plot_remove_polynomial = 'poly' in args.remove
+                config.plotting_config.plot_remove_jumps = 'jumps' in args.remove
+                config.plotting_config.plot_remove_periodic = 'per' in args.remove
+                config.plotting_config.plot_remove_stochastic = 'stoch' in args.remove
 
-        if not os.path.exists(args.directory):
-            os.mkdir(args.directory)
+            config.plotting_config.filename = args.directory
 
-        etm = EtmEngine(config, cnn=cnn)
-        etm.run_adjustment(cnn=cnn,
-                           try_save_to_db=not args.save_database,
-                           try_loading_db=not args.save_database)
+            config.plotting_config.plot_show_outliers = 'out' in args.plot_options
+            config.plotting_config.plot_residuals_mode = 'residuals' in args.plot_options
 
-        etm.save_etm(filename=args.directory,
-                     dump_observations='obs' in args.json,
-                     dump_design_matrix='dmx' in args.json,
-                     dump_raw_results='raw' in args.json,
-                     dump_model='mod' in args.json)
+            config.modeling.relaxation = np.array(args.default_relax)
+            config.modeling.data_model_window = process_fit_dates(args)
 
-        if 'no-plots' not in args.plot_options:
-            etm.plot()
-            if 'hist' in args.plot_options:
-                etm.plot_hist()
+            config.modeling.least_squares_strategy.adjustment_model = ADJUSTMENT_MODEL_MAP[args.least_squares_strategy]
+            config.modeling.fit_auto_detected_jumps = args.fit_auto_jumps[0] is not None
+            config.modeling.fit_auto_detected_jumps_method = args.fit_auto_jumps[0]
+            config.modeling.least_squares_strategy.iterations = args.max_iterations
+            config.modeling.least_squares_strategy.sigma_filter_limit = args.sigma_limit
+            config.modeling.least_squares_strategy.covariance_function = COVARIANCE_MAP[args.covariance[0]]
+            if args.covariance[0] == 'arma' and len(args.covariance) > 1:
+                config.modeling.least_squares_strategy.arma_roots = args.covariance[1]
+            if args.covariance[0] == 'arma' and len(args.covariance) > 2:
+                config.modeling.least_squares_strategy.arma_points = args.covariance[2]
 
-        if args.query:
-            print_query(args, etm)
+            if not os.path.exists(args.directory):
+                os.mkdir(args.directory)
 
-        print('Successfully plotted ' + stn['NetworkCode'] + '.' + stn['StationCode'])
+            etm = EtmEngine(config, cnn=cnn)
+            etm.run_adjustment(cnn=cnn,
+                               try_save_to_db=not args.no_save_database,
+                               try_loading_db=not args.no_save_database)
+
+            if args.json is not None:
+                etm.save_etm(filename=args.directory,
+                             dump_observations='obs' in args.json,
+                             dump_design_matrix='dmx' in args.json,
+                             dump_raw_results='raw' in args.json,
+                             dump_model='mod' in args.json)
+
+            if 'no-plots' not in args.plot_options:
+                etm.plot()
+                if 'hist' in args.plot_options:
+                    etm.plot_hist()
+
+            if args.query:
+                print_query(args, etm)
+
+            print('Successfully plotted ' + stn['NetworkCode'] + '.' + stn['StationCode'])
+        except SolutionDataException as e:
+            print(str(e))
 
 
 if __name__ == '__main__':

@@ -5,6 +5,9 @@ Author: Demian D. Gomez
 """
 import numpy as np
 import math
+import logging
+
+logger = logging.getLogger(__name__)
 
 from typing import List
 
@@ -47,11 +50,17 @@ class ScoreTable(object):
     def __init__(self, cnn, lat, lon, sdate, edate):
         self.table: List[Earthquake] = []
 
+        logger.info(f'Loading s-score table for {lat:.8f} {lon:.8f} from {sdate} to {edate}')
+
         # get the earthquakes based on Mike's expression
-        # earthquakes before the start data: only magnitude 7+
-        jumps = cnn.query_float('SELECT * FROM earthquakes '
-                                'WHERE date BETWEEN \'%s\' AND \'%s\' '
-                                'ORDER BY date ASC, mag DESC'
+        # speed up the process by performing the s-score
+        # calc in the postgres server
+        jumps = cnn.query_float(f"""
+        SELECT * FROM (
+            SELECT 2*ASIN(sqrt(sin((radians({lat})-radians(lat))/2)^2 + cos(radians(lat)) * 
+            cos(radians({lat})) * sin((radians({lon})-radians(lon))/2)^2))*6371 AS distance, * FROM earthquakes
+            ) WHERE {a} * mag - log10(distance) + {b} + log10({POST_SEISMIC_SCALE_FACTOR}) > 0 AND
+            date BETWEEN '%s' AND '%s' ORDER BY date ASC, mag DESC"""
                                 % (sdate.yyyymmdd(), edate.yyyymmdd()), as_dict=True)
 
         for j in jumps:
