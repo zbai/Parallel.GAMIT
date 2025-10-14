@@ -227,6 +227,10 @@ class RunPPP(PPPSpatialCheck):
             # file is in RINEX 2 format, use file as is
             rinexobj = in_rinex
 
+        # DDG: issue with JPL orbits: some files with one epoch after midnight of next day make PPP
+        # crash when using JPL orbits. Window the data
+        rinexobj.window_data(rinexobj.date.first_epoch(), rinexobj.date.last_epoch())
+
         PPPSpatialCheck.__init__(self)
 
         self.rinex     = rinexobj
