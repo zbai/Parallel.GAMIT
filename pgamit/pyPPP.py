@@ -229,7 +229,7 @@ class RunPPP(PPPSpatialCheck):
 
         # DDG: issue with JPL orbits: some files with one epoch after midnight of next day make PPP
         # crash when using JPL orbits. Window the data
-        rinexobj.window_data(rinexobj.date.first_epoch(), rinexobj.date.last_epoch())
+        rinexobj.window_data(rinexobj.date.first_epoch('datetime'), rinexobj.date.last_epoch('datetime'))
 
         PPPSpatialCheck.__init__(self)
 

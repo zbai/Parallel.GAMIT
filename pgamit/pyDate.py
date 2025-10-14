@@ -470,17 +470,25 @@ class Date(object):
             return datetime(year=self.year, month=self.month, day=self.day,
                             hour=self.hour, minute=self.minute, second=self.second)
 
-    def first_epoch(self, out_format='datetime'):
-        if out_format == 'datetime':
+    def first_epoch(self, out_format='datetime_str'):
+        if out_format == 'datetime_str':
             return datetime(year=self.year, month=self.month, day=self.day, hour=0, minute=0, second=0).strftime(
                 '%Y-%m-%d %H:%M:%S')
-        else:
+        elif out_format == 'fyear':
             return date2doy(self.year, self.month, self.day, 0, 0, 0)[1] # fyear
+        elif out_format == 'datetime':
+            return datetime(year=self.year, month=self.month, day=self.day, hour=0, minute=0, second=0)
+        else:
+            return Date(year=self.year, doy=self.doy, hour=0, minute=0, day=0)
 
-    def last_epoch(self, out_format='datetime'):
-        if out_format == 'datetime':
+    def last_epoch(self, out_format='datetime_str'):
+        if out_format == 'datetime_str':
             return datetime(year=self.year, month=self.month, day=self.day, hour=23, minute=59, second=59).strftime(
                 '%Y-%m-%d %H:%M:%S')
+        elif out_format == 'fyear':
+            return date2doy(self.year, self.month, self.day, 23, 59, 59)[1]  # fyear
+        elif out_format == 'datetime':
+            return datetime(year=self.year, month=self.month, day=self.day, hour=23, minute=59, second=59)
         else:
-            return date2doy(self.year, self.month, self.day, 23, 59, 59)[1] # fyear
+            return Date(year=self.year, doy=self.doy, hour=23, minute=59, day=59)
 
