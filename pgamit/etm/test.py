@@ -2,6 +2,7 @@ import logging
 import numpy as np
 
 from pgamit.pyDate import Date
+from pgamit import pyStationInfo
 from pgamit.etm.core.type_declarations import CovarianceFunction, SolutionType
 from pgamit.etm.core.etm_engine import EtmEngine
 from pgamit.etm.core.etm_config import EtmConfig
@@ -16,15 +17,18 @@ setup_etm_logging(level=logging.DEBUG)
 
 cnn = Cnn('/home/demian/pg_osu/gnss_data.cfg')
 
+#stn = pyStationInfo.StationInfo(cnn=None, NetworkCode='arg', StationCode='igm1')
+#hh = stn.parse_station_info('/home/demian/pg_osu/steps.ngl')
+
 #config = EtmConfig(json_file='/home/demian/pg_osu/arg.igm1_igs14.json')
 #etm = EtmEngine(config)
 #etm.run_adjustment(try_loading_db=False, try_save_to_db=False)
 #config.plotting_config.filename = '/home/demian/pg_osu/'
 #etm.plot()
 
-config = EtmConfig('arg', 'igm1', cnn=cnn)
-config.solution.solution_type = SolutionType.GAMIT
-config.solution.stack_name = 'igs14'
+config = EtmConfig('arg', 'epsf', cnn=cnn)
+config.solution.solution_type = SolutionType.PPP
+# config.solution.stack_name = 'igs14'
 
 config.modeling.least_squares_strategy.adjustment_model = AdjustmentModels.ROBUST_LEAST_SQUARES
 config.modeling.least_squares_strategy.covariance_function = CovarianceFunction.ARMA
@@ -33,23 +37,23 @@ config.modeling.fit_auto_detected_jumps = False
 config.modeling.fit_auto_detected_jumps_method = 'dbscan'
 # only fit the data within this interval
 #config.modeling.data_model_window = [(1995.0, 2005.9999), (2009.606849, 2025.5)]
-poly_model = PolynomialFunction(config)
-periodic_model = PeriodicFunction(config)
-illapel = JumpFunction(config, time_vector=np.array([0]), date=Date(year=2015, doy=259),
-                       jump_type=JumpType.COSEISMIC_JUMP_DECAY, fit=False)
+#poly_model = PolynomialFunction(config)
+#periodic_model = PeriodicFunction(config)
+#illapel = JumpFunction(config, time_vector=np.array([0]), date=Date(year=2015, doy=259),
+#                       jump_type=JumpType.COSEISMIC_JUMP_DECAY, fit=False)
 
-poly_model.p.params = [np.array([np.nan, 0.115]), np.array([np.nan, np.nan]), np.array([np.nan, 0.0])]
-poly_model.p.sigmas = [np.array([np.nan, 0.0001]), np.array([np.nan, 0.0001]), np.array([np.nan, 0.00001])]
+#poly_model.p.params = [np.array([np.nan, 0.115]), np.array([np.nan, np.nan]), np.array([np.nan, 0.0])]
+#poly_model.p.sigmas = [np.array([np.nan, 0.0001]), np.array([np.nan, 0.0001]), np.array([np.nan, 0.00001])]
 
-periodic_model.p.params = [np.array([0.0, 0.0, 0.0, 0.0]),
-                           np.array([0.0, 0.0, 0.012, 0.001]),
-                           np.array([0.0, 0.0, 0.0, 0.0])]
+#periodic_model.p.params = [np.array([0.0, 0.0, 0.0, 0.0]),
+#                           np.array([0.0, 0.0, 0.012, 0.001]),
+#                           np.array([0.0, 0.0, 0.0, 0.0])]
 
-illapel.p.params = [np.array([0.0, np.nan, np.nan]), np.array([0.0, np.nan, np.nan]), np.array([0.0, np.nan, np.nan])]
-illapel.p.sigmas = [np.array([0.00001, np.nan, np.nan]), np.array([0.00001, np.nan, np.nan]), np.array([0.00001, np.nan, np.nan])]
+#illapel.p.params = [np.array([0.0, np.nan, np.nan]), np.array([0.0, np.nan, np.nan]), np.array([0.0, np.nan, np.nan])]
+#illapel.p.sigmas = [np.array([0.00001, np.nan, np.nan]), np.array([0.00001, np.nan, np.nan]), np.array([0.00001, np.nan, np.nan])]
 
 config.modeling.prefit_models = []
-config.modeling.least_squares_strategy.constraints.extend([poly_model, illapel])
+# config.modeling.least_squares_strategy.constraints.extend([poly_model, illapel])
 
 # options for plotting
 config.plotting_config.filename = '/home/demian/pg_osu/'

@@ -288,7 +288,7 @@ class StationMetadata(BaseDataClass):
         array_fields = ['lat', 'lon', 'height', 'auto_x', 'auto_y', 'auto_z']
         for field_name in array_fields:
             value = getattr(self, field_name)
-            if isinstance(value, list):
+            if isinstance(value, list) or isinstance(value, tuple):
                 setattr(self, field_name, np.array(value))
 
 
@@ -297,6 +297,8 @@ class SolutionOptions(BaseDataClass):
     solution_type: SolutionType = SolutionType.PPP
     stack_name: str = 'ppp'
     project: str = '' # to store the project name for GAMIT solutions
+    filename: str = '' # to store the filename location if SolutionType is NGL
+    format: str = ('fyear', 'x', 'y', 'z') # default format reader for the filename
 
     def __post_init__(self):
         super().__post_init__()

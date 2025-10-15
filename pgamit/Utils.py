@@ -19,6 +19,8 @@ from typing import Union
 import numpy
 import numpy as np
 from importlib.metadata import version
+from geopy.geocoders import Nominatim
+import country_converter as coco
 
 # app
 from pgamit import pyRinexName
@@ -54,7 +56,12 @@ def get_field_or_attr(obj, f):
 
 
 def stationID(s):
-    if hasattr(s, 'network_code'):
+    if isinstance(s, dict):
+        has_network_code = 'network_code' in s
+    else:  # For object
+        has_network_code = hasattr(s, 'network_code')
+
+    if has_network_code:
         # new format
         return "%s.%s" % (get_field_or_attr(s, 'network_code'),
                           get_field_or_attr(s, 'station_code'))
@@ -569,6 +576,22 @@ def print_columns(l):
 
 def get_resource_delimiter():
     return '.'
+
+
+def get_country_code(lat, lon):
+    """Obtain the country code based on lat lon of station"""
+    # DDG: added code to insert new station including the country_code
+    # find the country code for the station
+    geolocator = Nominatim(user_agent="Parallel.GAMIT")
+    location = geolocator.reverse("%f, %f" % (lat, lon))
+
+    if location and 'country_code' in location.raw['address'].keys():
+        ISO3 = coco.convert(
+            names=location.raw['address']['country_code'], to='ISO3')
+    else:
+        ISO3 = None
+
+    return  ISO3
 
 
 def process_stnlist(cnn, stnlist_in, print_summary=True, summary_title=None):

@@ -17,6 +17,7 @@ class EtmFunction(ABC):
 
     def __init__(self, config: EtmConfig,
                  metadata: Optional[str] = '',
+                 fit: bool = True,
                  **kwargs):
 
         self.p = EtmFunctionParameterVector()
@@ -28,7 +29,7 @@ class EtmFunction(ABC):
         self.param_count = 0
         self.column_index = np.array([])
         self.format_str = ''
-        self.fit = True
+        self.fit = fit
         self.design = np.array([])
 
         # time vector

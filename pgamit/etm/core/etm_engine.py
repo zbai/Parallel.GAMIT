@@ -174,6 +174,12 @@ class EtmEngine:
         # load the data from connection or json file
         self.solution_data.load_data(cnn)
 
+        # check how many solutions we have available. If less than
+        # 100 (most likely campaign) disable metadata jumps
+        if self.solution_data.solutions < 100:
+            logger.info('Disabling metadata jumps because solution count < 100')
+            self.config.modeling.fit_metadata_jumps = False
+
         # @todo: evaluate if mask should be applied here or inside solution_data
         mask = self.config.modeling.get_observation_mask(self.solution_data.time_vector)
 

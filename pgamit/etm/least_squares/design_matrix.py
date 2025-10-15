@@ -25,7 +25,7 @@ class DesignMatrix:
         self.time_vector = time_vector
         self.functions = functions
         self.config = config
-
+        self.rank_deficient = False
         # Build matrix
         # self.matrix: np.ndarray = self._build_matrix(self.time_vector)
         self.condition_number = self._compute_condition_number()
@@ -171,6 +171,7 @@ class DesignMatrix:
         # Check for rank deficiency
         rank = np.linalg.matrix_rank(matrix)
         if rank < matrix.shape[1]:
+            self.rank_deficient = True
             logger.warning(f"Design matrix is rank deficient: rank={rank}, cols={self.matrix.shape[1]}")
 
         # Check condition number

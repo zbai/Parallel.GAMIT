@@ -183,6 +183,23 @@ class EtmConfig:
         if not stn or stn[0]['lat'] is None:
             raise ValueError(f"No valid metadata for station {self.get_station_id()}")
 
+        if stn[0]['DateStart'] is None:
+            # a few old stations with no DateStart, update table
+            cnn.query('''
+            UPDATE stations 
+                SET "DateStart" = r.min_date,
+                    "DateEnd" = r.max_date
+                FROM (
+                    SELECT min("ObservationFYear") as min_date, 
+                           max("ObservationFYear") as max_date
+                    FROM rinex 
+                    WHERE "NetworkCode" = '%s' AND "StationCode" = '%s'
+                ) r
+                WHERE "NetworkCode" = '%s' AND "StationCode" = '%s'
+            ''' % (self.network_code, self.station_code, self.network_code, self.station_code))
+            # run query again to get updated data
+            stn = cnn.query_float(query, as_dict=True)
+
         """Load station reference coordinates and metadata"""
         self.metadata.name = stn[0]['StationName']
         self.metadata.country_code = stn[0]['country_code']
@@ -262,8 +279,8 @@ class EtmConfig:
             SELECT "Year", "DOY", "action", "jump_type", "relaxation" 
             FROM etm_params 
             WHERE "NetworkCode" = '%s' AND "StationCode" = '%s' 
-            AND "object" = 'jump' AND "soln" = 'gamit' ORDER BY ("Year", "DOY")
-        ''' % (self.network_code, self.station_code)
+            AND "object" = 'jump' AND "soln" = '%s' ORDER BY ("Year", "DOY")
+        ''' % (self.network_code, self.station_code, self.solution.solution_type.code)
 
         try:
             result = cnn.query_float(query, as_dict=True)

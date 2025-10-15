@@ -28,14 +28,16 @@ class JumpFunction(EtmFunction):
         self.magnitude = magnitude
         self.epi_distance = epi_distance
         self.user_action = user_action
-        self.fit = fit
+        # start with was_modified = False to indicate that the ETM did not alter this jump yet
+        self.was_modified = False
+
         super().__init__(config, time_vector=time_vector,
                          date=date,
                          jump_type=jump_type,
                          magnitude=magnitude,
                          epi_distance=epi_distance,
-                         user_action=user_action, **kwargs)
-
+                         user_action=user_action,
+                         fit=fit, **kwargs)
 
     def initialize(self, time_vector: np.ndarray, date: Union[Date, datetime],
                    jump_type: JumpType = JumpType.MECHANICAL_MANUAL,
@@ -259,6 +261,8 @@ class JumpFunction(EtmFunction):
 
         self._fill_metadata()
         self.rehash()
+        # flag this jump as have been modified by the ETN
+        self.was_modified = True
 
     def remove_from_fit(self, user_action=None) -> None:
         """Remove jump from fitting process. If user_action provided, update the field"""
@@ -355,6 +359,7 @@ class JumpFunction(EtmFunction):
         if self.design.size > 0 and other.design.size > 0:
             design_overlap = np.sum(np.logical_xor(self.design[:, 0], other.design[:, 0]))
 
+        # @ todo: implement a smarter method to remove jumps using condition number
         # this flag is used to decide when both are geophysical
         lt_design_eq_min_days = design_overlap <= self.config.modeling.earthquake_min_days
         # if one is geophysical but the other is not, use this flag

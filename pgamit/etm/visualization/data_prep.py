@@ -27,7 +27,7 @@ class PlotTemplate(ABC):
     def setup_colors() -> Dict[str, str]:
         """Setup color scheme"""
         return {
-            'observations': 'blue',
+            'observations': (0, 150 / 255, 235 / 255),
             'model': 'red',
             'confidence': 'lightblue',
             'outliers': 'cyan',

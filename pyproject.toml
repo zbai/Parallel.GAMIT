@@ -29,6 +29,7 @@ dependencies = [
     "psycopg2-binary==2.9.9",
     "pycos",
     "country-converter",
+    "charset-normalizer==3.4.4",
     "earthscope-cli==0.8.2",
     "earthscope-sdk==0.2.0",
     "basemap==1.4.0",

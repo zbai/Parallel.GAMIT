@@ -28,6 +28,31 @@ _default.default = JSONEncoder().default
 JSONEncoder.default = _default
 
 
+def create_record(station_code, start_date, end_date, antenna_code, comment):
+    fs = ' {:4.4}  {:16.16}  {:19.19}{:19.19}{:7.4f}  {:5.5}  {:7.4f}  {:7.4f}  {:20.20}  ' \
+         '{:20.20}  {:>5.5}  {:20.20}  {:15.15}  {:5.5}  {:20.20} {}'
+
+    record = fs.format(
+        station_code,  # Col 1: station code
+        "",  # Col 2: station name (blank)
+        str(pyDate.Date(datetime=start_date)),  # Col 3: session start
+        str(pyDate.Date(datetime=end_date)),  # Col 4: session end
+        0.0,  # Col 5: antenna height
+        "DHARP",  # Col 6: height code
+        0.0,  # Col 7: antenna north
+        0.0,  # Col 8: antenna east
+        "",  # Col 9: antenna code
+        "",  # Col 10: (blank)
+        "",  # Col 11: (blank)
+        "",  # Col 12: (blank)
+        antenna_code, # Col 13: antenna
+        "NONE",  # Col 14: radome
+        "12345",  # Col 15: serial
+        comment  # Col 16: comment
+    )
+    return record
+
+
 class pyStationInfoException(Exception):
     def __init__(self, value):
         self.value = value
@@ -77,7 +102,7 @@ class StationInfoRecord(Bunch):
         #                      '%-20s  %5s  %-20s  %-15s  %-5s  %-20s'
 
         self.record_format = ' {:4.4}  {:16.16}  {:19.19}{:19.19}{:7.4f}  {:5.5}  {:7.4f}  {:7.4f}  {:20.20}  ' \
-                             '{:20.20}  {:>5.5}  {:20.20}  {:15.15}  {:5.5}  {:20.20}'
+                             '{:20.20}  {:>5.5}  {:20.20}  {:15.15}  {:5.5}  {:20.20} {}'
 
     def database(self):
         r = {}
@@ -112,9 +137,9 @@ class StationInfoRecord(Bunch):
 
             fieldnames = ('StationCode', 'StationName', 'DateStart', 'DateEnd', 'AntennaHeight', 'HeightCode',
                           'AntennaNorth', 'AntennaEast', 'ReceiverCode', 'ReceiverVers', 'ReceiverFirmware',
-                          'ReceiverSerial', 'AntennaCode', 'RadomeCode', 'AntennaSerial')
+                          'ReceiverSerial', 'AntennaCode', 'RadomeCode', 'AntennaSerial', 'Comments')
 
-            fieldwidths = (1, 6, 18, 19, 19, 9, 7, 9, 9, 22, 22, 7, 22, 17, 7, 20)  # negative widths represent ignored padding fields
+            fieldwidths = (1, 6, 18, 19, 19, 9, 7, 9, 9, 22, 22, 7, 22, 17, 7, 20, 100)  # negative widths represent ignored padding fields
             fmtstring = ' '.join('{}{}'.format(abs(fw), 'x' if fw < 0 else 's') for fw in fieldwidths)
 
             fieldstruct = struct.Struct(fmtstring)
@@ -163,7 +188,8 @@ class StationInfoRecord(Bunch):
                                          str(self.ReceiverSerial),
                                          str(self.AntennaCode),
                                          str(self.RadomeCode),
-                                         str(self.AntennaSerial))
+                                         str(self.AntennaSerial),
+                                         str(self.Comments))
 
 
 class StationInfo:
@@ -186,7 +212,7 @@ class StationInfo:
                       'Antenna Type     Dome   Antenna SN          '
 
         # connect to the db and load the station info table
-        if NetworkCode is not None and StationCode is not None:
+        if NetworkCode is not None and StationCode is not None and cnn is not None:
 
             self.cnn = cnn
 
@@ -299,6 +325,8 @@ class StationInfo:
         :param stninfo_file_list: a station information file or list containing station info records
         :return: a list of StationInformationRecords
         """
+        fs = ' {:4.4}  {:16.16}  {:19.19}{:19.19}{:7.4f}  {:5.5}  {:7.4f}  {:7.4f}  {:20.20}  ' \
+             '{:20.20}  {:>5.5}  {:20.20}  {:15.15}  {:5.5}  {:20.20} {}'
 
         if isinstance(stninfo_file_list, list):
             # a list is comming in
@@ -307,8 +335,6 @@ class StationInfo:
             # a file is comming in, it is an IGS log file
             _, ext = os.path.splitext(stninfo_file_list)
             if ext.lower() == '.log':
-                fs = ' {:4.4}  {:16.16}  {:19.19}{:19.19}{:7.4f}  {:5.5}  {:7.4f}  {:7.4f}  {:20.20}  ' \
-                     '{:20.20}  {:>5.5}  {:20.20}  {:15.15}  {:5.5}  {:20.20}'
                 logfile = igslog.parse_igs_log_file(stninfo_file_list)
                 stninfo = []
                 for row in logfile:
@@ -330,6 +356,68 @@ class StationInfo:
                         row[14],  # antenna serial number
                         row[15],  # comment
                     ))
+            elif ext.lower() == '.ngl':
+                records = []
+                current_station = None
+                current_start_date = None
+                antenna_toggle = "UNKNOWN"
+
+                with open(stninfo_file_list, 'r') as f:
+                    for line in f:
+                        parts = line.split()
+
+                        # Skip lines with column 3 = 2
+                        if len(parts) >= 3 and parts[2] == '2':
+                            continue
+
+                        station_code = parts[0]
+                        date_str = parts[1]
+                        comment = parts[3] if parts[3] is not None else ''
+
+                        # Parse the date
+                        event_date = datetime.datetime.strptime(date_str, "%y%b%d")
+
+                        # Check if we're starting a new station
+                        if station_code != current_station:
+                            # Close out the previous station's last record (if exists)
+                            if current_station is not None:
+                                record = create_record(current_station, current_start_date,
+                                                       datetime.datetime.now(), antenna_toggle, "last record")
+                                records.append(record)
+                                # Toggle antenna
+                                if antenna_toggle == "UNKNOWN":
+                                    antenna_toggle = "Unknown antenna"
+                                else:
+                                    antenna_toggle = "UNKNOWN"
+
+                            # Start new station
+                            current_station = station_code
+                            current_start_date = datetime.datetime(1990, 1, 1)
+
+                        # Create record for current transition (close previous period)
+                        if not current_start_date == event_date:
+                            # do not allow same date on two records
+                            record = create_record(station_code, current_start_date, event_date,
+                                                   antenna_toggle, comment)
+                            records.append(record)
+                            # Toggle antenna
+                            if antenna_toggle == "UNKNOWN":
+                                antenna_toggle = "Unknown antenna"
+                            else:
+                                antenna_toggle = "UNKNOWN"
+
+                        # Update for next record
+                        current_start_date = event_date
+
+
+                # Close out the last station's final record
+                if current_station is not None:
+                    record = create_record(current_station, current_start_date,
+                                           datetime.datetime.now(), antenna_toggle, "")
+                    records.append(record)
+
+                stninfo = records
+
             else:
                 stninfo = file_readlines(stninfo_file_list)
 

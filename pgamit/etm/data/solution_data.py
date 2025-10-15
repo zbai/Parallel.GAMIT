@@ -343,6 +343,32 @@ class SolutionData(ABC):
         ]
         return ecef
 
+    def _load_json(self, json_: Union[str, dict]):
+        # load basic fields from json file
+        data = load_json(json_)
+
+        if data['observations'] is not None:
+            x = data['observations']['xyz'][0]
+            y = data['observations']['xyz'][1]
+            z = data['observations']['xyz'][2]
+            yr = [d['year'] for d in data['observations']['dates']]
+            doy = [d['doy'] for d in data['observations']['dates']]
+
+            self._process_coordinate_solutions([[x,y,z,yr,doy] for x,y,z,yr,doy in zip(x,y,z,yr,doy)])
+
+            self.project = data['solution_options']['project']
+            # no info on missing solutions when coming from json
+            self.rnx_no_ppp = []
+            self.time_vector_ns = np.array([])
+
+            total_epochs = len(self.time_vector_ns) + len(self.time_vector)
+            if total_epochs > 0:
+                self.completion = 100.0 - (len(self.time_vector_ns) / total_epochs * 100.0)
+            else:
+                self.completion = 0.0
+        else:
+            raise SolutionDataException('observations section not present in json file')
+
     def save_to_json(self, filepath: str) -> None:
         """Save solution data to JSON file"""
         data = {
@@ -374,6 +400,8 @@ class SolutionData(ABC):
             instance = PPPSolutionData(config)
         elif config.solution.solution_type == SolutionType.GAMIT:
             instance = GAMITSolutionData(config.solution.stack_name, config)
+        elif config.solution.solution_type == SolutionType.NGL:
+            instance = FileSolutionData(config)
         else:
             raise ValueError(f"Unknown solution type "
                              f"{config.solution.solution_type.description} not implemented")
@@ -414,13 +442,17 @@ class PPPSolutionData(SolutionData):
         config.solution.stack_name = 'ppp'
         self.config = config
 
-    def load_data(self, cnn: Cnn = None,
-                  json_file: str = None, **kwargs) -> None:
+    def load_data(self, cnn: Cnn = None, **kwargs) -> None:
         """Load PPP solutions from database"""
 
-        self._load_ppp_solutions(cnn)
-        self._load_excluded_solutions(cnn)
-        self._compute_completion_stats(cnn)
+        if self.config.json_file:
+            # if self.config.json_file is set, try to load
+            self._load_json(self.config.json_file)
+        else:
+            self._load_ppp_solutions(cnn)
+            self._load_excluded_solutions(cnn)
+            self._compute_completion_stats(cnn)
+
         self.create_continuous_time_vector()
 
     def _load_ppp_solutions(self, cnn) -> None:
@@ -507,32 +539,6 @@ class GAMITSolutionData(SolutionData):
 
         self.create_continuous_time_vector()
 
-    def _load_json(self, json_: Union[str, dict]):
-        # load basic fields from json file
-        data = load_json(json_)
-
-        if data['observations'] is not None:
-            x = data['observations']['xyz'][0]
-            y = data['observations']['xyz'][1]
-            z = data['observations']['xyz'][2]
-            yr = [d['year'] for d in data['observations']['dates']]
-            doy = [d['doy'] for d in data['observations']['dates']]
-
-            self._process_polyhedrons([[x,y,z,yr,doy] for x,y,z,yr,doy in zip(x,y,z,yr,doy)])
-
-            self.project = data['solution_options']['project']
-            # no info on missing solutions when coming from json
-            self.rnx_no_ppp = []
-            self.time_vector_ns = np.array([])
-
-            total_epochs = len(self.time_vector_ns) + len(self.time_vector)
-            if total_epochs > 0:
-                self.completion = 100.0 - (len(self.time_vector_ns) / total_epochs * 100.0)
-            else:
-                self.completion = 0.0
-        else:
-            raise SolutionDataException('observations section not present in json file')
-
     def _load_polyhedrons_from_db(self, cnn) -> List:
         """Load polyhedrons from stacks table"""
         query = '''
@@ -597,5 +603,64 @@ class GAMITSolutionData(SolutionData):
         # GAMIT-specific validation
         if not self.project:
             issues.append("No project information available")
+
+        return issues
+
+
+class FileSolutionData(SolutionData):
+    """GAMIT-specific solution data implementation with JSON support"""
+
+    def __init__(self, config: EtmConfig):
+        super().__init__(config)
+        self.soln = 'ngl'
+        self.stack_name = 'external file'
+        self.config = config
+
+    def load_data(self, cnn: Cnn = None, **kwargs) -> None:
+        """Load GAMIT solutions from database or polyhedron list"""
+        # execute on a file with wk XYZ coordinates
+        ts = np.genfromtxt(self.config.solution.filename)
+
+        dd = []; x = []; y = []; z = []
+        for k in ts:
+            d = {}
+            for i, f in enumerate(self.config.solution.format):
+                if f in ('gpsWeek', 'gpsWeekDay', 'year', 'doy', 'fyear', 'month', 'day', 'mjd'):
+                    d[f] = k[i]
+                if f == 'x':
+                    x.append(k[i])
+                elif f == 'y':
+                    y.append(k[i])
+                elif f == 'z':
+                    z.append(k[i])
+            dd.append(d)
+
+        dd = [Date(**d) for d in dd]
+
+        polyhedrons = np.array((x, y, z, [d.year for d in dd], [d.doy for d in dd])).transpose()
+
+        self._process_polyhedrons(polyhedrons.tolist())
+
+        self.create_continuous_time_vector()
+
+    def _process_polyhedrons(self, polyhedrons: List) -> None:
+        """Process polyhedron data into coordinate arrays"""
+        if not polyhedrons:
+            raise SolutionDataException(f"No solution available for {self.get_station_id()} "
+                                        f"in {self.config.solution.filename}")
+
+        # Use shared processing method
+        self._process_coordinate_solutions(polyhedrons, "Text file solutions")
+
+    def _load_missing_solutions(self, cnn) -> None:
+        """Default completion of 100%"""
+        self.completion = 100.0
+
+    def validate_data(self) -> List[str]:
+        """Validate GAMIT solution data"""
+        issues = []
+
+        # Use shared validation
+        issues = self._validate_basic_data(issues)
 
         return issues

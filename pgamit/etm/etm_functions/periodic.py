@@ -27,6 +27,7 @@ class PeriodicFunction(EtmFunction):
             self._filter_fittable_frequencies(self.config.modeling.frequencies)
         else:
             self.param_count = 0
+            self.fit = False
             self.p.frequencies = np.array([])
 
         logger.info(f'Periodic -> Frequency count: {len(self.p.frequencies)}; FitPeriodic: {self.fit}')
@@ -67,6 +68,9 @@ class PeriodicFunction(EtmFunction):
 
         self.param_count = int(np.sum(fittable_mask)) * 2
         self.p.frequencies = self.config.modeling.frequencies[fittable_mask]
+
+        if self.param_count == 0:
+            self.fit = False
 
     def get_design_ts(self, time_vector: np.ndarray) -> np.ndarray:
         """Generate design matrix for periodic terms"""

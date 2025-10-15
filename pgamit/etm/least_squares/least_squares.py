@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 # app
 from pgamit.etm.least_squares.design_matrix import DesignMatrix
 from pgamit.etm.core.etm_config import EtmConfig
+from pgamit.etm.etm_functions.jumps import JumpFunction
 from pgamit.etm.core.type_declarations import JumpType, AdjustmentModels, NoiseModels, FitStatus, CovarianceFunction
 from pgamit.etm.core.data_classes import AdjustmentResults
 from pgamit.etm.data.solution_data import SolutionData
@@ -626,7 +627,7 @@ class EtmFit:
 
         lsq = AdjustmentStrategy.create_instance(self.config)
 
-        if solution_data.solutions > 4:
+        if solution_data.solutions > 4 and not design_matrix.rank_deficient:
             while True:
                 for i in range(3):
                     # select the noise model
@@ -652,8 +653,11 @@ class EtmFit:
 
                 for f, message in validation:
                     logger.info(message)
-                    if message.startswith('Unrealistic amplitude'):
-                        f.configure_behavior({'jump_type': JumpType.POSTSEISMIC_ONLY})
+                    if message.startswith('Unrealistic amplitude') and isinstance(f, JumpFunction):
+                        if not f.was_modified:
+                            f.configure_behavior({'jump_type': JumpType.POSTSEISMIC_ONLY})
+                        else:
+                            f.remove_from_fit()
 
             self.config.modeling.status = FitStatus.POSTFIT
         else:

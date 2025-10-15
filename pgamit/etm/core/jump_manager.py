@@ -22,7 +22,6 @@ class JumpManager:
     def __init__(self, solution_data: SolutionData, config: EtmConfig):
         self.config = config
         self.jumps: List[JumpFunction] = []
-        self.auto_detected_jumps: List[JumpFunction] = []
         # max and min dates
         # check if user has selected a windowed fit
         mask = np.where(self.config.modeling.get_observation_mask(solution_data.time_vector))[0]
@@ -43,16 +42,13 @@ class JumpManager:
         logger.info("Building jump table")
 
         # Load earthquake-based user_jumps
-        if self.config.modeling.fit_earthquakes:
-            self._load_earthquake_jumps(time_vector)
+        self._load_earthquake_jumps(time_vector)
 
         # Load mechanical/generic user_jumps
-        if self.config.modeling.fit_generic_jumps:
-            # Load manual user_jumps from database
-            self._load_manual_jumps(time_vector)
+        self._load_manual_jumps(time_vector)
 
-        if self.config.modeling.fit_metadata_jumps:
-            self._load_mechanical_jumps(time_vector)
+        # load metadata changes
+        self._load_mechanical_jumps(time_vector)
 
         # Add automatic jump detection
         if self.config.modeling.fit_auto_detected_jumps:
@@ -81,7 +77,9 @@ class JumpManager:
                     date=eq.date,
                     magnitude=eq.magnitude,
                     epi_distance=eq.distance,
-                    jump_type=eq.jump_type)
+                    jump_type=eq.jump_type,
+                    fit=self.config.modeling.fit_earthquakes
+                )
 
                 self.add_jump(jump)
 
@@ -114,7 +112,9 @@ class JumpManager:
                         metadata=f'Antenna: {pre_ant}->{new_ant}',
                         time_vector=time_vector,
                         date=record['DateStart'],
-                        jump_type=JumpType.MECHANICAL_ANTENNA)
+                        jump_type=JumpType.MECHANICAL_ANTENNA,
+                        fit=self.config.modeling.fit_metadata_jumps
+                    )
 
                     # jump outside the region with data, deactivate
                     if not self.date_min < record['DateStart'] < self.date_max:
@@ -247,7 +247,8 @@ class JumpManager:
                     date=j.date,
                     jump_type=j.jump_type,
                     user_action=j.action,
-                    metadata=metadata
+                    metadata=metadata,
+                    fit=self.config.modeling.fit_generic_jumps
                 )
                 self.add_jump(jump)
 
