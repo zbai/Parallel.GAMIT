@@ -201,18 +201,24 @@ class EarthquakeTable(object):
         displacements = []
 
         for etm in etms:
+            if etm['params'] is None:
+                continue
+
+            if isinstance(etm['params'][0], list):
+                etm['params'] = [item for sublist in etm['params'] for item in sublist]
+
             if etm['jump_type'] == CO_SEISMIC_JUMP:
                 displacements.append({"NetworkCode": etm['NetworkCode'],
                                       "StationCode": etm['StationCode'],
-                                      "n"          : etm['params'][0],
-                                      "e"          : etm['params'][1],
-                                      "u"          : etm['params'][2]})
+                                      "n": etm['params'][0],
+                                      "e": etm['params'][1],
+                                      "u": etm['params'][2]})
             else:
                 displacements.append({"NetworkCode": etm['NetworkCode'],
                                       "StationCode": etm['StationCode'],
                                       "n": etm['params'][0],
                                       "e": etm['params'][1 + etm['len']],
-                                      "u": etm['params'][2 + 2*etm['len']]})
+                                      "u": etm['params'][2 + 2 * etm['len']]})
 
         return sorted(displacements, key=lambda x: x['StationCode'])
 
