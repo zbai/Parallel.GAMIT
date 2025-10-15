@@ -29,16 +29,23 @@ from pgamit.etm.core.logging_config import setup_etm_logging
 from pgamit.etm.core.etm_engine import EtmEngine, EtmSolutionType, EtmEncoder
 from pgamit.etm.core.etm_config import EtmConfig
 from pgamit.etm.core.s_score import ScoreTable
+from pgamit.etm.core.type_declarations import JumpType
 from pgamit.etm.data.solution_data import SolutionDataException
 from pgamit.etm.core.data_classes import (AdjustmentModels, SolutionType, CovarianceFunction,
                                           ModelingParameters, SolutionOptions, StationMetadata)
+from pgamit.etm.etm_functions.polynomial import PolynomialFunction
+from pgamit.etm.etm_functions.periodic import PeriodicFunction
+from pgamit.etm.etm_functions.jumps import JumpFunction
 from pgamit.Utils import (process_date,
                           process_stnlist,
                           station_list_help,
                           stationID,
                           print_columns,
                           add_version_argument,
-                          lla2ecef, get_country_code, file_write)
+                          lla2ecef, get_country_code,
+                          file_write,
+                          load_json,
+                          process_date_str)
 
 
 # Map verbosity to logging levels
@@ -237,6 +244,133 @@ def print_query(args, etm: EtmEngine):
              solution['position'][1], solution['position'][2], q_date.fyear, strp, solution['source']))
 
 
+def get_prefit_models(config, args):
+
+    user_prefit_models = []
+
+    if args:
+        function_map_str = {'poly': 'polynomial', 'per': 'periodic', 'jump': 'jump'}
+        function_map = {'poly': PolynomialFunction, 'per': PeriodicFunction, 'jump': JumpFunction}
+        # begin by loading the json
+        functions = load_json(args[0])['functions']
+        # read current function
+        current_funct = args[1]
+        # set i at the correct location
+        i = 2
+        while i < len(args):
+            # find the json info for this function
+            print(' -- Adding ' + function_map_str[current_funct] + ' as prefit model')
+            if current_funct == 'jump':
+                # if it is a jump assimilate the date also
+                mjd = process_date_str(args[i]).mjd
+                # find the correct jump
+                jf = [funct for funct in functions if funct['object'] == function_map_str[current_funct]
+                      and funct['jump_date']['mjd'] == mjd]
+                # create instance of function
+                funct = function_map[current_funct](config,
+                                                    time_vector=np.array([0]),
+                                                    date=Date(**jf[0]['jump_date']),
+                                                    jump_type=JumpType.UNDETERMINED,
+                                                    fit=True)
+                i += 1
+            else:
+                jf = [funct for funct in functions if funct['object'] == function_map_str[current_funct]]
+                # create instance of function
+                funct = function_map[current_funct](config)
+
+            if not len(jf):
+                raise ValueError('Constraint function ' + function_map_str[current_funct] +
+                                 ' with matching arguments could not be found')
+
+            funct.load_from_json(jf[0])
+            # append to constraints
+            user_prefit_models.append(funct)
+            i += 1
+
+        for funct in user_prefit_models:
+            print(funct.p.params)
+
+    return user_prefit_models
+
+
+def get_constraints(config, args):
+
+    user_constraints = []
+    if args:
+        function_map_str = {'poly': 'polynomial', 'per': 'periodic', 'jump': 'jump'}
+        function_map = {'poly': PolynomialFunction, 'per': PeriodicFunction, 'jump': JumpFunction}
+        # begin by loading the json
+        functions = load_json(args[0])['functions']
+        # read current function
+        current_funct = args[1]
+        arg_count = 0
+        # set i at the correct location
+        i = 2
+        while i < len(args):
+            # get first element in const, which should be a function keyword
+            if arg_count == 0:
+                # find the json info for this function
+                print(' -- Adding ' + function_map_str[current_funct] + ' as constraint')
+                if current_funct == 'jump':
+                    # if it is a jump assimilate the date also
+                    mjd = process_date_str(args[i]).mjd
+                    # find the correct jump
+                    jf = [funct for funct in functions if funct['object'] == function_map_str[current_funct]
+                          and funct['jump_date']['mjd'] == mjd]
+                    # create instance of function
+                    funct = function_map[current_funct](config,
+                                                        time_vector=np.array([0]),
+                                                        date=Date(**jf[0]['jump_date']),
+                                                        jump_type=JumpType.UNDETERMINED,
+                                                        fit=False)
+                    i += 1
+                else:
+                    jf = [funct for funct in functions if funct['object'] == function_map_str[current_funct]]
+                    # create instance of function
+                    funct = function_map[current_funct](config)
+
+                if not len(jf):
+                    raise ValueError('Constraint function ' + function_map_str[current_funct] +
+                                     ' with matching arguments could not be found')
+
+                funct.load_from_json(jf[0])
+                # to flag which parameters to use as constraints
+                params = np.zeros_like(funct.p.params[0], dtype=bool)
+
+                # append to constraints
+                user_constraints.append(funct)
+                arg_count += 1
+            else:
+                # check if we are at a new function or we have a new parameter to process
+                if args[i] in function_map_str.keys():
+                    # apply constraints
+                    for j in range(3):
+                        user_constraints[-1].p.params[j][~params] = np.nan
+                        user_constraints[-1].p.sigmas[j][~params] = np.nan
+                    # reset arg_count
+                    arg_count = 0
+                    # set new current_funct
+                    current_funct = args[i]
+                    print(' -- Found new constraint ' + current_funct)
+                else:
+                    print(' -- Assigning parameter ' + args[i])
+                    # read and activate parameter if selected
+                    params[int(args[i][1])] = True
+                    arg_count += 1
+
+                i += 1
+        # if we arrived to the end of the argument list, apply the constraints to the last element
+        # apply constraints
+        for i in range(3):
+            user_constraints[-1].p.params[i][~params] = np.nan
+            user_constraints[-1].p.sigmas[i][~params] = np.nan
+
+        for funct in user_constraints:
+            print(funct.p.params)
+
+    return user_constraints
+
+
 def main():
     parser = argparse.ArgumentParser(description='Plot extended trajectory models (ETMs) '
                                                  'for station data stored in the database, json files, or text files')
@@ -252,6 +386,25 @@ def main():
                         choices=['lsc', 'rls'], default='rls',
                         help="Adjustment strategy to fit the time series. Choose between least squares collocation "
                              "(lsc) and robust least squares (rls)")
+
+    parser.add_argument('-const', '--constraints', nargs='+', default=None, metavar='{json} {function}',
+                        help="Constrain fit using json function (ETM) file. Provide list of functions to constrain "
+                             "using keywords: poly -> polynomial; per -> periodic; jumps -> mechanical and "
+                             "geophysical jumps. Each function has associated arguments to better specify which "
+                             "parameters to constrain: poly [p0] [p1] ... [pn] -> include key 'p+degree' to constrain "
+                             "where degree = 0 to n depending how many you want to constrain; "
+                             "per [f0] [f1] ... [fn] -> include key 'f+number' to constrain a frequency, where number "
+                             "is the frequency number in the order that appear in the json; "
+                             "jump [date] [j0] [j1] [j2] ... [jn] -> include date in all accepted formats to select "
+                             "which jump from the json to use and 'j+number' to constraint each jump component where "
+                             "number indicates the parameter number in the order that appear in the json (offset "
+                             "is always first)")
+
+    parser.add_argument('-prefit', '--prefit_model', nargs='+', default=None,
+                        metavar='{json} {function}',
+                        help="Remove model from data using json function (ETM) file. Provide list of functions "
+                             "to remove using keywords: poly -> polynomial; per -> periodic; jumps -> mechanical and "
+                             "geophysical jumps")
 
     parser.add_argument('-cova', '--covariance', nargs='+',
                         choices=['arma', 'gaussian'], default=['arma', 49, 200],
@@ -436,6 +589,7 @@ def main():
 
             config.modeling.relaxation = np.array(args.default_relax)
             config.modeling.data_model_window = process_fit_dates(args)
+            config.modeling.prefit_models = get_prefit_models(config, args.prefit_model)
 
             config.modeling.least_squares_strategy.adjustment_model = ADJUSTMENT_MODEL_MAP[args.least_squares_strategy]
             config.modeling.fit_auto_detected_jumps = args.fit_auto_jumps[0] is not None
@@ -443,6 +597,8 @@ def main():
             config.modeling.least_squares_strategy.iterations = args.max_iterations
             config.modeling.least_squares_strategy.sigma_filter_limit = args.sigma_limit
             config.modeling.least_squares_strategy.covariance_function = COVARIANCE_MAP[args.covariance[0]]
+            # check for any constraints
+            config.modeling.least_squares_strategy.constraints = get_constraints(config, args.constraints)
             if args.covariance[0] == 'arma' and len(args.covariance) > 1:
                 config.modeling.least_squares_strategy.arma_roots = args.covariance[1]
             if args.covariance[0] == 'arma' and len(args.covariance) > 2:

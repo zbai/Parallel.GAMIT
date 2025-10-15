@@ -16,6 +16,7 @@ if __name__ == "__main__":
           'com/GenerateKml.py',
           'com/PlotETM.py',
           'com/AlterETM.py',
+          'com/CreateEtmFunctions.py',
           'com/CloseStationInfo.py',
           'com/ConvertDate.py',
           'com/ConvertTrimble.py',

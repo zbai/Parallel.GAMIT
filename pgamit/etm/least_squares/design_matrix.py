@@ -80,8 +80,18 @@ class DesignMatrix:
             for f in self.functions:
                 if funct.p.object == f.p.object:
                     # functions of same type. Simplify jump comparison to just date, ignore time
-                    if (f.p.object == 'jump' and Date(datetime=f.p.jump_date) == Date(datetime=funct.p.jump_date)
-                        and f.p.jump_type == funct.p.jump_type) or f.p.object != 'jump':
+                    if (f.p.object == 'jump' and
+                        Date(datetime=f.p.jump_date) == Date(datetime=funct.p.jump_date)) or f.p.object != 'jump':
+                        # check if target jump_type is the same as incoming constraint
+                        # it is possible that user is trying to constrain a relaxation with a jump from a station
+                        # with both jump and relaxation. If that is the case, we need to reduce the object to remove
+                        # the jump and avoid conflicts with function in the current ETM
+                        if f.p.object == 'jump' and funct.p.jump_type != f.p.jump_type:
+                            # see what type of reduction is needed
+                            logger.debug(f'Changing constraint jump_type from {funct.p.jump_type.description} to '
+                                         f'{f.p.jump_type.description} to match ETM')
+                            funct.configure_behavior({'jump_type': f.p.jump_type})
+
                         # find the columns and add ones
                         # params with NaNs are not constrained
                         c_params = int(np.sum(np.logical_not(np.isnan(funct.p.params[comp]))))
@@ -91,6 +101,8 @@ class DesignMatrix:
                         for i in range(f.param_count):
                             if not np.isnan(funct.p.params[comp][i]):
                                 j = f.column_index[i]
+                                logger.debug(f'Constraining column {j} to {funct.p.params[comp][i]} sigma '
+                                             f'{funct.p.sigmas[comp][i]}')
                                 nt[k, j:j+1] = 1
                                 # pseudo observation weights
                                 pt[k, k] = 1 / funct.p.sigmas[comp][i] ** 2

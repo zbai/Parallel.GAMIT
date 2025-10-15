@@ -1,25 +1,147 @@
-# Parallel.GAMIT
-## A Python wrapper to manage GNSS data and metadata and parallelize GAMIT executions
-### Author: Demián D. Gómez
+# GeoDE (Geodesy Database Engine)
 
-Parallel.GAMIT (PGAMIT) is a Python software solution for parallel GNSS processing of large regional or global networks. It incorporates a metadata and RINEX data management tool that guarantees a consistent archive. It relies on Postgres SQL (https://www.postgresql.org/) to store station metadata and the GPSPACE Precise-Point-Positioning (PPP) software (see installation instructions) to obtain reliable daily a-priori coordinates for GAMIT.
+A comprehensive Python framework for automated GNSS data processing, analysis, and management. GeoDE integrates multiple geodetic software packages (GAMIT/GLOBK, GPSPACE, and soon M-PAGES) with PostgreSQL database management and web-based visualization tools.
 
-The software can be installed as a Python package (see `INSTALL.md`) allowing to import modules to perform time series analysis and extraction of trajectory parameters from the database.
+## Overview
 
-PGAMIT also includes a backend (see branch web-ui-backend) and web frontend (see branch web-ui-frontend) that can be easily deployed to edit station related metadata (such as observation files and pictures) and processing metadata. The backend was developed in django and the frontend was developed using node.js.
+**GeoDE (Geodesy Database Engine)** provides a complete solution for processing and managing large-scale GNSS datasets for geodetic applications. Originally developed by [Demian Gomez](https://github.com/demiangomez) and contributors, GeoDE handles the entire workflow from raw data ingestion to time series analysis, offering parallelized processing capabilities, robust metadata tracking, and comprehensive quality control tools.
 
-PGAMIT uses dispy (https://github.com/pgiri/dispy) to create Python pickles that are sent to local or remote nodes for execution. PGAMIT has the ability to split a network of GNSS stations into subnetworks for processing in GAMIT (when the network is larger than 50 stations, depending on PGAMIT's configuration). The parallel execution is performed per day-subnetwork. In other words, a GAMIT pickle is built for each subnetwork-day being processed and sent to the available nodes. At the end of each PGAMIT run, the subnetworks are combined with GLOBK and inserted as records in the Postgres database for later use. Some routines (such as the SINEX parser) are modified versions of the code from @softwarespartan (https://github.com/softwarespartan).
+### Key Features
 
-Some of the tasks that PGAMIT can perform include:
+- 🚀 **Parallel Processing** - Distribute geodetic processing jobs across multiple compute nodes for maximum throughput
+- 🗄️ **PostgreSQL Integration** - Centralized storage and management of RINEX data, station metadata, and processing results
+- 🌐 **GeoDE Desktop Web Interface** - Interactive map-based visualization for monitoring station networks and managing metadata
+- 📊 **Time Series Analysis** - Built-in tools for plotting and analyzing position time series with ETM (Extended Trajectory Model) fitting
+- 🔍 **Quality Control** - Automated detection of metadata inconsistencies and data gaps
+- 📡 **Multi-Format Support** - Handle RINEX 2/3, Hatanaka compression, and various coordinate systems
+- 🔧 **Multi-Software Integration** - Seamlessly process data using GAMIT/GLOBK, GPSPACE, and M-PAGES (NGS)
 
-- Scan a directory structure containing RINEX files and add them to the Postgres database.
-- Manage station metadata in GAMIT's station info format with consistency check of the records.
-- Add new RINEX data to the database by geolocation, i.e. the data is incorporated not by station name but by running PPP and finding the corresponding station in the DB. This avoids problems with duplicate station codes and misidentified RINEX files.
-- Handle ocean loading coefficients to correct the PPP and GAMIT coordinates.
-- Plot PPP time series using Bevis and Brown's (2014) extended trajectory model.
-- Manage (i.e. add, merge, delete) GNSS stations.
-- Parse zenith tropospheric delays and store them in the database.
-- Stack the GAMIT solutions to produce regional or global reference frames following Bevis and Brown's (2014) and Gómez et al (2022).
-- Station name duplicate-tolerance by using a three-letter network code. Although this is not supported by GAMIT, PGAMIT converts duplicate station codes (stored in different networks) to unique IDs that are used during processing, which are later converted back to the original names after the GLOBK combination of the subnetworks.
-- Because all the information is stored in a relational database, PGAMIT can handle very large datasets easily (it has been tested with ~ 14M station-days but Postgres can easily handle more than 100 million records). Also, the relational database guarantees then consistency of the data and does not allow accidental duplicates in metadata.
+## Architecture
 
+GeoDE consists of two main components:
+
+1. **Command Line Interface (CLI)** - Core processing engine for parallel GNSS analysis
+2. **Web Interface** - Django-based frontend for station monitoring and metadata management
+
+## Installation
+
+### Prerequisites
+
+Ensure the following dependencies are installed and available in your PATH:
+
+- **GAMIT/GLOBK** - http://www-gpsg.mit.edu/gg/
+- **GFZRNX** - https://gnss.gfz-potsdam.de/services/gfzrnx
+- **rnx2crx/crx2rnx** - https://terras.gsi.go.jp/ja/crx2rnx.html
+- **GPSPACE** - https://github.com/demiangomez/GPSPACE
+- **PostgreSQL** (server)
+- **Python 3.10**
+
+### Database Setup
+
+1. Deploy the database skeleton using `database/gnss_data_dump.sql`
+2. Configure required tables using the provided CSV files:
+   - `keys.csv` - System configuration keys
+   - `rinex_tank_struct.csv` - RINEX file storage structure
+   - `receivers.csv` & `antennas.csv` - IGS equipment codes
+   - `gamit_htc.csv` - Antenna height/offset calibrations
+
+### CLI Installation
+
+```bash
+pip install pgamit
+```
+
+Create a working directory and configure `gnss_data.cfg` with your database connection, archive paths, and compute nodes. See [Installation.md](Installation.md) for detailed configuration options.
+
+## Core CLI Tools
+
+### Data Management
+- **`ArchiveService.py`** - Service for managing archive operations and locks
+- **`DownloadSources.py`** - Automated RINEX data retrieval from external sources
+- **`ScanArchive.py`** - Archive scanning, station info insertion, and PPP processing
+
+### Analysis & Visualization
+- **`PlotETM.py`** - Time series plotting with trajectory model fitting
+- **`AlterETM.py`** - Modify ETM parameters (polynomial terms, jumps, periodic signals)
+
+### Station Selection Syntax
+
+All CLI tools support flexible station selection:
+
+```bash
+# Single station
+./PlotETM.py igs.pwro
+
+# Multiple stations
+./PlotETM.py igs.pwro igs.onsa
+
+# All stations in a network
+./PlotETM.py igs.all
+
+# Country code (ISO 3166)
+./PlotETM.py ARG
+
+# Wildcards (regex style)
+./PlotETM.py ars.at1[3-5]  # at13, at14, at15
+./PlotETM.py ars.at%       # all stations starting with 'at'
+
+# Exclusions
+./PlotETM.py igs.all *igs.pwro  # all IGS stations except pwro
+```
+
+## Web Interface
+
+The web interface provides:
+
+- 🗺️ **Interactive Map** - OpenStreetMap-based visualization with station status indicators
+- 📋 **Station Details** - Equipment history, coordinates, photos, and site visit logs
+- 📁 **RINEX Management** - File browser with metadata validation and gap detection
+- ⚙️ **Metadata Editor** - Web-based forms for updating station information
+- 🔍 **Search & Filters** - Query stations by code, network, country, or date range
+
+### Key Indicators
+
+- 🟢 **Green markers** - Stations with complete, validated metadata
+- 🔴 **Red markers** - Stations requiring attention (missing metadata or errors)
+- ⚠️ **Warning icons** - RINEX files with metadata inconsistencies
+
+See [WebInterface.md](WebInterface.md) for detailed interface documentation.
+
+## Example Workflows
+
+### Process new RINEX data
+```bash
+# Download and scan for new files
+./DownloadSources.py igs.all -win 7
+
+# Run PPP solutions
+./ScanArchive.py igs.all -ppp
+
+# Plot time series
+./PlotETM.py igs.pwro -gui
+```
+
+### Add earthquake jump to trajectory model
+```bash
+./AlterETM.py igs.pwro -fun j + 1 2024/02/15 30,60
+```
+
+## Documentation
+
+- [Installation Guide](Installation.md) - Detailed setup instructions
+- [Web Interface Guide](WebInterface.md) - Complete UI documentation
+- [CLI Reference](CLIinterface.md) - Command-line tool usage
+
+## Citation
+
+If you use GeoDE in your research, please cite:
+
+> Gomez, D.D., et al. (2024). GeoDE: Geodesy Database Engine for automated GNSS processing and analysis. *GitHub repository*. https://github.com/demiangomez/Parallel.GAMIT
+
+## License
+
+[Include your license information here]
+
+## Support
+
+For questions, issues, or contributions, please open an issue on the [GitHub repository](https://github.com/demiangomez/Parallel.GAMIT).

@@ -324,6 +324,7 @@ class SolutionData(ABC):
     def apply_prefit_models(self, time_vector: np.ndarray, observations: List[np.ndarray]):
         """detrend the data using the provided models"""
         for model in self.config.modeling.prefit_models:
+            logger.info('Applying prefit model ' + str(model))
             for i in range(3):
                 observations[i] -= model.eval(i, time_vector)
 

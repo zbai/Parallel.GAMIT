@@ -262,6 +262,8 @@ class EtmEngine:
         else:
             model_values = None
 
+        functions = [asdict(funct.p, dict_factory=enum_dict_factory) for funct in dm.functions if funct.fit]
+
         etm_dump = {
             "network_code": self.config.network_code,
             "station_code": self.config.station_code,
@@ -271,7 +273,7 @@ class EtmEngine:
             "raw_results": [asdict(self.fit.results[0]),
                             asdict(self.fit.results[1]),
                             asdict(self.fit.results[2])] if dump_raw_results else None,
-            "functions": [asdict(funct.p) for funct in dm.functions if funct.fit] if dump_functions else None,
+            "functions": functions if dump_functions else None,
             "observations": asdict(self.solution_data.coordinates) if dump_observations else None,
             "model": {'model_cont': model_values,
                       'time_vector_fyear': self.solution_data.time_vector_cont,

@@ -249,8 +249,23 @@ class JumpFunction(EtmFunction):
         if 'jump_type' in behavior_config:
             new_type = JumpType(behavior_config['jump_type'])
             if new_type != self.p.jump_type:
+                if self.p.params:
+                    # this code is meant to be executed for functions with parameters used as constraints
+                    # params are filled in, remove superfluous elements
+                    for i in range(3):
+                        if new_type == JumpType.COSEISMIC_ONLY and self.p.jump_type != JumpType.POSTSEISMIC_ONLY:
+                            # remove decays, leave only zero element
+                            self.p.params[i] = self.p.params[i][0]
+                            self.p.sigmas[i] = self.p.sigmas[i][0]
+                        elif (new_type == JumpType.POSTSEISMIC_ONLY and
+                              self.p.jump_type == JumpType.COSEISMIC_JUMP_DECAY):
+                            # leave the relaxations and remove the offset sd
+                            self.p.params[i] = self.p.params[i][1:]
+                            self.p.sigmas[i] = self.p.sigmas[i][1:]
+
                 self.p.jump_type = new_type
                 self._setup_parameter_count()
+
                 if hasattr(self, '_time_vector'):
                     self.design = self._create_design_matrix(self._time_vector)
                     self._validate_jump_configuration(self._time_vector)
@@ -323,12 +338,13 @@ class JumpFunction(EtmFunction):
         if self.p.jump_type not in (JumpType.COSEISMIC_ONLY, JumpType.MECHANICAL_MANUAL,
                                     JumpType.MECHANICAL_ANTENNA, JumpType.REFERENCE_FRAME, JumpType.UNDETERMINED):
             # to return a 2d array
-            design = design[:,[0]]
+            #design = design[:,[0]]
+            pass
 
         if override_params is not None:
-            return design @ override_params[component][[0]]
+            return design @ override_params[component]
         else:
-            return design @ self.p.params[component][[0]]
+            return design @ self.p.params[component]
 
     def __lt__(self, other: 'JumpFunction') -> bool:
         """Enable sorting of user_jumps by date"""

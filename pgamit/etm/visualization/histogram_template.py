@@ -52,7 +52,7 @@ class HistogramTemplate(PlotTemplate):
         combined_residuals = np.sqrt(n_res ** 2 + e_res ** 2)
         mask = combined_residuals <= np.sqrt(np.sum(np.square(plot_data.wrms_values))) * 3.5 # 50mm
 
-        ax.plot(e_res[mask], n_res[mask], 'ob', markersize=2)
+        ax.plot(e_res[mask], n_res[mask], 'o', color=(0, 150 / 255, 235 / 255), markersize=2)
 
         # Add error ellipse if covariance available
         if plot_data.covariance_matrix is not None:
@@ -96,7 +96,7 @@ class HistogramTemplate(PlotTemplate):
 
             # Create histogram
             ax.hist(filtered_residuals, bins=100, alpha=0.75, density=True,
-                    color='blue', orientation='horizontal' if 'n_hist' in ax_key else 'vertical')
+                    color=(0, 150 / 255, 235 / 255), orientation='horizontal' if 'n_hist' in ax_key else 'vertical')
 
             if ax_key in ('e_hist', 'u_hist'):
                 xmin, xmax = ax.get_xlim()

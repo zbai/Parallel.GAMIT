@@ -8,8 +8,13 @@ import logging
 logger = logging.getLogger(__name__)
 
 # app
+from pgamit.Utils import load_json
 from pgamit.etm.core.etm_config import EtmConfig
 from pgamit.etm.core.data_classes import EtmFunctionParameterVector, AdjustmentResults
+
+
+class EtmFunctionException(Exception):
+    pass
 
 
 class EtmFunction(ABC):
@@ -127,6 +132,14 @@ class EtmFunction(ABC):
 
     def to_json(self):
         return asdict(self.p)
+
+    def load_from_json(self, json_file):
+        data = load_json(json_file)
+
+        if data['object'] == self.p.object:
+            self.p = EtmFunctionParameterVector(**data)
+        else:
+            raise EtmFunctionException('object type mismatch when loading from json')
 
     @abstractmethod
     def short_name(self) -> str:

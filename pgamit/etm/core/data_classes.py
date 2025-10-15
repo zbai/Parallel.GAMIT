@@ -67,11 +67,11 @@ class AdjustmentResults(BaseDataClass):
 @dataclass
 class EtmFunctionParameterVector(BaseDataClass):
     # Parameter storage
-    frequencies: np.ndarray = field(default_factory=lambda: None)
-    relaxation: np.ndarray = field(default_factory=lambda: None)
-    params: List[np.ndarray] = field(default_factory=lambda: None)
-    sigmas: List[np.ndarray] = field(default_factory=lambda: None)
-    covar: List[np.ndarray] = field(default_factory=lambda: None)
+    frequencies: np.ndarray = field(default_factory=lambda: np.array([]))
+    relaxation: np.ndarray = field(default_factory=lambda: np.array([]))
+    params: List[np.ndarray] = field(default_factory=lambda: np.array([]))
+    sigmas: List[np.ndarray] = field(default_factory=lambda: np.array([]))
+    covar: List[np.ndarray] = field(default_factory=lambda: np.array([]))
 
     object: str = ''
     metadata: Optional[str] = None
@@ -80,6 +80,35 @@ class EtmFunctionParameterVector(BaseDataClass):
     jump_date: datetime = None
     jump_type: JumpType = None
     t_ref: float = None
+
+    def __post_init__(self):
+        super().__post_init__()
+
+        # Convert dict to custom objects
+        if isinstance(self.jump_type, dict):
+            self.jump_type = JumpType(self.jump_type['value'])
+
+        if isinstance(self.jump_date, dict):
+            self.jump_date = Date(**self.jump_date).datetime()
+
+        # Convert lists to numpy arrays if needed
+        array_fields = ['relaxation', 'frequencies']
+        for field_name in array_fields:
+            value = getattr(self, field_name)
+            if isinstance(value, list):
+                setattr(self, field_name, np.array(value))
+
+        for i, uj in enumerate(self.params):
+            if isinstance(uj, list):
+                self.params[i] = np.array(uj)
+
+        for i, uj in enumerate(self.sigmas):
+            if isinstance(uj, list):
+                self.sigmas[i] = np.array(uj)
+
+        for i, uj in enumerate(self.covar):
+            if isinstance(uj, list):
+                self.covar[i] = np.array(uj)
 
 
 @dataclass

@@ -111,7 +111,7 @@ class AutoJumps:
                 jump_type=JumpType.AUTO_DETECTED
             ))
 
-    def _dbscan(self, time_vector: np.ndarray, observations: List[np.ndarray], eps_value: float = 0.002):
+    def _dbscan(self, time_vector: np.ndarray, observations: List[np.ndarray], eps_value: float = 0.003):
         # scale the time to match the scale of the gnss positions
         time_scaled = (time_vector - time_vector.min()) / (1 / 365.25) * 0.0001
 

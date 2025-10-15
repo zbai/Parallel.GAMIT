@@ -1,4 +1,3 @@
-<document>
 # GeoDE User Manual
 ## Geodesy Database Engine - Complete Operations Guide
 
@@ -32,15 +31,15 @@
 - **Multi-Software Integration**: Seamlessly integrates GAMIT/GLOBK, GPSPACE, and M-PAGES (NGS) processing engines
 - **Parallel Processing**: Distributes geodetic processing jobs across multiple compute nodes
 - **PostgreSQL Integration**: Centralized storage and management of RINEX data, station metadata, and processing results
-- **Web Interface**: Interactive map-based visualization for monitoring station networks
+- **GeoDE Desktop Web Interface**: Interactive map-based visualization for monitoring station networks
 - **Automated Quality Control**: Built-in detection of metadata inconsistencies and data gaps
-- **Multi-Format Support**: Handles RINEX 2/3, Hatanaka compression, and various coordinate systems
+- **Multi-Format Support**: Handles RINEX 2/3, Hatanaka compression, and some raw receiver formats
 
 ### 1.3 System Requirements
 
 **Hardware Requirements:**
 - Database Server: Minimum 8GB RAM, recommended 16GB+ for large networks
-- Processing Nodes: Minimum 4GB RAM per node
+- Processing Nodes: Minimum 8GB RAM per node
 - Storage: Varies by network size (estimate ~100MB per station-year for RINEX + products)
 
 **Software Dependencies:**
@@ -50,6 +49,7 @@
 - GFZRNX
 - rnx2crx/crx2rnx (Hatanaka compression tools)
 - GPSPACE
+- GeoDE Desktop (installed from a separate repository)
 
 ---
 
@@ -59,24 +59,49 @@
 
 GeoDE consists of two main components:
 
-1. **Command Line Interface (CLI)**: Core processing engine for parallel GNSS analysis
-2. **Web Interface**: Django-based frontend for station monitoring and metadata management
+1. **GeoDE Command Line Interface (CLI)**: Core processing engine for parallel GNSS analysis
+2. **GeoDE Desktop**: A web frontend for station monitoring and metadata management
 
 ### 2.2 Data Flow Architecture
+GeoDE implements a robust data flow architecture designed to ensure data integrity and consistency throughout the entire processing pipeline. 
+The system uses a two-stage approach: a **repository** for initial data collection and validation, followed by permanent **archival** based on verified station identity.
+
+### Repository-Archive Concept
+
+The **repository** serves as a staging area where all incoming RINEX data is collected and undergoes validation before permanent storage. This separation between repository and archive is critical for maintaining data quality:
+
+- **Initial Collection**: Files downloaded from external sources are placed in the repository (`data_in`)
+- **Coordinate Verification**: Each file undergoes PPP processing (or autonomous positioning as fallback) to determine the station's geographic coordinates
+- **Spatial Coherence Check**: The computed coordinates are compared against the database to verify the file truly belongs to the claimed station
+
+Only after passing the validation checks is the file moved to the permanent **archive**, where it is organized using both the station name (NetworkCode.StationCode) and its verified position. This dual verification mechanism—matching both station code and geographic location—prevents data misassignment and ensures that files claiming to be from station X are actually observed at station X's location.
+
+> **Key Principle:** GeoDE never blindly trusts filename conventions. Every file must prove its identity through coordinate verification before entering the permanent archive. This approach catches common issues such as:
+> - Incorrectly named files
+> - Swapped station codes
+> - Data from relocated stations
+> - Files from nearby stations with similar names
+
+### Processing Flow Diagram
 ```
 External Sources → DownloadSources.py → Repository (data_in)
                                               ↓
                                       ArchiveService.py
+                                        ├─→ PPP/Autonomous Positioning
+                                        └─→ Spatial Coherence Check
                                               ↓
-                                    Database + Archive
-                                              ↓
-                                      ScanArchive.py (PPP)
-                                              ↓
-                                    PPP Solutions Table
-                                              ↓
-                                    IntegrityCheck.py
-                                              ↓
-                                    Quality Controlled Data
+                                    ┌─────────┴─────────┐
+                                    ↓                   ↓
+                            Archive + Database    data_in_retry/
+                                                  data_rejected/
+                                    ↓
+                              ScanArchive.py (PPP)
+                                    ↓
+                            PPP Solutions Table
+                                    ↓
+                            IntegrityCheck.py
+                                    ↓
+                        Quality Controlled Data
 ```
 
 ### 2.3 Directory Structure
@@ -130,7 +155,7 @@ COPY keys FROM '/path/to/keys.csv' DELIMITER ',' CSV HEADER;
 ```
 
 **2. RINEX Storage Structure** (`rinex_tank_struct.csv`)
-
+Structure can be configured by the user. Once a structure is selected it cannot be changed.
 Recommended structure:
 - Level 1: KeyCode = network
 - Level 2: KeyCode = year
@@ -148,7 +173,7 @@ COPY gamit_htc FROM '/path/to/gamit_htc.csv' DELIMITER ',' CSV HEADER;
 
 ### 3.2 CLI Installation
 ```bash
-pip install pgamit
+pip install geode
 ```
 
 **Note**: Use Python 3.10 and consider using a virtual environment.
@@ -207,24 +232,28 @@ GeoDE uses a two-tier system for managing download sources:
 #### 3.4.1 Database Tables
 
 **sources_servers**: Contains server connection information
+While it is possible to use Postgres (PgAdmin or psql) to insert connection information, we recommend to use GeoDE Desktop for these tasks
 ```sql
 INSERT INTO sources_servers (protocol, fqdn, username, password, path, format)
 VALUES ('ftp', 'cddis.nasa.gov', 'anonymous', 'email@domain.com',
         '/gnss/data/daily/$year/$doy/$yy{d}', 'DEFAULT_FORMAT');
 ```
+For protocols, see [Supported Protocols](#416 Supported Protocols)
 
 **sources_stations**: Links stations to servers with priority
 ```sql
 INSERT INTO sources_stations ("NetworkCode", "StationCode", try_order, server_id, path, format)
 VALUES ('igs', 'algo', 1, 1, NULL, NULL);
 ```
+Fields `path` and `format` allow overriding the default fields in sources_servers for a specific station
 
 #### 3.4.2 Format Scripts
 
 For non-standard data formats, create processing scripts in `format_scripts_path`:
 
-**Example: `custom_format.sh`**
-```bash
+**Example: `custom_format.py`**
+#@todo: add a custom format script example
+```python
 #!/bin/bash
 # $1 = downloaded file path
 # $2 = filename
@@ -498,7 +527,7 @@ Files moved here when:
 Files moved here when:
 - Ocean loading coefficient calculation fails
 - Invalid station coordinates for OTL
-- grdtab execution errors
+- GAMIT grdtab execution errors
 
 **Category 9: Orbit Product Issues** → `data_in_retry/sp3_exception/YYYY/DDD/`
 
@@ -542,6 +571,7 @@ All ArchiveService operations are logged to `events` table:
 - `error`: Processing failures
 
 **View Recent Events:**
+Events can be viewes using a SQL command or through GeoDE Desktop. We recommend the latter, where events for each station can be found in the events section of the web interface.
 ```sql
 SELECT * FROM events 
 WHERE "EventDate" >= NOW() - INTERVAL '1 day'
@@ -579,15 +609,7 @@ ScanArchive.py provides comprehensive archive management:
 
 #### 4.3.2 Basic Operations
 
-**Scan Archive for New Files:**
-```bash
-# Scan specific network, only process stations in database
-ScanArchive.py igs.all -rinex 0
-
-# Scan all files, add new stations/networks automatically
-ScanArchive.py all -rinex 1
-```
-
+#@todo: need to change to new OTL program
 **Calculate OTL Coefficients:**
 ```bash
 # Calculate for stations without OTL
@@ -607,6 +629,7 @@ cat station.info | ScanArchive.py igs.algo -stninfo stdin igs
 ```
 
 **Run PPP Processing:**
+#@todo: explain what hash is
 ```bash
 # Process all RINEX without PPP solutions
 ScanArchive.py igs.algo -ppp
@@ -676,6 +699,7 @@ If RINEX spans multiple days:
 5. Files will be reprocessed individually
 
 **Station Information Tolerance:**
+#@todo: check -tol switch
 ```bash
 # Allow 2-hour gaps in station information
 ScanArchive.py igs.algo -ppp -tol 2
@@ -706,10 +730,10 @@ ScanArchive.py igs.algo -export true
 **Import Station:**
 ```bash
 # Import with default network assignment
-ScanArchive.py dummy -import mynet station1.zip station2.zip
+ScanArchive.py dummy -import ars station1.zip station2.zip
 
 # Import with wildcards
-ScanArchive.py dummy -import mynet *.zip
+ScanArchive.py dummy -import ars *.zip
 ```
 
 **Import Process:**
@@ -727,7 +751,7 @@ Found external station igs.algo in network igs (distance 0.123 m)
 Insert data to this station?: y/n
 
 External station igs.algo not found. 
-Possible match is mynet.algo: 45.234 m
+Possible match is igs.algo: 45.234 m
 (i)nsert new/(a)dd to existing station?: i/a
 
 Multiple matches found:
@@ -996,7 +1020,8 @@ IntegrityCheck.py igs.old_code -r igs.new_code \
 
 **Deletion Criteria:**
 - Only deletes if `-del_stn` flag used
-- Only if source station completely emptyRetryDContinuemarkdown- Backs up station information in events table
+- Only if source station completely empty
+- Backs up station information in events table
 - Removes from all related tables
 
 **Example Output:**
@@ -1320,7 +1345,7 @@ ScanArchive.py igs.algo -export
 ScanArchive.py igs.algo -export true
 
 # Import stations
-ScanArchive.py dummy -import mynet station1.zip station2.zip
+ScanArchive.py dummy -import ars station1.zip station2.zip
 
 # Get specific file
 ScanArchive.py igs.algo -get 2024/01/15
@@ -1605,7 +1630,7 @@ The map interface is the primary navigation tool for GeoDE.
 #### 6.3.2 Station Markers
 
 **Marker Types:**
-- 🟢 **Green Square**: Station with complete, validated metadata
+- 🟢 **Station symbol**: Station with complete, validated metadata
 - 🔴 **Red Triangle**: Station requiring attention (errors/warnings)
 
 **Marker Interaction:**
@@ -2139,19 +2164,21 @@ DELETE FROM locks;
 
 **Solutions:**
 1. Check orbit availability:
-```bashRetryDContinuebash   ls /orbits/sp3/2295/*.sp3
+```bash   ls /orbits/sp3/2295/*.sp3
    ls /orbits/sp3/2295/*.clk
+```
 
 Verify RINEX quality:
-
+```
 bash   gfzrnx -finp file.24d
+```
 
 Check PPP log in events table:
-
-sql   SELECT * FROM events 
+```sql   SELECT * FROM events 
    WHERE "EventType" = 'error' 
    AND "Description" LIKE '%PPP%'
    ORDER BY "EventDate" DESC;
+```
 "Clock interpolation error"
 Causes:
 
@@ -2162,13 +2189,14 @@ Corrupted clock data
 Solutions:
 
 Download missing products:
-
-bash   wget https://cddis.nasa.gov/archive/gnss/products/2295/
+```bash   wget https://cddis.nasa.gov/archive/gnss/products/2295/
+```
 
 Check clock file coverage:
-
-bash   grep 'AS ' clk_file.clk | head -1
+```bash   grep 'AS ' clk_file.clk | head -1
    grep 'AS ' clk_file.clk | tail -1
+```
+   
 7.3.2 GAMIT Processing
 "sh_rx2apr failed"
 Causes:
@@ -2180,12 +2208,13 @@ Insufficient satellites
 Solutions:
 
 Verify broadcast file:
-
+```
 bash   ls /orbits/brdc/2024/brdc0010.24n
-
+```
 Check RINEX epochs:
-
+```
 bash   grep '> 2024' file.24o | wc -l
+```
 7.3.3 Parallelization Issues
 "Node not responding"
 Causes:
@@ -2197,18 +2226,20 @@ SSH authentication failure
 Solutions:
 
 Test node connectivity:
-
+```
 bash   ssh user@node1 hostname
+```
 
 Check node load:
-
+```
 bash   ssh user@node1 uptime
-
+```
 Verify SSH keys configured
 Reduce parallel jobs:
-
+```
 ini   # In gnss_data.cfg
    node_list = node1,node2  # Remove problematic nodes
+```
 "Cluster creation failed"
 Causes:
 
@@ -2219,8 +2250,9 @@ Python version mismatch
 Solutions:
 
 Install dispy on all nodes:
-
+```
 bash   pip install dispy
+```
 
 Open required ports (51347-51350)
 Verify Python 3.10 on all nodes
@@ -2231,18 +2263,18 @@ Verify Python 3.10 on all nodes
 Solutions:
 
 Check disk usage:
-
+```
 bash   df -h /archive
    df -h /repository
-
+```
 Clean retry folders:
-
+```
 bash   find /repository/data_in_retry -type f -mtime +30 -delete
-
+```
 Clean rejected files:
-
+```
 bash   find /repository/data_rejected -type f -mtime +90 -delete
-
+```
 Archive old data to tape/cloud storage
 
 7.4.2 Permission Issues
@@ -2256,19 +2288,20 @@ SELinux restrictions
 Solutions:
 
 Check ownership:
-
+```
 bash   ls -la /archive
    ls -la /repository
-
+```
 Fix permissions:
-
+```
 bash   chown -R username:group /archive
    chmod -R 755 /archive
-
+```
 Check SELinux:
-
+```
 bash   getenforce
    sestatus
+```
 7.4.3 Archive Structure
 "Archive path not found"
 Causes:
@@ -2281,9 +2314,9 @@ Solutions:
 
 Verify archive_path in config
 Create directory structure:
-
+```
 bash   mkdir -p /archive/{network}/{station}/{year}/{doy}
-
+```
 Check mounts:
 
 bash   mount | grep archive
@@ -2324,18 +2357,20 @@ Solutions:
 
 Hard refresh (Ctrl+F5)
 Check recent events:
-
+```
 sql   SELECT * FROM events 
    ORDER BY "EventDate" DESC LIMIT 20;
-
+```
 Verify database connection in web config
 
 7.6 Data Quality Issues
 7.6.1 Inconsistent Metadata
 "RINEX header doesn't match database"
 Diagnosis:
+```
 bash# Compare RINEX header to station info
 IntegrityCheck.py network.station -stnr -d 2024/01/01 2024/12/31
+```
 Solutions:
 
 Update station information
@@ -2345,8 +2380,10 @@ Re-download from different source
 7.6.2 Coordinate Outliers
 "PPP coordinate unrealistic"
 Diagnosis:
+```
 bash# Check spatial coherence
 IntegrityCheck.py network.station -sc noop -d 2024/01/01 2024/12/31
+```
 
 # Plot time series
 PlotETM.py network.station -gui
@@ -2362,21 +2399,25 @@ Verify RINEX file quality
 7.6.3 Time Series Gaps
 "Missing observations"
 Diagnosis:
+```
 bash# Visualize gaps
 IntegrityCheck.py network.station -gg -d 2020/01/01 2024/12/31
+```
 
 # Identify gap periods
 IntegrityCheck.py network.station -g 5 -d 2020/01/01 2024/12/31
 Solutions:
 
 Check data sources:
-
+```
 sql   SELECT * FROM sources_stations 
    WHERE "NetworkCode" = 'net' AND "StationCode" = 'stn';
-
+```
 Download missing data:
 
+```
 bash   DownloadSources.py network.station -date 2024/045 2024/050
+```
 
 Check station status (decommissioned, relocated)
 
@@ -2392,14 +2433,16 @@ grep "igs.algo" errors_ArchiveService.log
 # Count error types
 grep -c "pyRinexException" errors_ArchiveService.log
 ScanArchive Errors:
+```
 bash# View recent errors
 tail -100 errors_pyScanArchive.log
+```
 
 # Identify PPP failures
 grep "PPP" errors_pyScanArchive.log | less
 7.7.2 Event Database
 Query Recent Events:
-sql-- All errors in last 24 hours
+```sql-- All errors in last 24 hours
 SELECT * FROM events 
 WHERE "EventType" = 'error' 
   AND "EventDate" >= NOW() - INTERVAL '1 day'
@@ -2430,7 +2473,7 @@ SELECT script, COUNT(*),
        MAX(exec_date) as last_run
 FROM executions 
 GROUP BY script;
-
+```
 8. Database Management
 8.1 Database Schema Overview
 8.1.1 Core Tables
@@ -2546,6 +2589,7 @@ Stack definitions and members
 8.2 Common Database Queries
 8.2.1 Station Queries
 List all stations:
+```
 sqlSELECT "NetworkCode", "StationCode", 
        lat, lon, height, country_code
 FROM stations
@@ -2559,8 +2603,10 @@ sqlSELECT "NetworkCode", "StationCode"
 FROM stations 
 WHERE "Harpos_coeff_otl" IS NULL
    OR auto_x IS NULL;
+```
 Count stations by network:
-sqlSELECT "NetworkCode", COUNT(*) as station_count
+```sql
+SELECT "NetworkCode", COUNT(*) as station_count
 FROM stations
 GROUP BY "NetworkCode"
 ORDER BY station_count DESC;
@@ -2577,17 +2623,21 @@ FROM rinex
 WHERE "ObservationYear" = 2024
 GROUP BY "NetworkCode", "StationCode"
 ORDER BY file_count DESC
-LIMIT 20;
+LIMIT 20;```
+
 Low completion files:
-sqlSELECT "NetworkCode", "StationCode", 
+```sql
+SELECT "NetworkCode", "StationCode", 
        "ObservationYear", "ObservationDOY",
        "Completion", "Filename"
 FROM rinex
 WHERE "Completion" < 0.5
   AND "ObservationYear" = 2024
 ORDER BY "Completion";
+```
 Find gaps for station:
-sqlWITH dates AS (
+```sql
+WITH dates AS (
   SELECT generate_series(
     '2024-01-01'::date, 
     '2024-12-31'::date, 
@@ -2604,9 +2654,11 @@ FROM dates
 LEFT JOIN station_dates ON dates.date = station_dates.date
 WHERE station_dates.date IS NULL
 ORDER BY dates.date;
+```
 8.2.3 PPP Queries
 Stations without PPP:
-sqlSELECT DISTINCT r."NetworkCode", r."StationCode"
+```sql
+SELECT DISTINCT r."NetworkCode", r."StationCode"
 FROM rinex r
 LEFT JOIN ppp_soln p ON 
     r."NetworkCode" = p."NetworkCode" AND
@@ -2616,8 +2668,10 @@ LEFT JOIN ppp_soln p ON
 WHERE p."NetworkCode" IS NULL
   AND r."Completion" >= 0.5
 ORDER BY r."NetworkCode", r."StationCode";
+```
 PPP solution statistics:
-sqlSELECT "NetworkCode", "StationCode",
+```sql
+SELECT "NetworkCode", "StationCode",
        COUNT(*) as solution_count,
        AVG("Sigma_X") as avg_sigma_x,
        AVG("Sigma_Y") as avg_sigma_y,
@@ -2627,8 +2681,10 @@ WHERE "Year" = 2024
 GROUP BY "NetworkCode", "StationCode"
 HAVING COUNT(*) > 300
 ORDER BY avg_sigma_x DESC;
+```
 Hash mismatches:
-sqlSELECT p."NetworkCode", p."StationCode", p."Year", p."DOY"
+```sql
+SELECT p."NetworkCode", p."StationCode", p."Year", p."DOY"
 FROM ppp_soln p
 JOIN rinex_proc r ON
     p."NetworkCode" = r."NetworkCode" AND
@@ -2652,8 +2708,10 @@ sqlSELECT "DateStart", "DateEnd",
 FROM station_info
 WHERE "NetworkCode" = 'igs' AND "StationCode" = 'algo'
 ORDER BY "DateStart";
+```
 Current equipment:
-sqlSELECT s."NetworkCode", s."StationCode",
+```sql
+SELECT s."NetworkCode", s."StationCode",
        si."ReceiverCode", si."AntennaCode"
 FROM stations s
 JOIN station_info si ON 
@@ -2661,15 +2719,19 @@ JOIN station_info si ON
     s."StationCode" = si."StationCode"
 WHERE si."DateEnd"::text = '9999 999'
 ORDER BY s."NetworkCode", s."StationCode";
+```
 Antenna usage statistics:
-sqlSELECT "AntennaCode", COUNT(*) as usage_count,
+```sql
+SELECT "AntennaCode", COUNT(*) as usage_count,
        COUNT(DISTINCT "NetworkCode" || '.' || "StationCode") as station_count
 FROM station_info
 GROUP BY "AntennaCode"
 ORDER BY usage_count DESC
 LIMIT 20;
+```
 Stations with overlapping metadata:
-sqlSELECT a."NetworkCode", a."StationCode",
+```sql
+SELECT a."NetworkCode", a."StationCode",
        a."DateStart" as start1, a."DateEnd" as end1,
        b."DateStart" as start2, b."DateEnd" as end2
 FROM station_info a
@@ -2680,32 +2742,40 @@ JOIN station_info b ON
     a."DateStart" < b."DateEnd" AND
     a."DateEnd" > b."DateStart"
 ORDER BY a."NetworkCode", a."StationCode", a."DateStart";
+```
 8.2.5 Event Queries
 Recent errors by station:
-sqlSELECT "NetworkCode", "StationCode", "Year", "DOY",
+```sql
+SELECT "NetworkCode", "StationCode", "Year", "DOY",
        LEFT("Description", 100) as error_summary
 FROM events
 WHERE "EventType" = 'error'
   AND "EventDate" >= NOW() - INTERVAL '7 days'
 ORDER BY "EventDate" DESC
 LIMIT 50;
+```
 Error frequency:
-sqlSELECT DATE("EventDate") as event_day,
+```sql
+SELECT DATE("EventDate") as event_day,
        "EventType",
        COUNT(*) as event_count
 FROM events
 WHERE "EventDate" >= NOW() - INTERVAL '30 days'
 GROUP BY DATE("EventDate"), "EventType"
 ORDER BY event_day DESC, "EventType";
+```
 Multiday file events:
-sqlSELECT * FROM events
+```sql
+SELECT * FROM events
 WHERE "Description" LIKE '%multi-day%'
 ORDER BY "EventDate" DESC
 LIMIT 50;
+```
 8.3 Database Maintenance
 8.3.1 Vacuum and Analyze
 Regular maintenance:
-sql-- Vacuum entire database
+```sql
+-- Vacuum entire database
 VACUUM ANALYZE;
 
 -- Vacuum specific tables
@@ -2715,27 +2785,34 @@ VACUUM ANALYZE events;
 
 -- Full vacuum (requires exclusive lock)
 VACUUM FULL events;
+```
 Automated vacuum:
-sql-- Check autovacuum settings
+```sql
+-- Check autovacuum settings
 SELECT name, setting FROM pg_settings 
 WHERE name LIKE 'autovacuum%';
 
 -- Enable autovacuum
 ALTER TABLE rinex SET (autovacuum_enabled = true);
+```
 8.3.2 Index Maintenance
 Check index usage:
-sqlSELECT schemaname, tablename, indexname,
+```sql
+SELECT schemaname, tablename, indexname,
        idx_scan, idx_tup_read, idx_tup_fetch
 FROM pg_stat_user_indexes
 WHERE schemaname = 'public'
 ORDER BY idx_scan;
+```
 Rebuild indexes:
-sqlREINDEX TABLE rinex;
+```sql
+REINDEX TABLE rinex;
 REINDEX TABLE ppp_soln;
 REINDEX TABLE station_info;
+```
 8.3.3 Backup and Recovery
 Database backup:
-bash# Full backup
+```bash# Full backup
 pg_dump -h hostname -U username -d gnss_data -F c -f backup_$(date +%Y%m%d).dump
 
 # Compressed backup
@@ -2746,15 +2823,17 @@ pg_dump -h hostname -U username -d gnss_data --schema-only > schema.sql
 
 # Data only
 pg_dump -h hostname -U username -d gnss_data --data-only > data.sql
+```
 Table-specific backup:
-bash# Backup specific tables
+```bash# Backup specific tables
 pg_dump -h hostname -U username -d gnss_data -t stations -t rinex > critical_tables.sql
 
 # Backup events (for archival)
 pg_dump -h hostname -U username -d gnss_data -t events \
     --where="\"EventDate\" < '2023-01-01'" > events_archive_2022.sql
+```
 Restore:
-bash# Restore full backup
+```bash# Restore full backup
 pg_restore -h hostname -U username -d gnss_data -c backup_20240101.dump
 
 # Restore from SQL
@@ -2762,9 +2841,11 @@ psql -h hostname -U username -d gnss_data < backup.sql
 
 # Restore specific table
 pg_restore -h hostname -U username -d gnss_data -t stations backup.dump
+```
 8.3.4 Performance Tuning
 Connection pooling:
-ini# postgresql.conf
+
+```ini# postgresql.conf
 max_connections = 200
 shared_buffers = 4GB
 effective_cache_size = 12GB
@@ -2777,8 +2858,9 @@ effective_io_concurrency = 200
 work_mem = 20MB
 min_wal_size = 1GB
 max_wal_size = 4GB
+```
 Query optimization:
-sql-- Analyze query plan
+```sql-- Analyze query plan
 EXPLAIN ANALYZE
 SELECT * FROM rinex_proc
 WHERE "NetworkCode" = 'igs' AND "ObservationYear" = 2024;
@@ -2787,6 +2869,7 @@ WHERE "NetworkCode" = 'igs' AND "ObservationYear" = 2024;
 CREATE INDEX idx_rinex_network_year ON rinex("NetworkCode", "ObservationYear");
 CREATE INDEX idx_ppp_station_year ON ppp_soln("NetworkCode", "StationCode", "Year");
 CREATE INDEX idx_events_date_type ON events("EventDate", "EventType");
+```
 8.3.5 Data Archival
 Archive old events:
 sql-- Create archive table
@@ -2821,7 +2904,7 @@ INSERT INTO rinex_partitioned SELECT * FROM rinex;
 9.1 Data Processing Workflow
 9.1.1 Daily Operations
 Recommended daily script:
-bash#!/bin/bash
+```bash#!/bin/bash
 # Daily GeoDE processing script
 
 LOG_DIR="/var/log/geode"
@@ -2847,9 +2930,10 @@ if [ $ERROR_COUNT -gt 0 ]; then
 fi
 
 echo "$(date): Daily processing complete" >> $LOG_DIR/daily_$DATE.log
+```
 9.1.2 Weekly Maintenance
 Weekly integrity checks:
-bash#!/bin/bash
+```bash#!/bin/bash
 # Weekly integrity check script
 
 WEEK_AGO=$(date -d '7 days ago' +%Y/%m/%d)
@@ -2870,6 +2954,7 @@ if [ -s weekly_rinex_check.txt ] || \
    [ -s weekly_spatial_check.txt ]; then
     cat weekly_*.txt | mail -s "Weekly GeoDE Integrity Report" admin@example.com
 fi
+```
 9.1.3 Monthly Tasks
 Monthly activities:
 
@@ -2881,7 +2966,7 @@ Review processing statistics
 Update documentation
 
 Monthly cleanup script:
-bash#!/bin/bash
+```bash#!/bin/bash
 # Monthly cleanup
 
 # Archive events older than 1 year
@@ -2912,55 +2997,64 @@ psql -d gnss_data -c "
     GROUP BY month, \"EventType\"
     ORDER BY month, \"EventType\";
 " > monthly_stats_$(date +%Y%m).txt
+```
 9.2 Station Management
 9.2.1 Adding New Stations
+
+**We recommend using GeoDE Desktop for the following operations, but SQL commands can also be used.**
+
 Procedure:
 
 Create network (if new):
 
-sql   INSERT INTO networks ("NetworkCode", "NetworkName")
-   VALUES ('mynet', 'My Network Name');
-
+```sql   INSERT INTO networks ("NetworkCode", "NetworkName")
+   VALUES ('ars', 'My Network Name');
+```
 Add station record:
 
-sql   INSERT INTO stations ("NetworkCode", "StationCode")
-   VALUES ('mynet', 'stn1');
-
+```sql   INSERT INTO stations ("NetworkCode", "StationCode")
+   VALUES ('ars', 'stn1');
+```
 Configure download sources:
 
-sql   INSERT INTO sources_stations 
+```sql   INSERT INTO sources_stations 
    ("NetworkCode", "StationCode", try_order, server_id)
-   VALUES ('mynet', 'stn1', 1, 1);
-
+   VALUES ('ars', 'stn1', 1, 1);
+```
 Download initial data:
 
-bash   DownloadSources.py mynet.stn1 -date 2024/01/01 2024/12/31
+```bash   DownloadSources.py ars.stn1 -date 2024/01/01 2024/12/31
+```
 
 Process repository:
 
-bash   ArchiveService.py
+```bash   ArchiveService.py
+```
 
 Add station information via web interface
 Calculate OTL:
-
-bash   ScanArchive.py mynet.stn1 -otl
+```
+bash   ScanArchive.py ars.stn1 -otl
+```
 
 Run initial PPP:
-
-bash   ScanArchive.py mynet.stn1 -ppp
+```
+bash   ScanArchive.py ars.stn1 -ppp
+```
 9.2.2 Decommissioning Stations
 Procedure:
 
 Update station status in web interface
 Stop downloads (optional):
 
-sql   DELETE FROM sources_stations 
+```sql   DELETE FROM sources_stations 
    WHERE "NetworkCode" = 'net' AND "StationCode" = 'stn';
-
+```
 Document decommission in events:
 
-sql   INSERT INTO events ("NetworkCode", "StationCode", "EventType", "Description")
+```sql   INSERT INTO events ("NetworkCode", "StationCode", "EventType", "Description")
    VALUES ('net', 'stn', 'info', 'Station decommissioned on 2024-12-31');
+```
 
 DO NOT delete station record (preserves historical data)
 
@@ -2973,7 +3067,8 @@ Network reorganization
 Duplicate stations discovered
 
 Merge procedure:
-bash# 1. Verify stations exist
+
+```bash# 1. Verify stations exist
 IntegrityCheck.py old.stn -print short
 IntegrityCheck.py new.stn -print short
 
@@ -2992,9 +3087,12 @@ IntegrityCheck.py old.stn -r new.stn -d 2020/01/01 2024/12/31 -del_stn
 # 5. Verify merge
 IntegrityCheck.py new.stn -rinex report
 IntegrityCheck.py new.stn -stnc
+```
+
 9.3 Quality Control
 9.3.1 Automated QC Checks
 Daily QC script:
+```
 bash#!/bin/bash
 # Automated quality control
 
@@ -3047,6 +3145,7 @@ if [ -s $QC_DIR/spatial_$DATE.txt ] || \
         cat $QC_DIR/missing_ppp_$DATE.txt
     } | mail -s "GeoDE QC Report $DATE" qc@example.com
 fi
+```
 9.3.2 Manual QC Procedures
 Monthly QC checklist:
 
@@ -3060,9 +3159,11 @@ Monthly QC checklist:
  Verify backup completion
 
 QC report generation:
+```
 bash# Generate comprehensive QC report
 {
-    echo "=== GeoDE Quality Control Report ==="RetryDContinuebash    echo "Generated: $(date)"
+    echo "=== GeoDE Quality Control Report ==="
+    echo "Generated: $(date)"
     echo ""
     
     echo "=== Database Statistics ==="
@@ -3123,10 +3224,13 @@ bash# Generate comprehensive QC report
     "
     
 } > qc_report_$(date +%Y%m).txt
+```
 9.4 Performance Optimization
 9.4.1 Processing Speed
 Parallel processing configuration:
+```
 ini# gnss_data.cfg - Optimize for your cluster
+```
 
 # More nodes = faster processing
 node_list = node1,node2,node3,node4,node5,node6
@@ -3135,7 +3239,8 @@ node_list = node1,node2,node3,node4,node5,node6
 # ping node1
 # ssh node1 hostname
 Database connection pooling:
-python# For high-frequency operations, use connection pooling
+
+```python# For high-frequency operations, use connection pooling
 # Add to Python scripts:
 from pgamit import dbConnection
 
@@ -3144,8 +3249,10 @@ cnn = dbConnection.Cnn("gnss_data.cfg")
 # ... perform operations ...
 # Don't close until all operations complete
 cnn.close()
+```
 Disk I/O optimization:
-bash# Use SSD for database
+
+```bash# Use SSD for database
 # /var/lib/postgresql on SSD
 
 # Use spinning disk for archive
@@ -3153,9 +3260,10 @@ bash# Use SSD for database
 
 # Separate repository from archive
 # /repository on fast local disk
+```
 9.4.2 Resource Management
 Monitor system resources:
-bash# Check CPU usage
+```bash# Check CPU usage
 top -b -n 1 | head -20
 
 # Check memory
@@ -3166,13 +3274,15 @@ iostat -x 2 5
 
 # Check network
 iftop -i eth0
+```
 Limit parallel jobs:
-bash# For systems with limited resources
+```bash# For systems with limited resources
 DownloadSources.py all -win 7 -np  # Sequential downloads
 ArchiveService.py -np              # Sequential processing
 ScanArchive.py all -ppp -np        # Sequential PPP
+```
 Database query optimization:
-sql-- Add indexes for common queries
+```sql-- Add indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_rinex_completion 
     ON rinex("Completion") WHERE "Completion" >= 0.5;
 
@@ -3186,9 +3296,10 @@ CREATE INDEX IF NOT EXISTS idx_events_recent
 ANALYZE rinex;
 ANALYZE ppp_soln;
 ANALYZE events;
+```
 9.4.3 Archive Management
 Archive growth estimation:
-bash# Estimate archive size
+```bash# Estimate archive size
 du -sh /archive
 
 # Size per network
@@ -3196,221 +3307,6 @@ du -sh /archive/*
 
 # Largest stations
 du -sh /archive/*/*/ | sort -h | tail -20
-Implement data retention policy:
-bash#!/bin/bash
-# Archive old data to tape/cloud
-
-ARCHIVE_AGE_DAYS=730  # 2 years
-ARCHIVE_DEST="/mnt/tape"
-
-# Find old files
-find /archive -name "*.gz" -mtime +$ARCHIVE_AGE_DAYS | while read file; do
-    # Copy to tape
-    rsync -av "$file" "$ARCHIVE_DEST/"
-    
-    # Verify copy
-    if diff "$file" "$ARCHIVE_DEST/$(basename $file)" > /dev/null; then
-        # Delete original
-        rm "$file"
-        echo "Archived: $file"
-    fi
-done
-9.5 Security Best Practices
-9.5.1 Database Security
-User permissions:
-sql-- Create read-only user for web interface
-CREATE USER web_user WITH PASSWORD 'secure_password';
-GRANT CONNECT ON DATABASE gnss_data TO web_user;
-GRANT SELECT ON ALL TABLES IN SCHEMA public TO web_user;
-GRANT INSERT, UPDATE ON events TO web_user;
-
--- Create processing user with limited privileges
-CREATE USER process_user WITH PASSWORD 'secure_password';
-GRANT CONNECT ON DATABASE gnss_data TO process_user;
-GRANT SELECT, INSERT, UPDATE, DELETE ON rinex, ppp_soln, gamit_soln TO process_user;
-GRANT SELECT ON stations, station_info TO process_user;
-
--- Revoke unnecessary privileges
-REVOKE ALL ON networks FROM PUBLIC;
-REVOKE DELETE ON stations FROM process_user;
-Connection encryption:
-ini# postgresql.conf
-ssl = on
-ssl_cert_file = '/etc/postgresql/server.crt'
-ssl_key_file = '/etc/postgresql/server.key'
-ssl_ca_file = '/etc/postgresql/root.crt'
-9.5.2 File System Security
-Set proper permissions:
-bash# Archive (read-only for most users)
-chown -R geode:geode /archive
-chmod -R 755 /archive
-
-# Repository (read-write for processing)
-chown -R geode:geode /repository
-chmod -R 770 /repository
-
-# Configuration files (restricted)
-chmod 600 gnss_data.cfg
-chown geode:geode gnss_data.cfg
-Backup encryption:
-bash# Encrypted backup
-pg_dump -d gnss_data | gzip | \
-    openssl enc -aes-256-cbc -salt -out backup_$(date +%Y%m%d).sql.gz.enc
-
-# Restore encrypted backup
-openssl enc -aes-256-cbc -d -in backup.sql.gz.enc | \
-    gunzip | psql -d gnss_data
-9.5.3 Network Security
-Firewall configuration:
-bash# Allow PostgreSQL only from processing nodes
-firewall-cmd --permanent --add-rich-rule='
-  rule family="ipv4" 
-  source address="192.168.1.0/24" 
-  port protocol="tcp" port="5432" 
-  accept'
-
-# Allow web interface
-firewall-cmd --permanent --add-service=http
-firewall-cmd --permanent --add-service=https
-
-# Reload firewall
-firewall-cmd --reload
-SSH key authentication:
-bash# Generate keys for parallel processing
-ssh-keygen -t rsa -b 4096 -f ~/.ssh/geode_cluster
-
-# Distribute to nodes
-for node in node1 node2 node3; do
-    ssh-copy-id -i ~/.ssh/geode_cluster.pub user@$node
-done
-
-# Configure SSH config
-cat >> ~/.ssh/config << EOF
-Host node*
-    User geode
-    IdentityFile ~/.ssh/geode_cluster
-    StrictHostKeyChecking no
-EOF
-9.6 Disaster Recovery
-9.6.1 Backup Strategy
-3-2-1 Backup Rule:
-
-3 copies of data
-2 different media types
-1 off-site copy
-
-Backup schedule:
-bash#!/bin/bash
-# Comprehensive backup script
-
-BACKUP_DIR="/backup/geode"
-DATE=$(date +%Y%m%d)
-
-# Daily database backup (incremental)
-pg_dump -d gnss_data -F c -f $BACKUP_DIR/daily/db_$DATE.dump
-
-# Weekly full backup
-if [ $(date +%u) -eq 1 ]; then
-    # Database
-    pg_dump -d gnss_data -F c -f $BACKUP_DIR/weekly/db_$DATE.dump
-    
-    # Configuration
-    tar -czf $BACKUP_DIR/weekly/config_$DATE.tar.gz \
-        gnss_data.cfg \
-        /etc/postgresql/ \
-        /etc/apache2/
-    
-    # Critical scripts
-    tar -czf $BACKUP_DIR/weekly/scripts_$DATE.tar.gz \
-        *.py \
-        format_scripts/
-fi
-
-# Monthly archive backup
-if [ $(date +%d) -eq 01 ]; then
-    # Recent archive data (last 90 days)
-    find /archive -name "*.gz" -mtime -90 | \
-        tar -czf $BACKUP_DIR/monthly/archive_$DATE.tar.gz -T -
-fi
-
-# Copy to off-site (adjust for your backup solution)
-rsync -avz $BACKUP_DIR/ remote_server:/backup/geode/
-
-# Clean old backups
-find $BACKUP_DIR/daily -name "*.dump" -mtime +7 -delete
-find $BACKUP_DIR/weekly -name "*.dump" -mtime +30 -delete
-find $BACKUP_DIR/monthly -name "*.tar.gz" -mtime +365 -delete
-9.6.2 Recovery Procedures
-Database recovery:
-bash# Stop services
-systemctl stop apache2
-pkill -f python
-
-# Restore database
-dropdb gnss_data
-createdb gnss_data
-pg_restore -d gnss_data backup.dump
-
-# Verify restoration
-psql -d gnss_data -c "SELECT COUNT(*) FROM stations;"
-psql -d gnss_data -c "SELECT COUNT(*) FROM rinex;"
-
-# Restart services
-systemctl start apache2
-Archive recovery:
-bash# Restore from backup
-tar -xzf archive_backup.tar.gz -C /
-
-# Verify file integrity
-find /archive -name "*.gz" | while read file; do
-    if ! gzip -t "$file" 2>/dev/null; then
-        echo "Corrupted: $file"
-    fi
-done
-
-# Rescan archive
-ScanArchive.py all -rinex 0
-Point-in-time recovery:
-bash# Restore to specific date using WAL archives
-# Requires continuous archiving enabled
-
-# 1. Restore base backup
-pg_restore -d gnss_data base_backup.dump
-
-# 2. Create recovery.conf
-cat > /var/lib/postgresql/recovery.conf << EOF
-restore_command = 'cp /archive/wal/%f %p'
-recovery_target_time = '2024-06-15 12:00:00'
-EOF
-
-# 3. Restart PostgreSQL
-systemctl restart postgresql
-
-# 4. Verify recovery
-psql -d gnss_data -c "SELECT NOW();"
-9.6.3 Failover Configuration
-Hot standby setup:
-bash# Primary server: Enable WAL archiving
-# postgresql.conf
-archive_mode = on
-archive_command = 'rsync -a %p standby:/archive/wal/%f'
-wal_level = replica
-max_wal_senders = 3
-
-# Standby server: Configure recovery
-# recovery.conf
-standby_mode = 'on'
-primary_conninfo = 'host=primary port=5432 user=replicator'
-restore_command = 'cp /archive/wal/%f %p'
-Monitoring replication lag:
-sql-- On primary
-SELECT client_addr, state, sent_lsn, write_lsn, replay_lsn,
-       pg_wal_lsn_diff(sent_lsn, replay_lsn) AS lag_bytes
-FROM pg_stat_replication;
-
--- On standby
-SELECT pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn(),
-       pg_last_wal_replay_lsn() - pg_last_wal_receive_lsn() AS lag;
 ```
 
 ---
@@ -3445,9 +3341,10 @@ igs.a%   # All IGS stations starting with 'a'
 USA
 ARG
 BRA
+```
 Appendix B: Configuration File Template
 Complete gnss_data.cfg template:
-ini[postgres]
+```ini[postgres]
 # Database connection parameters
 hostname = your.database.server
 username = gnss_data
@@ -3523,61 +3420,13 @@ stations (1) ----< (N) sources_stations (N) >---- (1) sources_servers
 networks (1) ----< (N) stations
 
 events (N) >---- (1) stations (optional FK)
+```
 Core Constraints:
 
 stations: PRIMARY KEY (NetworkCode, StationCode)
 rinex: PRIMARY KEY (NetworkCode, StationCode, ObservationYear, ObservationDOY, Filename)
 ppp_soln: PRIMARY KEY (NetworkCode, StationCode, Year, DOY, ReferenceFrame)
 station_info: PRIMARY KEY (id), UNIQUE (NetworkCode, StationCode, DateStart)
-
-Appendix D: Error Code Reference
-ArchiveService Error Codes:
-CodeDescriptionLocationpyRinexExceptionBadFileCorrupted RINEXdata_rejected/bad_rinex/pyRinexExceptionSingleEpochOnly one epochdata_rejected/bad_rinex/pyRinexExceptionNoAutoCoordNo coordinatedata_rejected/bad_rinex/pyRinexExceptionGeneral RINEX errordata_in_retry/rinex_issues/pyRunPPPExceptionCoordConflictCoordinate mismatchdata_in_retry/coord_conflicts/pyRunPPPExceptionPPP failuredata_rejected/no_ppp_solution/pyStationInfoExceptionMetadata problemdata_in_retry/station_info_exception/pyOTLExceptionOTL calculation errordata_in_retry/otl_exception/pyProductsExceptionOrbit/clock missingdata_in_retry/sp3_exception/dbErrInsertDuplicate insertdata_rejected/duplicate_insert/
-Appendix E: Useful SQL Queries
-Data quality summary:
-sqlSELECT 
-    s."NetworkCode",
-    COUNT(DISTINCT s."StationCode") as stations,
-    COUNT(r.*) as rinex_files,
-    COUNT(p.*) as ppp_solutions,
-    ROUND(AVG(r."Completion")::numeric, 3) as avg_completion,
-    COUNT(CASE WHEN r."Completion" < 0.5 THEN 1 END) as low_completion
-FROM stations s
-LEFT JOIN rinex r USING("NetworkCode", "StationCode")
-LEFT JOIN ppp_soln p ON 
-    r."NetworkCode" = p."NetworkCode" AND
-    r."StationCode" = p."StationCode" AND
-    r."ObservationYear" = p."Year" AND
-    r."ObservationDOY" = p."DOY"
-WHERE r."ObservationYear" = 2024
-GROUP BY s."NetworkCode"
-ORDER BY stations DESC;
-Station uptime:
-sqlSELECT 
-    "NetworkCode", "StationCode",
-    MIN("ObservationSTime") as first_obs,
-    MAX("ObservationSTime") as last_obs,
-    MAX("ObservationSTime")::date - MIN("ObservationSTime")::date as days_span,
-    COUNT(*) as observation_days,
-    ROUND(COUNT(*)::numeric / 
-        (MAX("ObservationSTime")::date - MIN("ObservationSTime")::date + 1) * 100, 2) 
-        as uptime_percent
-FROM rinex
-WHERE "Completion" >= 0.5
-GROUP BY "NetworkCode", "StationCode"
-HAVING COUNT(*) > 30
-ORDER BY uptime_percent DESC;
-Equipment change frequency:
-sqlSELECT 
-    "NetworkCode", "StationCode",
-    COUNT(*) as equipment_changes,
-    MIN("DateStart") as first_change,
-    MAX("DateStart") as last_change
-FROM station_info
-GROUP BY "NetworkCode", "StationCode"
-HAVING COUNT(*) > 5
-ORDER BY equipment_changes DESC;
-```
 
 ### Appendix F: Troubleshooting Checklist
 
