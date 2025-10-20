@@ -1,5 +1,5 @@
 """
-Project: Parallel.PPP
+Project: Geodesy Database Engine (GeoDE)
 Date: 2/21/17 3:34 PM
 Author: Demian D. Gomez
 
@@ -18,12 +18,12 @@ import re
 import numpy
 
 # app
-from pgamit import pyRinex
-from pgamit import pyProducts
-from pgamit import pyEvents
-from pgamit import pyRunWithRetry
-from pgamit.pyDate import Date
-from pgamit.Utils import lg2ct, ecef2lla, determine_frame, file_write, file_readlines
+from . import pyRinex
+from . import pyProducts
+from . import pyEvents
+from . import pyRunWithRetry
+from .pyDate import Date
+from .Utils import lg2ct, ecef2lla, determine_frame, file_write, file_readlines
 
 OBSERV_CODE_ONLY  = '1'
 OBSERV_CODE_PHASE = '2'

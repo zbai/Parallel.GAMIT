@@ -15,11 +15,11 @@ import logging
 logger = logging.getLogger(__name__)
 
 # app
-from pgamit.dbConnection import Cnn
-from pgamit.pyDate import Date
-from pgamit.Utils import crc32, load_json
-from pgamit.etm.core.etm_config import EtmConfig
-from pgamit.etm.core.type_declarations import SolutionType
+from ...dbConnection import Cnn
+from ...pyDate import Date
+from ...Utils import crc32, load_json
+from ..core.etm_config import EtmConfig
+from ..core.type_declarations import SolutionType
 
 
 class SolutionDataException(Exception):

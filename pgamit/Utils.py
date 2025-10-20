@@ -23,8 +23,8 @@ from geopy.geocoders import Nominatim
 import country_converter as coco
 
 # app
-from pgamit import pyRinexName
-from pgamit import pyDate
+from . import pyRinexName
+from . import pyDate
 
 
 class UtilsException(Exception):

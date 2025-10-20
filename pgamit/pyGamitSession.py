@@ -12,11 +12,11 @@ import simplekml
 from tqdm import tqdm
 
 # app
-from pgamit import pyRinexName
-from pgamit.pyStation import StationInstance, StationCollection
-from pgamit.Utils import determine_frame, file_open, stationID, chmod_exec
-from pgamit import pyGamitConfig
-from pgamit import snxParse
+from . import pyRinexName
+from .pyStation import StationInstance, StationCollection
+from .Utils import determine_frame, file_open, stationID, chmod_exec
+from . import pyGamitConfig
+from . import snxParse
 
 
 class GamitSessionException(Exception):

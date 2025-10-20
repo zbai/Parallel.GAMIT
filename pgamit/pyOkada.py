@@ -66,10 +66,10 @@ from skimage.measure import find_contours
 from shapely.geometry import Polygon
 from obspy.imaging.beachball import beachball
 
-from pgamit.pyDate import Date
-from pgamit import pyETM as etm
-from pgamit.pyETM import CO_SEISMIC_JUMP, CO_SEISMIC_JUMP_DECAY
-from pgamit import dbConnection
+from .pyDate import Date
+from . import pyETM as etm
+from .pyETM import CO_SEISMIC_JUMP, CO_SEISMIC_JUMP_DECAY
+from . import dbConnection
 
 cosd  = lambda x : np.cos(np.deg2rad(x))
 sind  = lambda x : np.sin(np.deg2rad(x))

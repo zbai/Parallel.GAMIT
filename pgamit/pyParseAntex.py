@@ -1,9 +1,9 @@
 """
-Project: Parallel.Archive
+Project: Geodesy Database Engine (GeoDE)
 Date: 2/25/17 7:15 PM
 Author: Demian D. Gomez
 """
-from pgamit.Utils import file_readlines
+from .Utils import file_readlines
 
 
 class ParseAntexFile(object):

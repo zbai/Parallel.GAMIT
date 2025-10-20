@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Project: Parallel.Archive
+Project: Geodesy Database Engine (GeoDE)
 Date: 3/3/17 11:27 AM
 Author: Demian D. Gomez
 """

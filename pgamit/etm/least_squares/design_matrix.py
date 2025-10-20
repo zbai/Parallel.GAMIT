@@ -5,10 +5,10 @@ import logging
 logger = logging.getLogger(__name__)
 
 # app
-from pgamit.pyDate import Date
-from pgamit.etm.core.etm_config import  EtmConfig
-from pgamit.etm.etm_functions.etm_function import EtmFunction
-from pgamit.etm.core.type_declarations import FitStatus
+from ...pyDate import Date
+from ..core.etm_config import  EtmConfig
+from ..etm_functions.etm_function import EtmFunction
+from ..core.type_declarations import FitStatus
 
 # ============================================================================
 # Enhanced Design Matrix

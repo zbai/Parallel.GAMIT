@@ -1,5 +1,5 @@
 """
-Project: Parallel.Archive
+Project: Geodesy Database Engine (GeoDE)
 Date: 02/16/2017
 Author: Demian D. Gomez
 
@@ -17,14 +17,14 @@ import re
 import scandir
 
 # app
-from pgamit import pyDate
-from pgamit import pyOptions
-from pgamit import pyEvents
-from pgamit import Utils
-from pgamit import pyRinex
-from pgamit import pyRinexName
-from pgamit.pyRinexName import RinexNameFormat
-from pgamit.Utils import file_try_remove
+from . import pyDate
+from . import pyOptions
+from . import pyEvents
+from . import Utils
+from . import pyRinex
+from . import pyRinexName
+from .pyRinexName import RinexNameFormat
+from .Utils import file_try_remove
 
 
 class RinexStruct(object):

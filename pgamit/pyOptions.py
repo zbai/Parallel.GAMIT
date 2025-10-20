@@ -1,5 +1,5 @@
 """
-Project: Parallel.Archive
+Project: Geodesy Database Engine (GeoDE)
 Date: 3/21/17 5:36 PM
 Author: Demian D. Gomez
 
@@ -11,8 +11,8 @@ import configparser
 import os
 
 # app
-from pgamit.Utils import process_date, file_open, create_empty_cfg
-from pgamit.pyDate import Date
+from .Utils import process_date, file_open, create_empty_cfg
+from .pyDate import Date
 
 
 class ReadOptions:

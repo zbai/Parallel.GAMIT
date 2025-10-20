@@ -1,5 +1,5 @@
 """
-Project:
+Project: Geodesy Database Engine (GeoDE)
 Date: 2/23/17 10:12 AM
 Author: Demian D. Gomez
 """
@@ -10,10 +10,10 @@ from shutil import copyfile
 from datetime import datetime
 
 # app
-from pgamit import pyRunWithRetry
-from pgamit import pyEvents
-from pgamit import pyDate
-from pgamit.Utils import file_open, file_try_remove, crc32
+from . import pyRunWithRetry
+from . import pyEvents
+from . import pyDate
+from .Utils import file_open, file_try_remove, crc32
 
 
 class pyProductsException(Exception):

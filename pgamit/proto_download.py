@@ -25,7 +25,7 @@ from tqdm import tqdm
 import traceback
 
 # app
-from pgamit.Utils import  file_try_remove, dir_try_remove
+from .Utils import  file_try_remove, dir_try_remove
 
 SERVER_REFRESH_INTERVAL      = 2   # in seconds
 SERVER_CONNECTION_TIMEOUT    = 20  # in seconds

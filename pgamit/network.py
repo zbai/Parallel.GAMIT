@@ -35,11 +35,11 @@ import numpy as np
 from scipy.spatial import Delaunay, distance
 
 # app
-from pgamit.pyGamitSession import GamitSession
-from pgamit.pyStation import StationCollection
-from pgamit.cluster import (BisectingQMeans, overcluster, prune, 
-                            select_central_point)
-from pgamit.plots import plot_global_network
+from .pyGamitSession import GamitSession
+from .pyStation import StationCollection
+from .cluster import (BisectingQMeans, overcluster, prune,
+                      select_central_point)
+from .plots import plot_global_network
 
 BACKBONE_NET = 45
 NET_LIMIT = 40

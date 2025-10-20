@@ -8,11 +8,11 @@ from tqdm import tqdm
 from scipy.stats import iqr
 
 # app
-from pgamit import dbConnection
-from pgamit.pyDate import Date
-from pgamit.pyETM import pi
-from pgamit import pyETM
-from pgamit.Utils import (lg2ct, ct2lg, file_write, stationID, json_converter, process_stnlist)
+from . import dbConnection
+from .pyDate import Date
+from .pyETM import pi
+from . import pyETM
+from .Utils import (lg2ct, ct2lg, file_write, stationID, json_converter, process_stnlist)
 
 
 def adjust_lsq(A, L, P=None):

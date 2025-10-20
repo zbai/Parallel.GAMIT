@@ -1,5 +1,5 @@
 """
-Project: Parallel.Archive
+Project: Geodesy Database Engine (GeoDE)
 Date: 02/16/2017
 Author: Demian D. Gomez
 
@@ -19,7 +19,7 @@ import numpy as np
 from decimal import Decimal
 
 # app
-from pgamit.Utils import file_read_all, file_append, create_empty_cfg
+from .Utils import file_read_all, file_append, create_empty_cfg
 
 
 DB_HOST = 'localhost'

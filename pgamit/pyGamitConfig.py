@@ -1,5 +1,5 @@
 """
-Project:
+Project: Geodesy Database Engine (GeoDE)
 Date: 3/31/17 5:28 PM
 Author: Demian D. Gomez
 """
@@ -8,9 +8,9 @@ import configparser
 import os
 
 # app
-from pgamit.pyOptions import ReadOptions
-from pgamit import pyBunch
-from pgamit.Utils import file_open
+from .pyOptions import ReadOptions
+from . import pyBunch
+from .Utils import file_open
 
 
 class pyGamitConfigException(Exception):

@@ -1,5 +1,5 @@
 """
-Project: GeoDE
+Project: Geodesy Database Engine (GeoDE)
 Date: 02/16/2017
 Author: Demian D. Gomez
 Refactored: 2025 - Modern Python 3 with dataclasses

@@ -1,5 +1,5 @@
 """
-project: Parallel.Archive
+project: Geodesy Database Engine (GeoDE)
 Date: 02/16/2017
 Author: Demian D. Gomez
 
@@ -10,9 +10,9 @@ import os
 import uuid
 
 # app
-from pgamit import pyRunWithRetry
-from pgamit import pyEvents
-from pgamit.Utils import file_read_all
+from . import pyRunWithRetry
+from . import pyEvents
+from .Utils import file_read_all
 
 
 class pyOTLException(Exception):

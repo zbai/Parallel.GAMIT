@@ -10,9 +10,9 @@ import numpy as np
 from scipy.stats import chi2
 
 # app
-from pgamit.pyETM import Polynomial
-from pgamit.pyETM import Periodic
-from pgamit.pyDate import Date
+from .pyETM import Polynomial
+from .pyETM import Periodic
+from .pyDate import Date
 
 
 LIMIT = 2.5

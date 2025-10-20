@@ -14,10 +14,10 @@ import tempfile
 from tqdm import tqdm
 
 # app
-from pgamit import Utils
-from pgamit import pyRinex
-from pgamit import pyRunWithRetry
-from pgamit.pyEvents import Event
+from . import Utils
+from . import pyRinex
+from . import pyRunWithRetry
+from .pyEvents import Event
 
 
 class ConvertRawException(Exception):

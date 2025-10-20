@@ -1,5 +1,5 @@
 """
-Project: Parallel.Archive
+Project: Geodesy Database Engine (GeoDE)
 Date: 3/3/17 11:27 AM
 Author: Demian D. Gomez
 
@@ -11,11 +11,11 @@ import numpy as np
 from scipy.stats import chi2
 
 # app
-from pgamit.Utils import ct2lg
+from .Utils import ct2lg
 
 LIMIT = 2.5
 
-
+# @todo: replace with new lsq in etm.least_squares
 def adjust_lsq(A, L, limit=LIMIT):
 
     factor = 1.

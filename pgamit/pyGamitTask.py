@@ -15,11 +15,11 @@ import numpy
 import zipfile
 
 # app
-from pgamit import pyRinex
-from pgamit import pyProducts
-from pgamit.Utils import (file_write, file_open,
-                          file_append, file_readlines,
-                          chmod_exec, stationID)
+from . import pyRinex
+from . import pyProducts
+from .Utils import (file_write, file_open,
+                    file_append, file_readlines,
+                    chmod_exec, stationID)
 
 
 def now_str():

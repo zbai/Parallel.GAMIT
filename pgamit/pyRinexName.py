@@ -10,9 +10,9 @@ import re
 import warnings
 
 # app
-from pgamit import pyDate
-from pgamit.pyDate import Date
-from pgamit.pyEvents import Event
+from . import pyDate
+from .pyDate import Date
+from .pyEvents import Event
 
 TYPE_CRINEZ = 0
 TYPE_RINEX  = 1

@@ -1,5 +1,5 @@
 """
-Project: Parallel.Archive
+Project: Geodesy Database Engine (GeoDE)
 Date: 02/16/2017
 Author: Demian D. Gomez
 """
@@ -11,8 +11,8 @@ import time
 import platform
 
 # app
-from pgamit import pyEvents
-from pgamit.Utils import file_open
+from . import pyEvents
+from .Utils import file_open
 
 
 class RunCommandWithRetryExeception(Exception):

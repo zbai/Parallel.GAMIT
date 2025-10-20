@@ -13,8 +13,8 @@ import traceback
 import numpy
 
 # app
-from pgamit import dbConnection
-from pgamit.Utils import file_readlines
+from . import dbConnection
+from .Utils import file_readlines
 
 
 class ParseZtdTask(object):

@@ -6,7 +6,7 @@ import re
 from glob import glob
 
 # app
-from pgamit.Utils import get_norm_year_str, file_open
+from .Utils import get_norm_year_str, file_open
 
 
 class StationData:

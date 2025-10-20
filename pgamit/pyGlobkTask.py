@@ -9,8 +9,8 @@ import subprocess
 import shutil
 
 # app
-from pgamit import snxParse
-from pgamit.Utils import file_open, chmod_exec, stationID
+from . import snxParse
+from .Utils import file_open, chmod_exec, stationID
 
 
 class GlobkException(Exception):
