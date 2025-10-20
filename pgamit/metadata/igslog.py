@@ -431,10 +431,10 @@ def parse_igs_log_data(data: bytes, file_path: str) -> Union[_np.ndarray, None]:
     #return _np.concatenate([blk_uni, file_path_arr], axis=1)
 
 
-def parse_igs_log_file(file_path: _np.ndarray) -> Union[_np.ndarray, None]:
+def parse_igs_log_file(file_path: str) -> Union[_np.ndarray, None]:
     """Reads igs log file and outputs ndarray with parsed data
 
-    :param _np.ndarray file_path: Metadata on input log file. Expects ndarray of the form [PATH]
+    :param _np.ndarray file_path: Metadata on input log file.
     :return Union[_np.ndarray, None]: Returns array with data from the parsed IGS log file, or `None` for unsupported
         version of the IGS Site log format.
         

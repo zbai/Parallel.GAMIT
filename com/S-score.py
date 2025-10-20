@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Project: Parallel.GAMIT 
+Project: Geodesy Database Engine (GeoDE)
 Date: 9/25/24 11:29AM
 Author: Demian D. Gomez
 

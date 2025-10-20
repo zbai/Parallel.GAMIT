@@ -1,5 +1,5 @@
 """
-Project: Parallel.GAMIT
+Project: Geodesy Database Engine (GeoDE)
 Date: 3/31/17 3:39 PM
 Author: Demian D. Gomez
 
@@ -15,11 +15,11 @@ import numpy as np
 from tqdm import tqdm
 
 # app
-from pgamit import pyStationInfo
-from pgamit import pyETM
-from pgamit import pyBunch
-from pgamit import pyDate
-from pgamit.Utils import stationID
+from .metadata.station_info import StationInfo, StationInfoHeightCodeNotFound
+from . import pyETM
+from . import pyBunch
+from . import pyDate
+from .Utils import stationID
 
 COMPLETION = 0.5
 INTERVAL   = 120
@@ -105,7 +105,7 @@ class Station(object):
                                   if d not in good_rinex]
 
             self.etm         = pyETM.PPPETM(cnn, NetworkCode, StationCode)  # type: pyETM.PPPETM
-            self.StationInfo = pyStationInfo.StationInfo(cnn, NetworkCode, StationCode)
+            self.StationInfo = StationInfo(cnn, NetworkCode, StationCode)
 
             # DDG: report RINEX files with Completion < 0.5
             rs = cnn.query_float(
@@ -185,15 +185,13 @@ class StationInstance(object):
 
         # save the station information as text
         try:
-            self.StationInfo = pyStationInfo.StationInfo(cnn,
+            self.StationInfo = StationInfo(cnn,
                                                          station.NetworkCode,
                                                          station.StationCode, date).return_stninfo()
-        except pyStationInfo.pyStationInfoHeightCodeNotFound as e:
+        except StationInfoHeightCodeNotFound as e:
             tqdm.write(' -- WARNING: ' + str(e) + '. Antenna height will be used as is and GAMIT may produce a fatal.')
-            self.StationInfo = pyStationInfo.StationInfo(cnn,
-                                                         station.NetworkCode,
-                                                         station.StationCode,
-                                                         date).return_stninfo(no_dharp_translate=True)
+            self.StationInfo = StationInfo(cnn, station.NetworkCode,
+                                           station.StationCode, date).return_stninfo(no_dharp_translate=True)
 
         self.date         = date  # type: pyDate.Date
         self.Archive_path = GamitConfig.archive_path
@@ -282,13 +280,8 @@ class StationCollection(list):
             self.append(stations)
             
     def labels_array(self):
-      	# pyNetwork already filters to active stations, so check isn't needed...
+        # pyNetwork already filters to active stations, so check isn't needed...
       	# return np.array([stn.netstn for stn in self if date in stn.good_rinex])
-        return np.array([stn.netstn for stn in self])
-
-    def labels_array(self):
-      	# pyNetwork already filters to active stations, so check isn't needed
-      	# np.array([stn.netstn for stn in self if date in stn.good_rinex])
         return np.array([stn.netstn for stn in self])
 
     def append(self, station):

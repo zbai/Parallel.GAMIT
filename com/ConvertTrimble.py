@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Project: Parallel.GAMIT
+Project: Geodesy Database Engine (GeoDE)
 Date: 10/28/2022
 Author: Demian D. Gomez
 Script to convert T0x files to RINEX

@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Project: Parallel.GAMIT
+Project: Geodesy Database Engine (GeoDE)
 Date: 11/20/2023
 Author: Demian D. Gomez
 
@@ -14,7 +14,7 @@ from geopy.extra.rate_limiter import RateLimiter
 
 
 def main():
-    geolocator = Nominatim(user_agent="Parallel.GAMIT")
+    geolocator = Nominatim(user_agent="GeoDE")
 
     cnn = dbConnection.Cnn('gnss_data.cfg')
 

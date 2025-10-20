@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Project: Parallel.GAMIT
+Project: Geodesy Database Engine (GeoDE)
 Date: 11/8/17 9:24 AM
 Author: Demian D. Gomez
 
@@ -41,7 +41,8 @@ from tqdm import tqdm
 
 # app
 from pgamit import (Utils, dbConnection, pyArchiveStruct, pyJobServer,
-                    pyOptions, pyRinex, pyRinexName, pyStationInfo)
+                    pyOptions, pyRinex, pyRinexName)
+from pgamit.metadata.station_info import StationInfoException, StationInfoHeightCodeNotFound, StationInfo
 from pgamit.pyDate import Date
 from pgamit.pyRinexName import path_replace_tags
 from pgamit.Utils import (dir_try_remove, file_try_remove, fqdn_parse,
@@ -399,7 +400,6 @@ class FilesBag:
 
 def thread_queue_all_files(cnn, drange, stations, msg_outbox):
     db_archive = pyArchiveStruct.RinexStruct(cnn)
-    SI = pyStationInfo
     stations_items = tuple(stations.items())
 
     # iterate in (date, stations) order instead of (station, date) to maximize
@@ -417,17 +417,17 @@ def thread_queue_all_files(cnn, drange, stations, msg_outbox):
 
             try:
                 # Query DB
-                _ = SI.StationInfo(cnn, stn.NetworkCode,
+                _ = StationInfo(cnn, stn.NetworkCode,
                                    stn.StationCode, date=date)
-            except SI.pyStationInfoHeightCodeNotFound:
+            except StationInfoHeightCodeNotFound:
                 # if the error is that no height code is found,
                 # then there is a record
                 pass
-            except SI.pyStationInfoException:
+            except StationInfoException:
                 # no possible data here, inform and skip
                 # DDG: unless the is NO record, then assume
                 # new station with no stninfo yet (try to download)
-                stn_reconds = SI.StationInfo(cnn, stn.NetworkCode,
+                stn_reconds = StationInfo(cnn, stn.NetworkCode,
                                              stn.StationCode,
                                              allow_empty=True)
                 if stn_reconds.records:

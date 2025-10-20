@@ -582,7 +582,7 @@ def get_country_code(lat, lon):
     """Obtain the country code based on lat lon of station"""
     # DDG: added code to insert new station including the country_code
     # find the country code for the station
-    geolocator = Nominatim(user_agent="Parallel.GAMIT")
+    geolocator = Nominatim(user_agent="GeoDE")
     location = geolocator.reverse("%f, %f" % (lat, lon))
 
     if location and 'country_code' in location.raw['address'].keys():

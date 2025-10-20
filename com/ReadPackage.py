@@ -7,7 +7,7 @@ import shutil
 import os
 
 # app
-from pgamit import pyStationInfo
+from pgamit.metadata.station_info import StationInfoRecord
 from pgamit.Utils import file_read_all, add_version_argument
 
 
@@ -65,7 +65,7 @@ def print_insert_sql(station):
 def print_station_info(NetworkCode, StationCode, stninfo):
 
     for record in stninfo:
-        import_record = pyStationInfo.StationInfoRecord(NetworkCode, StationCode, record)
+        import_record = StationInfoRecord(NetworkCode, StationCode, _record=record)
 
         print(import_record)
 

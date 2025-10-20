@@ -47,13 +47,13 @@ if not os.environ.get('DISPLAY', None):
 from matplotlib.widgets import Button
 
 # app
-from pgamit import pyStationInfo
-from pgamit import pyDate
-from pgamit import pyEvents
-from pgamit.Utils import ct2lg, lg2ct, rotlg2ct, crc32, stationID, lla2ecef
-from pgamit.pyBunch import Bunch
-from pgamit import pyOkada
-from pgamit import dbConnection
+from .metadata.station_info import StationInfo, StationInfoException
+from . import pyDate
+from . import pyEvents
+from .Utils import ct2lg, lg2ct, rotlg2ct, crc32, stationID, lla2ecef
+from .pyBunch import Bunch
+from . import pyOkada
+from . import dbConnection
 
 language = {
     'eng': {
@@ -1501,7 +1501,7 @@ class GenericJumps:
 
         # get station information
         try:
-            self.stninfo = pyStationInfo.StationInfo(cnn, NetworkCode, StationCode)
+            self.stninfo = StationInfo(cnn, NetworkCode, StationCode)
 
             # DDG new behavior: do not add a jump if the equipment is the same (only if antenna or equipment are different)
             prev_red = self.stninfo.records[0]
@@ -1531,7 +1531,7 @@ class GenericJumps:
                                            fit=('+' in table or (self.add_metadata_jumps and '-' not in table))
                                            ))
                 prev_red = stninfo
-        except pyStationInfo.pyStationInfoException:
+        except StationInfoException:
             logger.info('No station information found for %s.%s, mechanical jumps may be incomplete'
                         % (NetworkCode, StationCode))
 

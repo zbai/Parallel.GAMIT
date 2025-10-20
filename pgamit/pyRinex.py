@@ -11,18 +11,17 @@ import uuid
 import re
 import struct
 import json
-import glob
 
 # app
-from pgamit.pyEvents import Event
-from pgamit.Utils import ecef2lla
-from pgamit.pyRinexName import check_year
-from pgamit import pyRinexName
-from pgamit import pyDate
-from pgamit import pyRunWithRetry
-from pgamit import pyStationInfo
-from pgamit import Utils
-from pgamit.Utils import (file_open,
+from .pyEvents import Event
+from .Utils import ecef2lla
+from .pyRinexName import check_year
+from . import pyRinexName
+from . import pyDate
+from . import pyRunWithRetry
+from .metadata.station_info import StationInfo
+from . import Utils
+from .Utils import (file_open,
                           file_write,
                           file_readlines,
                           struct_unpack,
@@ -1191,7 +1190,7 @@ class ReadRinex(RinexRecord):
         # should be executed before calling PPP or before rebuilding the Archive
         # new function now accepts a dictionary OR a station info object
 
-        if type(NewValues) is pyStationInfo.StationInfo:
+        if type(NewValues) is StationInfo:
             if NewValues.date is not None and NewValues.date != self.date:
                 raise pyRinexException('The StationInfo object was initialized for a different date than that of the '
                                        'RINEX file. Date on RINEX: ' + self.date.yyyyddd() +

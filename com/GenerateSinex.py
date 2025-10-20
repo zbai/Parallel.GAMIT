@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Project: Parallel.GAMIT
+Project: Geodesy Database Engine (GeoDE)
 Date: 7/18/18 10:28 AM
 Author: Demian D. Gomez
 
@@ -97,7 +97,7 @@ def main():
     parser = argparse.ArgumentParser(description='GNSS time series stacker')
 
     parser.add_argument('project', type=str, nargs=1, metavar='{project name}',
-                        help="Specify the project name used to process the GAMIT solutions in Parallel.GAMIT.")
+                        help="Specify the project name used to process the GAMIT solutions in GeoDE.")
 
     parser.add_argument('sinex', type=str, nargs=1, metavar='{project name}',
                         help="SINEX file to update.")

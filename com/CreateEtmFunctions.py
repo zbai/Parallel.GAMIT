@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 
 """
-Project: Parallel.PPP
+Project: Geodesy Database Engine (GeoDE)
 Date: 10/10/17 9:10 AM
 Author: Demian D. Gomez
 

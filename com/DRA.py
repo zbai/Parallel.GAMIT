@@ -261,7 +261,7 @@ def main():
 
     parser.add_argument('project', type=str, nargs=1, metavar='{project name}',
                         help='''Specify the project name used to process
-                             the GAMIT solutions in Parallel.GAMIT.''')
+                             the GAMIT solutions in GeoDE.''')
 
     parser.add_argument('-d', '--date_filter', nargs='+', metavar='date',
                         help="Date range filter. Can be specified in yyyy/mm/dd yyyy_doy  wwww-d format")

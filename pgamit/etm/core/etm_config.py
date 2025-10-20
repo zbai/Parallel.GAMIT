@@ -1,5 +1,5 @@
 """
-Project: Parallel.GAMIT
+Project: Geodesy Database Engine (GeoDE)
 Date: 09/12/2025 09:20 AM
 Author: Demian D. Gomez
 """
@@ -217,12 +217,12 @@ class EtmConfig:
         self.metadata.max_dist = 20.0 if not stn[0]['max_dist'] else stn[0]['max_dist']
 
         # as part of the metadata, load the station info
-        from pgamit.pyStationInfo import StationInfo, pyStationInfoException
+        from ...metadata.station_info import StationInfo, StationInfoException
         try:
             station_info = StationInfo(cnn, self.network_code, self.station_code, allow_empty=True)
 
             self.metadata.station_information = station_info.records
-        except pyStationInfoException:
+        except StationInfoException:
             self.metadata.station_information = []
 
     def _load_polynomial_config(self, cnn) -> None:

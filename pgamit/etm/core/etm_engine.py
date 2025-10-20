@@ -11,9 +11,6 @@ import os
 
 from importlib.metadata import version, PackageNotFoundError
 
-from pgamit.etm.core.data_classes import AdjustmentResults
-from pgamit.etm.core.type_declarations import FitStatus
-
 try:
     VERSION = str(version("pgamit"))
 except PackageNotFoundError:
@@ -27,21 +24,22 @@ logger = logging.getLogger(__name__)
 from ...dbConnection import Cnn
 from ...Utils import file_write, load_json
 from ...pyDate import Date
-from ...pyStationInfo import StationInfoRecord
-from pgamit.etm.data.solution_data import SolutionData
-from pgamit.etm.data.etm_database import load_parameters_db, save_parameters_db
-from pgamit.etm.core.etm_config import EtmConfig, SolutionOptions
-from pgamit.etm.core.type_declarations import EtmSolutionType
-from pgamit.etm.core.data_classes import LeastSquares
-from pgamit.etm.least_squares.design_matrix import DesignMatrix
-from pgamit.etm.etm_functions.polynomial import PolynomialFunction
-from pgamit.etm.etm_functions.periodic import PeriodicFunction
-from pgamit.etm.etm_functions.stochastic_signal import StochasticSignal
-from pgamit.etm.core.jump_manager import JumpManager
-from pgamit.etm.least_squares.least_squares import EtmFit, AdjustmentModels
-from pgamit.etm.core.logging_config import setup_etm_logging
-from pgamit.etm.visualization.data_prep import PlotDataPreparer
-from pgamit.etm.visualization.etm_plotting import EtmPlotter
+
+from ...metadata.station_info import StationInfoRecord
+from ..data.solution_data import SolutionData
+from ..data.etm_database import load_parameters_db, save_parameters_db
+from ..core.etm_config import EtmConfig, SolutionOptions
+from ..core.type_declarations import EtmSolutionType, FitStatus
+from ..core.data_classes import LeastSquares, AdjustmentResults
+from ..least_squares.design_matrix import DesignMatrix
+from ..least_squares.least_squares import EtmFit, AdjustmentModels
+from ..etm_functions.polynomial import PolynomialFunction
+from ..etm_functions.periodic import PeriodicFunction
+from ..etm_functions.stochastic_signal import StochasticSignal
+from ..core.jump_manager import JumpManager
+from ..core.logging_config import setup_etm_logging
+from ..visualization.data_prep import PlotDataPreparer
+from ..visualization.etm_plotting import EtmPlotter
 
 
 def enum_dict_factory(field_list):

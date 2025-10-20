@@ -524,14 +524,15 @@ class BisectingQMeans(_BaseKMeans):
         self
             Fitted estimator.
         """
-        X = self._validate_data(
-            X,
-            accept_sparse="csr",
-            dtype=[np.float64, np.float32],
-            order="C",
-            copy=self.copy_x,
-            accept_large_sparse=False,
-        )
+        #DDG: commented since it does not appear to be implemented
+        #X = self._validate_data(
+        #    X,
+        #    accept_sparse="csr",
+        #    dtype=[np.float64, np.float32],
+        #    order="C",
+        #    copy=self.copy_x,
+        #    accept_large_sparse=False,
+        #)
 
         self._check_params_vs_input(X)
 

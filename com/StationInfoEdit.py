@@ -18,7 +18,7 @@ import re
 # app
 from pgamit import pyOptions
 from pgamit import dbConnection
-from pgamit import pyStationInfo
+from pgamit.metadata.station_info import StationInfo, StationInfoRecord
 from pgamit import pyDate
 from pgamit.Utils import process_date, add_version_argument
 
@@ -302,7 +302,7 @@ def delete_record(menu):
     global StnInfo
 
     if 'New station information' not in menu.title:
-        StnInfo.DeleteStationInfo(StnInfo.records[menu.record_index])
+        StnInfo.delete_station_info(StnInfo.records[menu.record_index])
 
 
 def save_changes(menu):
@@ -327,16 +327,16 @@ def save_changes(menu):
                     record[fname] = None
 
         # convert the dictionary into a valid StationInfoRecord object
-        record = pyStationInfo.StationInfoRecord(stn['NetworkCode'], stn['StationCode'], record)
+        record = StationInfoRecord(stn['NetworkCode'], stn['StationCode'], _record=record)
 
         # try to insert and catch errors
         try:
             if 'New station information' in menu.title:
                 # insert new
-                StnInfo.InsertStationInfo(record)
+                StnInfo.insert_station_info(record)
             else:
                 # update a station info record
-                StnInfo.UpdateStationInfo(StnInfo.records[menu.record_index], record)
+                StnInfo.update_station_info(StnInfo.records[menu.record_index], record)
         except Exception as e:
             menu.ShowError(traceback.format_exc())
             return False
@@ -348,7 +348,7 @@ def save_changes(menu):
 def get_records():
 
     global StnInfo
-    StnInfo = pyStationInfo.StationInfo(cnn, stn['NetworkCode'], stn['StationCode'], allow_empty=True)
+    StnInfo = StationInfo(cnn, stn['NetworkCode'], stn['StationCode'], allow_empty=True)
 
     out = []
 

@@ -247,7 +247,7 @@ def main():
     parser = argparse.ArgumentParser(description='GNSS time series stacker')
 
     parser.add_argument('project', type=str, nargs=1, metavar='{project name}',
-                        help="Specify the project name used to process the GAMIT solutions in Parallel.GAMIT.")
+                        help="Specify the project name used to process the GAMIT solutions in GeoDE.")
 
     parser.add_argument('stack_name', type=str, nargs=1, metavar='{stack name}',
                         help="Specify a name for the stack: eg. itrf2014 or posgar07b. This name should be unique "

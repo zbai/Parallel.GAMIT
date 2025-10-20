@@ -24,7 +24,7 @@ from io import BytesIO
 # app
 from pgamit import dbConnection
 from pgamit.pyDate import Date
-from pgamit.pyStationInfo import StationInfo
+from pgamit.metadata.station_info import StationInfo
 from pgamit.etm.core.logging_config import setup_etm_logging
 from pgamit.etm.core.etm_engine import EtmEngine, EtmSolutionType, EtmEncoder
 from pgamit.etm.core.etm_config import EtmConfig

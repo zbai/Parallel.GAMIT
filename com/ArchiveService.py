@@ -49,7 +49,7 @@ from pgamit import pyOTL
 from pgamit import pyRinex
 from pgamit import pyRinexName
 from pgamit import dbConnection
-from pgamit import pyStationInfo
+from pgamit.metadata.station_info import StationInfoException
 from pgamit import pyArchiveStruct
 from pgamit import pyPPP
 from pgamit import pyProducts
@@ -116,7 +116,7 @@ def insert_station_w_lock(cnn, StationCode, filename,
             from geopy.geocoders import Nominatim
             import country_converter as coco
             # find the country code for the station
-            geolocator = Nominatim(user_agent="Parallel.GAMIT")
+            geolocator = Nominatim(user_agent="GeoDE")
             location = geolocator.reverse("%f, %f" % (lat, lon))
 
             if location and 'country_code' in location.raw['address'].keys():
@@ -620,7 +620,7 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry):
         fill_event(e.event)
         error_handle(cnn, e.event, crinez, reject_folder, filename)
 
-    except pyStationInfo.pyStationInfoException as e:
+    except StationInfoException as e:
 
         retry_folder = retry_folder.replace(
             '%reason%', 'station_info_exception')

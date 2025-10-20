@@ -18,7 +18,7 @@ __all__ = [
     'snxParse',
     'pyLeastSquares',
     'pyProducts',
-    'pyStationInfo',
+    'station_info',
     'dbConnection',
     'pyDate',
     'pyOTL',

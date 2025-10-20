@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Project: Parallel.GAMIT
+Project: Geodesy Database Engine (GeoDE)
 Date: 3/31/17 6:33 PM
 Author: Demian D. Gomez
 """
@@ -301,10 +301,10 @@ def config_summary(GamitConfig, args):
 
 def main():
 
-    parser = argparse.ArgumentParser(description='Parallel.GAMIT main execution program')
+    parser = argparse.ArgumentParser(description='GeoDE main execution program')
 
     parser.add_argument('session_cfg', type=str, nargs=1, metavar='session.cfg',
-                        help="Filename with the session configuration to run Parallel.GAMIT")
+                        help="Filename with the session configuration to run GeoDE")
 
     parser.add_argument('-d', '--date', type=str, nargs=2, metavar='{date}',
                         help="Date range to process. Can be specified in yyyy/mm/dd yyyy_doy wwww-d format")
@@ -318,7 +318,7 @@ def main():
 
     parser.add_argument('-c', '--check_mode', type=str, nargs='+', metavar='{station}',
                         help="Check station(s) mode. If station(s) are not present in the GAMIT polyhedron, "
-                             "(i.e. the RINEX file(s) were missing at the time of the processing) Parallel.GAMIT will "
+                             "(i.e. the RINEX file(s) were missing at the time of the processing) GeoDE will "
                              "add the station to the closest subnetwork(s) and reprocess them. If station(s) were "
                              "present at the time of the processing but failed to process (i.e. they are in the "
                              "missing stations list), these subnetworks will be reprocessed to try to obtain a "

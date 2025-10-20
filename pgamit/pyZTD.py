@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Project: Parallel.GAMIT
+Project: Geodesy Database Engine (GeoDE)
 Date: 6/18/20 14:28
 Author: Demian D. Gomez
 """

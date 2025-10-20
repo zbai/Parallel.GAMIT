@@ -1,5 +1,5 @@
 """
-Project: Parallel.GAMIT 
+Project: Geodesy Database Engine (GeoDE)
 Date: 5/15/24 9:08 AM 
 Author: Demian D. Gomez
 

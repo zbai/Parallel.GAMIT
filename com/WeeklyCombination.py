@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Project: Parallel.GAMIT
+Project: Geodesy Database Engine (GeoDE)
 Date: 05/30/19 10:44 AM
 Author: Demian D. Gomez
 """
@@ -245,7 +245,7 @@ def main():
                         help="List of networks/stations to include in the solution.")
 
     parser.add_argument('-s', '--session_config', type=str, nargs=1, metavar='session.cfg',
-                        help="Filename with the session configuration to run Parallel.GAMIT")
+                        help="Filename with the session configuration to run GeoDE")
 
     parser.add_argument('-w', '--gpsweek', nargs=1,
                         help="GPS week to combine.")

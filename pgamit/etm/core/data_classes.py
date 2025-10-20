@@ -1,5 +1,5 @@
 """
-Project: Parallel.GAMIT
+Project: Geodesy Database Engine (GeoDE)
 Date: 9/21/25 4:58 PM
 Author: Demian D. Gomez
 """
@@ -11,7 +11,7 @@ from datetime import datetime
 
 # app
 from pgamit.pyDate import Date
-from pgamit.pyStationInfo import StationInfoRecord
+from pgamit.metadata.station_info import StationInfoRecord
 from pgamit.etm.core.type_declarations import (JumpType, PeriodicStatus, FitStatus,
                                                AdjustmentModels, CovarianceFunction, SolutionType)
 
@@ -311,7 +311,7 @@ class StationMetadata(BaseDataClass):
 
         if isinstance(self.station_information, list):
             for i, stn in enumerate(self.station_information):
-                self.station_information[i] = StationInfoRecord(stn['NetworkCode'], stn['StationCode'], stn)
+                self.station_information[i] = StationInfoRecord(stn['NetworkCode'], stn['StationCode'], _record=stn)
 
         # Convert lists to numpy arrays if needed
         array_fields = ['lat', 'lon', 'height', 'auto_x', 'auto_y', 'auto_z']

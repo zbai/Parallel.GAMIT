@@ -1,5 +1,5 @@
 """
-Project: Parallel.GAMIT
+Project: Geodesy Database Engine (GeoDE)
 Date: 11/28/2023
 Author: Demian D. Gomez
 Module to convert T0x files to RINEX

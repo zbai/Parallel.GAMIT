@@ -2,7 +2,7 @@ import logging
 import numpy as np
 
 from pgamit.pyDate import Date
-from pgamit import pyStationInfo
+from pgamit import station_info
 from pgamit.Utils import load_json, process_date_str
 from pgamit.etm.core.type_declarations import CovarianceFunction, SolutionType
 from pgamit.etm.core.etm_engine import EtmEngine
