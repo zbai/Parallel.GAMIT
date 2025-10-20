@@ -100,6 +100,9 @@ class DesignMatrix:
                         k = 0
                         for i in range(f.param_count):
                             if not np.isnan(funct.p.params[comp][i]):
+                                # flag component as constrained
+                                f.constrained[comp] = True
+
                                 j = f.column_index[i]
                                 logger.debug(f'Constraining column {j} to {funct.p.params[comp][i]} sigma '
                                              f'{funct.p.sigmas[comp][i]}')

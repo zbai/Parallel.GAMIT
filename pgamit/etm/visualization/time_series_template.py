@@ -15,6 +15,7 @@ from matplotlib.figure import Figure
 from ..visualization.data_prep import PlotTemplate
 from ..visualization.data_classes import TimeSeriesPlotData, PlotOutputConfig, ComponentData
 from ..core.type_declarations import AdjustmentModels, JumpType
+from ..etm_functions.jumps import JumpFunction
 
 
 class TimeSeriesTemplate(PlotTemplate):
@@ -60,6 +61,9 @@ class TimeSeriesTemplate(PlotTemplate):
                     and self.config.modeling.least_squares_strategy.adjustment_model
                     == AdjustmentModels.LSQ_COLLOCATION):
                 flags.append(self.config.get_label('stochastic'))
+
+            for prefit in self.config.modeling.prefit_models:
+                flags.append(self.config.get_label('prefit') + ' ' + prefit.short_name())
 
             if len(flags):
                 flags_str = ' - ' + self.config.get_label('removed') + ': ' + ', '.join(flags)
@@ -159,7 +163,9 @@ class TimeSeriesTemplate(PlotTemplate):
         ax.grid(True)
         ax.set_ylabel(f"{self.config.get_label(component.lower())} [mm]")
 
-    def add_jump_tables(self, fig: Figure, axes: List[Axes], jump_tables: Tuple[list, list, list]) -> None:
+    def add_jump_tables(self, fig: Figure, axes: List[Axes],
+                        jump_tables: Tuple[list, list, list],
+                        jumps: List[JumpFunction]) -> None:
         """Add jump parameter tables to figure"""
         # This is handled in add_component_annotations for time series
         MAX_ITEMS = 20
@@ -169,8 +175,20 @@ class TimeSeriesTemplate(PlotTemplate):
 
             for j, item in enumerate(reversed(table)):
                 line, color = item
+
+                if jumps[j].constrained[i]:
+                    bbox = dict(
+                        edgecolor='black',  # Border color
+                        facecolor='none',  # Transparent background
+                        boxstyle='round,pad=0.0',  # Rounded corners with padding
+                        linewidth=0.25  # Border width
+                    )
+                else:
+                    bbox = None  # No box at all
+
                 if j < MAX_ITEMS:
-                    text = fig.text(0.0025, initial_pos, line, color=color, fontsize=8, family='monospace')
+                    text = fig.text(0.0025, initial_pos, line, color=color, fontsize=8,
+                                    family='monospace', bbox=bbox)
                 else:
                     text = fig.text(0.0025, initial_pos, self.config.get_label('table_too_long'), color='black',
                                     fontsize=8, family='monospace')

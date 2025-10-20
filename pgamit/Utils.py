@@ -1146,3 +1146,25 @@ $$"""
                                 'otl': otl})
 
     return otl_records
+
+
+def print_yellow(skk):
+    if os.fstat(0) == os.fstat(1):
+        return "\033[93m{}\033[00m" .format(skk)
+    else:
+        return skk
+
+
+def azimuthal_equidistant(c_lon: np.ndarray, c_lat: np.ndarray, grid_lon: np.ndarray, grid_lat: np.ndarray):
+    # azimuthal equidistant
+    cosd = lambda x: np.cos(np.deg2rad(x))
+    sind = lambda x: np.sin(np.deg2rad(x))
+    sin = lambda x: np.sin(x)
+    acos = lambda x: np.arccos(x)
+
+    c = acos(sind(c_lat) * sind(grid_lat) + cosd(c_lat) * cosd(grid_lat) * cosd(grid_lon - c_lon))
+    k = c / sin(c) * 6371
+    x = k * cosd(grid_lat) * sind(grid_lon - c_lon)
+    y = k * (cosd(c_lat) * sind(grid_lat) - sind(c_lat) * cosd(grid_lat) * cosd(grid_lon - c_lon))
+
+    return x, y

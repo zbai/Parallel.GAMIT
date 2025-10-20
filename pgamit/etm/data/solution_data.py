@@ -326,7 +326,10 @@ class SolutionData(ABC):
         for model in self.config.modeling.prefit_models:
             logger.info('Applying prefit model ' + str(model))
             for i in range(3):
-                observations[i] -= model.eval(i, time_vector)
+                if model.p.object == 'jump':
+                    observations[i] -= model.eval(i, time_vector, remove_postseismic=True)
+                else:
+                    observations[i] -= model.eval(i, time_vector)
 
         return observations
 

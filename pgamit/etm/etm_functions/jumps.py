@@ -324,10 +324,12 @@ class JumpFunction(EtmFunction):
 
     def eval(self, component: int,
              override_time_vector: np.ndarray = None,
-             override_params: np.ndarray = None):
+             override_params: np.ndarray = None,
+             remove_postseismic = False):
         """Implementation only removed jumps, not decay"""
 
-        if self.p.jump_type == JumpType.POSTSEISMIC_ONLY:
+        if ((self.p.jump_type == JumpType.POSTSEISMIC_ONLY and not remove_postseismic)
+                or np.all(self.p.params[component])):
             return 0
 
         if override_time_vector is not None:

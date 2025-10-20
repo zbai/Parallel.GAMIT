@@ -82,7 +82,8 @@ class EtmConfig:
                 "polynomial": "Polynomial",
                 "seasonal": "Seasonal",
                 "stochastic": "Stochastic",
-                "removed": "Removed"
+                "removed": "Removed",
+                "prefit": "Prefit"
             },
             'spa': {
                 "station": "Estación",
@@ -109,7 +110,8 @@ class EtmConfig:
                 "polynomial": "Polinomio",
                 "seasonal": "Estacionales",
                 "stochastic": "Estocástico",
-                "removed": "Removido(s)"
+                "removed": "Removido(s)",
+                "prefit": "Pre-ajuste"
             },
             'fra': {
                 "station": "Station",
@@ -136,7 +138,8 @@ class EtmConfig:
                 "polynomial": "Polynôme",
                 "seasonal": "Saisonnier",
                 "stochastic": "Stochastique",
-                "removed": "Supprimé"
+                "removed": "Supprimé",
+                "prefit": "Prefit"
             }
         }
         if solution_type:

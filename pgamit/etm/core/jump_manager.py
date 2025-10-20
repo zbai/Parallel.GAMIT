@@ -10,11 +10,13 @@ import logging
 logger = logging.getLogger(__name__)
 
 # app
+from ...Utils import print_yellow
 from pgamit.etm.core.etm_config import EtmConfig
 from pgamit.etm.core.type_declarations import JumpType
 from pgamit.etm.etm_functions.jumps import JumpFunction
 from pgamit.etm.etm_functions.auto_jumps import AutoJumps
 from pgamit.etm.data.solution_data import SolutionData
+
 
 class JumpManager:
     """Comprehensive jump management system"""
@@ -202,7 +204,7 @@ class JumpManager:
             if not jump.user_action == user_action:
                 jump.user_action = user_action
 
-        logger.info(str(jump))
+        logger.info(str(jump) if jump.p.jump_type != JumpType.AUTO_DETECTED else print_yellow(str(jump)))
 
         self.jumps.append(jump)
 

@@ -27,6 +27,8 @@ class EtmFunction(ABC):
 
         self.p = EtmFunctionParameterVector()
         self.config = config
+        # flag indicator for constraints
+        self.constrained = [False] * 3
 
         self.p.metadata = metadata
 

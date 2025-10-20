@@ -68,7 +68,7 @@ class EtmPlotter:
         main_axes = axes[layout['main_axes_indices']]
         # Add jump parameter tables
         if plot_data.jump_tables:
-            template.add_jump_tables(fig, main_axes, plot_data.jump_tables)
+            template.add_jump_tables(fig, main_axes, plot_data.jump_tables, plot_data.jumps)
 
         # Plot data for each component
         for i, (ax, component) in enumerate(zip(main_axes, ['North', 'East', 'Up'])):

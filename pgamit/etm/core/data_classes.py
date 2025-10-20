@@ -69,9 +69,9 @@ class EtmFunctionParameterVector(BaseDataClass):
     # Parameter storage
     frequencies: np.ndarray = field(default_factory=lambda: np.array([]))
     relaxation: np.ndarray = field(default_factory=lambda: np.array([]))
-    params: List[np.ndarray] = field(default_factory=lambda: np.array([]))
-    sigmas: List[np.ndarray] = field(default_factory=lambda: np.array([]))
-    covar: List[np.ndarray] = field(default_factory=lambda: np.array([]))
+    params: List[np.ndarray] = field(default_factory=lambda: [np.array([]), np.array([]), np.array([])])
+    sigmas: List[np.ndarray] = field(default_factory=lambda: [np.array([]), np.array([]), np.array([])])
+    covar: List[np.ndarray] = field(default_factory=lambda: [np.array([]), np.array([]), np.array([])])
 
     object: str = ''
     metadata: Optional[str] = None
