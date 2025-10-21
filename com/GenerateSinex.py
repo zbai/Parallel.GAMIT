@@ -12,11 +12,11 @@ import argparse
 import os
 
 # app
-from pgamit import pyOptions
-from pgamit import dbConnection
-from pgamit import pyDate
-from pgamit import snxParse
-from pgamit.Utils import (process_date, process_stnlist, file_open, add_version_argument)
+from geode import pyOptions
+from geode import dbConnection
+from geode import pyDate
+from geode import snxParse
+from geode.Utils import (process_date, process_stnlist, file_open, add_version_argument)
 
 
 def replace_in_sinex(sinex, observations, unknowns, new_val):

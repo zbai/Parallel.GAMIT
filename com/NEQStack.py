@@ -17,13 +17,13 @@ from scipy.stats import chi2
 
 
 # app
-from pgamit import dbConnection
-from pgamit import pyOptions
-from pgamit import pyETM
-from pgamit import pyJobServer
-from pgamit import pyDate
-from pgamit.pyDate import Date
-from pgamit.Utils import process_date, ct2lg, ecef2lla, rotct2lg
+from geode import dbConnection
+from geode import pyOptions
+from geode import pyETM
+from geode import pyJobServer
+from geode import pyDate
+from geode.pyDate import Date
+from geode.Utils import process_date, ct2lg, ecef2lla, rotct2lg
 
 LIMIT = 2.5
 

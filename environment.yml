@@ -1,4 +1,4 @@
-name: pgamit
+name: geode
 channels:
   - defaults
   - conda-forge

@@ -18,10 +18,10 @@ import numpy as np
 from tqdm import tqdm
 
 # app
-from pgamit import dbConnection, pyDate
-from pgamit.proto_download import Client
-from pgamit.pyRinexName import path_replace_tags
-from pgamit.Utils import (fqdn_parse, process_date, process_stnlist,
+from geode import dbConnection, pyDate
+from geode.proto_download import Client
+from geode.pyRinexName import path_replace_tags
+from geode.Utils import (fqdn_parse, process_date, process_stnlist,
                           required_length, station_list_help, stationID, add_version_argument)
 
 

@@ -15,13 +15,13 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 import json
 
-from pgamit.pyDate import Date
-from pgamit import dbConnection
-from pgamit.pyDate import Date
-from pgamit.cluster import BisectingQMeans, select_central_point, overcluster, prune
-from pgamit.agglomerative import DeterministicClustering
-from pgamit.Utils import station_list_help, process_date, process_stnlist, stationID, add_version_argument, file_write
-from pgamit.plots import plot_global_network, plot_geographic_cluster_graph
+from geode.pyDate import Date
+from geode import dbConnection
+from geode.pyDate import Date
+from geode.cluster import BisectingQMeans, select_central_point, overcluster, prune
+from geode.agglomerative import DeterministicClustering
+from geode.Utils import station_list_help, process_date, process_stnlist, stationID, add_version_argument, file_write
+from geode.plots import plot_global_network, plot_geographic_cluster_graph
 
 
 def generate_kmz(OC, lla, stations, central_points, filename):

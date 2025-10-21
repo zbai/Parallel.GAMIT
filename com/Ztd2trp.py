@@ -14,9 +14,9 @@ import os
 from tqdm import tqdm
 
 # app
-from pgamit.Utils import required_length, process_date, add_version_argument
-from pgamit import pyDate
-from pgamit import dbConnection
+from geode.Utils import required_length, process_date, add_version_argument
+from geode import pyDate
+from geode import dbConnection
 
 CONFIG_FILE = 'gnss_data.cfg'
 

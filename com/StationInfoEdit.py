@@ -16,11 +16,11 @@ import traceback
 import re
 
 # app
-from pgamit import pyOptions
-from pgamit import dbConnection
-from pgamit.metadata.station_info import StationInfo, StationInfoRecord
-from pgamit import pyDate
-from pgamit.Utils import process_date, add_version_argument
+from geode import pyOptions
+from geode import dbConnection
+from geode.metadata.station_info import StationInfo, StationInfoRecord
+from geode import pyDate
+from geode.Utils import process_date, add_version_argument
 
 
 cnn       = dbConnection.Cnn('gnss_data.cfg')

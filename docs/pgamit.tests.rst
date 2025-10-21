@@ -1,21 +1,21 @@
-pgamit.tests package
+geode.tests package
 ====================
 
 Submodules
 ----------
 
-pgamit.tests.common module
+geode.tests.common module
 --------------------------
 
-.. automodule:: pgamit.tests.common
+.. automodule:: geode.tests.common
    :members:
    :undoc-members:
    :show-inheritance:
 
-pgamit.tests.test\_make\_clusters module
+geode.tests.test\_make\_clusters module
 ----------------------------------------
 
-.. automodule:: pgamit.tests.test_make_clusters
+.. automodule:: geode.tests.test_make_clusters
    :members:
    :undoc-members:
    :show-inheritance:
@@ -23,7 +23,7 @@ pgamit.tests.test\_make\_clusters module
 Module contents
 ---------------
 
-.. automodule:: pgamit.tests
+.. automodule:: geode.tests
    :members:
    :undoc-members:
    :show-inheritance:

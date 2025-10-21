@@ -1,4 +1,4 @@
-pgamit package
+geode package
 ==============
 
 Subpackages
@@ -7,159 +7,159 @@ Subpackages
 .. toctree::
    :maxdepth: 4
 
-   pgamit.tests
+   geode.tests
 
 Submodules
 ----------
 
-pgamit.StationList module
+geode.StationList module
 -------------------------
 
-.. automodule:: pgamit.StationList
+.. automodule:: geode.StationList
    :members:
    :undoc-members:
    :show-inheritance:
 
-pgamit.Utils module
+geode.Utils module
 -------------------
 
-.. automodule:: pgamit.Utils
+.. automodule:: geode.Utils
    :members:
    :undoc-members:
    :show-inheritance:
 
-pgamit.cluster module
+geode.cluster module
 ---------------------
 
-.. automodule:: pgamit.cluster
+.. automodule:: geode.cluster
    :members:
    :undoc-members:
    :show-inheritance:
 
-pgamit.dbConnection module
+geode.dbConnection module
 --------------------------
 
-.. automodule:: pgamit.dbConnection
+.. automodule:: geode.dbConnection
    :members:
    :undoc-members:
    :show-inheritance:
 
-pgamit.dbConnection\_old module
+geode.dbConnection\_old module
 -------------------------------
 
-.. automodule:: pgamit.dbConnection_old
+.. automodule:: geode.dbConnection_old
    :members:
    :undoc-members:
    :show-inheritance:
 
-pgamit.network module
+geode.network module
 ---------------------
 
-.. automodule:: pgamit.network
+.. automodule:: geode.network
    :members:
    :undoc-members:
    :show-inheritance:
 
-pgamit.plots module
+geode.plots module
 -------------------
 
-.. automodule:: pgamit.plots
+.. automodule:: geode.plots
    :members:
    :undoc-members:
    :show-inheritance:
 
-pgamit.proto\_download module
+geode.proto\_download module
 -----------------------------
 
-.. automodule:: pgamit.proto_download
+.. automodule:: geode.proto_download
    :members:
    :undoc-members:
    :show-inheritance:
 
-pgamit.pyArchiveStruct module
+geode.pyArchiveStruct module
 -----------------------------
 
-.. automodule:: pgamit.pyArchiveStruct
+.. automodule:: geode.pyArchiveStruct
    :members:
    :undoc-members:
    :show-inheritance:
 
-pgamit.pyBunch module
+geode.pyBunch module
 ---------------------
 
-.. automodule:: pgamit.pyBunch
+.. automodule:: geode.pyBunch
    :members:
    :undoc-members:
    :show-inheritance:
 
-pgamit.pyDate module
+geode.pyDate module
 --------------------
 
-.. automodule:: pgamit.pyDate
+.. automodule:: geode.pyDate
    :members:
    :undoc-members:
    :show-inheritance:
 
-pgamit.pyETM module
+geode.pyETM module
 -------------------
 
-.. automodule:: pgamit.pyETM
+.. automodule:: geode.pyETM
    :members:
    :undoc-members:
    :show-inheritance:
 
-pgamit.pyEvents module
+geode.pyEvents module
 ----------------------
 
-.. automodule:: pgamit.pyEvents
+.. automodule:: geode.pyEvents
    :members:
    :undoc-members:
    :show-inheritance:
 
-pgamit.pyGamitConfig module
+geode.pyGamitConfig module
 ---------------------------
 
-.. automodule:: pgamit.pyGamitConfig
+.. automodule:: geode.pyGamitConfig
    :members:
    :undoc-members:
    :show-inheritance:
 
-pgamit.pyGamitSession module
+geode.pyGamitSession module
 ----------------------------
 
-.. automodule:: pgamit.pyGamitSession
+.. automodule:: geode.pyGamitSession
    :members:
    :undoc-members:
    :show-inheritance:
 
-pgamit.pyGamitTask module
+geode.pyGamitTask module
 -------------------------
 
-.. automodule:: pgamit.pyGamitTask
+.. automodule:: geode.pyGamitTask
    :members:
    :undoc-members:
    :show-inheritance:
 
-pgamit.pyGlobkTask module
+geode.pyGlobkTask module
 -------------------------
 
-.. automodule:: pgamit.pyGlobkTask
+.. automodule:: geode.pyGlobkTask
    :members:
    :undoc-members:
    :show-inheritance:
 
-pgamit.pyJobServer module
+geode.pyJobServer module
 -------------------------
 
-.. automodule:: pgamit.pyJobServer
+.. automodule:: geode.pyJobServer
    :members:
    :undoc-members:
    :show-inheritance:
 
-pgamit.pyLeastSquares module
+geode.pyLeastSquares module
 ----------------------------
 
-.. automodule:: pgamit.pyLeastSquares
+.. automodule:: geode.pyLeastSquares
    :members:
    :undoc-members:
    :show-inheritance:

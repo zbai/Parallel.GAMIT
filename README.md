@@ -48,7 +48,7 @@ Ensure the following dependencies are installed and available in your PATH:
 ### CLI Installation
 
 ```bash
-pip install pgamit
+pip install geode-gnss
 ```
 
 Create a working directory and configure `gnss_data.cfg` with your database connection, archive paths, and compute nodes. See [Installation.md](Installation.md) for detailed configuration options.

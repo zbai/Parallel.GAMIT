@@ -10,11 +10,11 @@ has not been collecting data for X time
 
 import argparse
 
-from pgamit import pyDate
-from pgamit import dbConnection
-from pgamit.metadata.station_info import StationInfo, StationInfoRecord
-from pgamit import Utils
-from pgamit.Utils import stationID, add_version_argument
+from geode import pyDate
+from geode import dbConnection
+from geode.metadata.station_info import StationInfo, StationInfoRecord
+from geode import Utils
+from geode.Utils import stationID, add_version_argument
 
 CONFIG_FILE = 'gnss_data.cfg'
 

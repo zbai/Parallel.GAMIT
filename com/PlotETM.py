@@ -22,21 +22,21 @@ import zipfile
 from io import BytesIO
 
 # app
-from pgamit import dbConnection
-from pgamit.pyDate import Date
-from pgamit.metadata.station_info import StationInfo
-from pgamit.etm.core.logging_config import setup_etm_logging
-from pgamit.etm.core.etm_engine import EtmEngine, EtmSolutionType, EtmEncoder
-from pgamit.etm.core.etm_config import EtmConfig
-from pgamit.etm.core.s_score import ScoreTable
-from pgamit.etm.core.type_declarations import JumpType
-from pgamit.etm.data.solution_data import SolutionDataException
-from pgamit.etm.core.data_classes import (AdjustmentModels, SolutionType, CovarianceFunction,
+from geode import dbConnection
+from geode.pyDate import Date
+from geode.metadata.station_info import StationInfo
+from geode.etm.core.logging_config import setup_etm_logging
+from geode.etm.core.etm_engine import EtmEngine, EtmSolutionType, EtmEncoder
+from geode.etm.core.etm_config import EtmConfig
+from geode.etm.core.s_score import ScoreTable
+from geode.etm.core.type_declarations import JumpType
+from geode.etm.data.solution_data import SolutionDataException
+from geode.etm.core.data_classes import (AdjustmentModels, SolutionType, CovarianceFunction,
                                           ModelingParameters, SolutionOptions, StationMetadata)
-from pgamit.etm.etm_functions.polynomial import PolynomialFunction
-from pgamit.etm.etm_functions.periodic import PeriodicFunction
-from pgamit.etm.etm_functions.jumps import JumpFunction
-from pgamit.Utils import (process_date,
+from geode.etm.etm_functions.polynomial import PolynomialFunction
+from geode.etm.etm_functions.periodic import PeriodicFunction
+from geode.etm.etm_functions.jumps import JumpFunction
+from geode.Utils import (process_date,
                           process_stnlist,
                           station_list_help,
                           stationID,

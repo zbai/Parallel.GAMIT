@@ -26,19 +26,19 @@ from math import ceil
 from tqdm import tqdm
 
 # app
-from pgamit import pyOptions
-from pgamit import dbConnection
-from pgamit import pyDate
-from pgamit.metadata.station_info import StationInfo, StationInfoException
-from pgamit import pyArchiveStruct
-from pgamit import pyPPP
-from pgamit import Utils
-from pgamit import pyRinexName
-from pgamit.pyRinexName import RinexNameFormat
-from pgamit.Utils import (process_date, ecef2lla, parse_atx_antennas,
+from geode import pyOptions
+from geode import dbConnection
+from geode import pyDate
+from geode.metadata import station_info
+from geode import pyArchiveStruct
+from geode import pyPPP
+from geode import Utils
+from geode import pyRinexName
+from geode.pyRinexName import RinexNameFormat
+from geode.Utils import (process_date, ecef2lla, parse_atx_antennas,
                           determine_frame, station_list_help, add_version_argument)
-from pgamit import pyJobServer
-from pgamit import pyEvents
+from geode import pyJobServer
+from geode import pyEvents
 
 
 differences = []
@@ -68,9 +68,9 @@ def compare_stninfo_rinex(NetworkCode, StationCode, STime, ETime, rinex_serial):
         date = STime + (ETime - STime)/2
         date = pyDate.Date(datetime=date)
 
-        stninfo = StationInfo(cnn, NetworkCode, StationCode, date)
+        stninfo = station_info.StationInfo(cnn, NetworkCode, StationCode, date)
 
-    except StationInfoException as e:
+    except station_info.StationInfoException as e:
         return "Station Information error: " + str(e), None
 
     if stninfo.current_record.ReceiverSerial.lower() != rinex_serial.lower():
@@ -152,8 +152,8 @@ def CheckRinexIntegrity(cnn, Config, stnlist, start_date, end_date, operation, J
     tqdm.write(' >> Archive path: %s' % Config.archive_path)
 
     if operation == 'fix':
-        modules = ('os', 'pgamit.pyArchiveStruct', 'pgamit.dbConnection', 'pgamit.pyOptions', 'traceback', 'platform',
-                   'pgamit.pyEvents')
+        modules = ('os', 'geode.pyArchiveStruct', 'geode.dbConnection', 'geode.pyOptions', 'traceback', 'platform',
+                   'geode.pyEvents')
 
         pbar = tqdm(total=len(stnlist), ncols=80)
         differences = []
@@ -217,7 +217,7 @@ def StnInfoRinexIntegrity(cnn, stnlist, start_date, end_date, JobServer):
 
     global differences
 
-    modules = ('pgamit.metadata.station_info', 'pgamit.dbConnection', 'pgamit.pyDate', 'traceback')
+    modules = ('geode.metadata.station_info', 'geode.dbConnection', 'geode.pyDate', 'traceback')
 
     JobServer.create_cluster(compare_stninfo_rinex, callback=stnrnx_callback, modules=modules)
 
@@ -307,7 +307,7 @@ def StnInfoCheck(cnn, stnlist, Config):
 
         first_obs = False
         try:
-            stninfo = StationInfo(cnn, NetworkCode, StationCode)  # type: StationInfo
+            stninfo = station_info.StationInfo(cnn, NetworkCode, StationCode)  # type: StationInfo
 
             # there should not be more than one entry with 9999 999 in DateEnd
             empty_edata = [(record['DateEnd'], record['DateStart'])
@@ -424,7 +424,7 @@ def StnInfoCheck(cnn, stnlist, Config):
 
             sys.stdout.flush()
 
-        except StationInfoException as e:
+        except station_info.StationInfoException as e:
             tqdm.write(str(e))
 
 
@@ -594,7 +594,7 @@ def PrintStationInfo(cnn, stnlist, short=False):
         StationCode = stn['StationCode']
 
         try:
-            stninfo = StationInfo(cnn, NetworkCode, StationCode)
+            stninfo = station_info.StationInfo(cnn, NetworkCode, StationCode)
 
             if short:
                 sys.stdout.write('\n' + stninfo.return_stninfo_short() + '\n\n')
@@ -602,7 +602,7 @@ def PrintStationInfo(cnn, stnlist, short=False):
                 sys.stdout.write('# ' + NetworkCode.upper() + '.' + StationCode.upper() +
                                  '\n' + stninfo.return_stninfo() + '\n')
 
-        except StationInfoException as e:
+        except station_info.StationInfoException as e:
             sys.stderr.write(str(e) + '\n')
 
 
@@ -741,14 +741,14 @@ def RenameStation(cnn, NetworkCode, StationCode, DestNetworkCode, DestStationCod
 
                 # Station info transfer
                 try:
-                    _ = StationInfo(cnn, DestNetworkCode, DestStationCode, date)
+                    _ = station_info.StationInfo(cnn, DestNetworkCode, DestStationCode, date)
                     # no error, nothing to do.
-                except StationInfoException:
+                except station_info.StationInfoException:
                     # failed to get a valid station info record! we need to incorporate the station info record from
                     # the source station
                     try:
-                        stninfo_dest = StationInfo(cnn, DestNetworkCode, DestStationCode)
-                        stninfo_src  = StationInfo(cnn, NetworkCode,     StationCode, date)
+                        stninfo_dest = station_info.StationInfo(cnn, DestNetworkCode, DestStationCode)
+                        stninfo_src  = station_info.StationInfo(cnn, NetworkCode,     StationCode, date)
 
                         # force the station code in record to be the same as deststationcode
                         record                = stninfo_src.current_record
@@ -756,7 +756,7 @@ def RenameStation(cnn, NetworkCode, StationCode, DestNetworkCode, DestStationCod
 
                         stninfo_dest.insert_station_info(record)
 
-                    except StationInfoException as e:
+                    except station_info.StationInfoException as e:
                         # if there is no station info for this station either, warn the user!
                         tqdm.write(' -- Error while updating Station Information! %s' % (str(e)))
 
@@ -778,7 +778,7 @@ def RenameStation(cnn, NetworkCode, StationCode, DestNetworkCode, DestStationCod
                     cnn.begin_transac()
 
                     # retrieve the entire station info records
-                    stninf = StationInfo(cnn, NetworkCode, StationCode, allow_empty=True).return_stninfo()
+                    stninf = station_info.StationInfo(cnn, NetworkCode, StationCode, allow_empty=True).return_stninfo()
 
                     event = pyEvents.Event(
                         Description=f'Station {NetworkCode}.{StationCode} will be deleted from the database. Station '
@@ -1096,7 +1096,7 @@ def main():
 
     if args.station_info_proposed is not None:
         for stn in stnlist:
-            stninfo = StationInfo(cnn, stn['NetworkCode'], stn['StationCode'], allow_empty=True)
+            stninfo = station_info.StationInfo(cnn, stn['NetworkCode'], stn['StationCode'], allow_empty=True)
             sys.stdout.write(stninfo.rinex_based_stninfo(args.station_info_proposed))
 
     #####################################

@@ -33,7 +33,7 @@ jobs:
 
     environment:
       name: testpypi
-      url: https://test.pypi.org/p/pgamit
+      url: https://test.pypi.org/p/geode-gnss
 
     permissions:
       id-token: write
@@ -58,7 +58,7 @@ jobs:
     
     environment:
       name: pypi
-      url: https://pypi.org/p/pgamit
+      url: https://pypi.org/p/geode-gnss
       
     permissions:
       id-token: write

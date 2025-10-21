@@ -107,4 +107,5 @@ classes/error*
 parallel_gamit/gnss_data.cfg
 parallel_gamit/link_tables.sh
 
+reinstall_geode.sh
 reinstall_pgamit.sh

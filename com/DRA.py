@@ -22,14 +22,14 @@ import base64
 import numpy
 
 # app
-from pgamit import dbConnection
-from pgamit import pyETM
-from pgamit import pyDate
-from pgamit import pyJobServer
-from pgamit import pyOptions
-from pgamit.Utils import process_date, file_write, json_converter, add_version_argument
-from pgamit.pyStack import Polyhedron, np_array_vertices
-from pgamit.pyDate import Date
+from geode import dbConnection
+from geode import pyETM
+from geode import pyDate
+from geode import pyJobServer
+from geode import pyOptions
+from geode.Utils import process_date, file_write, json_converter, add_version_argument
+from geode.pyStack import Polyhedron, np_array_vertices
+from geode.pyDate import Date
 
 stn_stats = []
 wrms_n = []
@@ -349,7 +349,7 @@ def main():
     qbar = tqdm(total=len(dra.stations), desc=' >> Computing DRAs',
                 ncols=160, disable=None)
 
-    modules = ('pgamit.pyETM', 'pgamit.dbConnection',
+    modules = ('geode.pyETM', 'geode.dbConnection',
                'traceback', 'io', 'numpy')
     JobServer.create_cluster(compute_dra, progress_bar=qbar,
                              callback=callback_handler,

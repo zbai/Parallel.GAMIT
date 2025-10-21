@@ -5,4 +5,4 @@ Parallel.GAMIT
    :maxdepth: 4
 
    com
-   pgamit
+   geode

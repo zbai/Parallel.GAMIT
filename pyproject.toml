@@ -3,7 +3,7 @@ requires = ["setuptools>=64", "setuptools-scm>=8"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pgamit"
+name = "geode"
 dynamic = ["version"]
 description = "A Python wrapper to parallelize GAMIT executions"
 authors = [
@@ -63,6 +63,6 @@ dependencies = [
 "Bug Tracker" = "https://github.com/demiangomez/Parallel.GAMIT/issues"
 
 [tool.setuptools]
-packages = ["pgamit"]
+packages = ["geode"]
 
 [tool.setuptools_scm]

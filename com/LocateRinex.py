@@ -7,15 +7,15 @@ import re
 import shutil
 
 # app
-from pgamit import pyRinex
-from pgamit import pyPPP
-from pgamit import pyOptions
-from pgamit import pyOTL
-from pgamit import pyProducts
-from pgamit.metadata.station_info import StationInfoException, StationInfo
-from pgamit import dbConnection
-from pgamit.pyPPP import PPPSpatialCheck
-from pgamit.Utils import file_readlines, add_version_argument
+from geode import pyRinex
+from geode import pyPPP
+from geode import pyOptions
+from geode import pyOTL
+from geode import pyProducts
+from geode.metadata.station_info import StationInfoException, StationInfo
+from geode import dbConnection
+from geode.pyPPP import PPPSpatialCheck
+from geode.Utils import file_readlines, add_version_argument
 
 
 def main():

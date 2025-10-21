@@ -38,21 +38,21 @@ import argparse
 from tqdm import tqdm
 
 # app
-from pgamit.Utils import (file_append, file_try_remove, file_open,
+from geode.Utils import (file_append, file_try_remove, file_open,
                           dir_try_remove, stationID, get_field_or_attr, add_version_argument)
-from pgamit import ConvertRaw
-from pgamit import pyJobServer
-from pgamit import pyEvents
-from pgamit import pyOptions
-from pgamit import Utils
-from pgamit import pyOTL
-from pgamit import pyRinex
-from pgamit import pyRinexName
-from pgamit import dbConnection
-from pgamit.metadata.station_info import StationInfoException
-from pgamit import pyArchiveStruct
-from pgamit import pyPPP
-from pgamit import pyProducts
+from geode import ConvertRaw
+from geode import pyJobServer
+from geode import pyEvents
+from geode import pyOptions
+from geode import Utils
+from geode import pyOTL
+from geode import pyRinex
+from geode import pyRinexName
+from geode import dbConnection
+from geode.metadata.station_info import StationInfoException
+from geode import pyArchiveStruct
+from geode import pyPPP
+from geode import pyProducts
 
 repository_data_in = ''
 cnn = dbConnection.Cnn('gnss_data.cfg')
@@ -834,13 +834,13 @@ def process_visits(JobServer):
     # import modules
     JobServer.create_cluster(process_visit_file, depfuncs,
                              callback_handle, pbar,
-                             modules=('pgamit.pyRinex',
-                                      'pgamit.ConvertRaw',
-                                      'pgamit.pyEvents',
-                                      'pgamit.dbConnection',
-                                      'pgamit.pyRunWithRetry',
-                                      'pgamit.Utils',
-                                      'pgamit.pyRinexName',
+                             modules=('geode.pyRinex',
+                                      'geode.ConvertRaw',
+                                      'geode.pyEvents',
+                                      'geode.dbConnection',
+                                      'geode.pyRunWithRetry',
+                                      'geode.Utils',
+                                      'geode.pyRinexName',
                                       'platform', 'os'))
 
     for record in rs:
@@ -861,13 +861,13 @@ def process_visits(JobServer):
     # import modules
     JobServer.create_cluster(merge_rinex_files, depfuncs,
                              callback_handle, pbar,
-                             modules=('pgamit.pyRinex',
-                                      'pgamit.ConvertRaw',
-                                      'pgamit.pyEvents',
-                                      'pgamit.dbConnection',
-                                      'pgamit.pyRunWithRetry',
-                                      'pgamit.Utils',
-                                      'pgamit.pyRinexName',
+                             modules=('geode.pyRinex',
+                                      'geode.ConvertRaw',
+                                      'geode.pyEvents',
+                                      'geode.dbConnection',
+                                      'geode.pyRunWithRetry',
+                                      'geode.Utils',
+                                      'geode.pyRinexName',
                                       'platform', 'os'))
     for record in stns:
         JobServer.submit(Config, record)
@@ -1052,14 +1052,14 @@ def main():
                              depfuncs,
                              callback_handle,
                              pbar,
-                             modules=('pgamit.pyRinex',
-                                      'pgamit.pyArchiveStruct',
-                                      'pgamit.pyOTL', 'pgamit.pyStationInfo',
-                                      'pgamit.dbConnection', 'pgamit.Utils',
-                                      'pgamit.pyDate', 'pgamit.pyProducts',
-                                      'pgamit.pyOptions', 'pgamit.pyEvents',
-                                      'pgamit.pyRinexName',
-                                      'pgamit.pyPPP', 'os', 'uuid',
+                             modules=('geode.pyRinex',
+                                      'geode.pyArchiveStruct',
+                                      'geode.pyOTL', 'geode.pyStationInfo',
+                                      'geode.dbConnection', 'geode.Utils',
+                                      'geode.pyDate', 'geode.pyProducts',
+                                      'geode.pyOptions', 'geode.pyEvents',
+                                      'geode.pyRinexName',
+                                      'geode.pyPPP', 'os', 'uuid',
                                       'datetime', 'numpy', 'traceback',
                                       'platform'))
 

@@ -40,12 +40,12 @@ import requests
 from tqdm import tqdm
 
 # app
-from pgamit import (Utils, dbConnection, pyArchiveStruct, pyJobServer,
+from geode import (Utils, dbConnection, pyArchiveStruct, pyJobServer,
                     pyOptions, pyRinex, pyRinexName)
-from pgamit.metadata.station_info import StationInfoException, StationInfoHeightCodeNotFound, StationInfo
-from pgamit.pyDate import Date
-from pgamit.pyRinexName import path_replace_tags
-from pgamit.Utils import (dir_try_remove, file_try_remove, fqdn_parse,
+from geode.metadata.station_info import StationInfoException, StationInfoHeightCodeNotFound, StationInfo
+from geode.pyDate import Date
+from geode.pyRinexName import path_replace_tags
+from geode.Utils import (dir_try_remove, file_try_remove, fqdn_parse,
                           process_date, required_length, stationID, add_version_argument)
 
 SERVER_REFRESH_INTERVAL = 2   # in seconds
@@ -1532,7 +1532,7 @@ def main():
         depfuncs = (dir_try_remove, file_try_remove)
         depmodules = ('tempfile', 'shutil', 'os', 'subprocess', 'glob',
                       # app
-                      'pgamit.pyRinex', 'pgamit.pyRinexName')
+                      'geode.pyRinex', 'geode.pyRinexName')
 
         jobs_mgr = JobsManager(job_server, Config.format_scripts_path)
         job_server.create_cluster(process_file,  # called in remote node

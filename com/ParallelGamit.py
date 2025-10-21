@@ -23,20 +23,20 @@ from tqdm import tqdm
 import simplekml
 
 # app
-from pgamit import pyGamitConfig
-from pgamit import pyDate
-from pgamit import Utils
-from pgamit import pyGamitTask
-from pgamit import pyGlobkTask
-from pgamit import pyGamitSession
-from pgamit import dbConnection
-from pgamit import pyJobServer
-from pgamit import pyParseZTD
-from pgamit import pyArchiveStruct
-from pgamit.pyETM import pyETMException
-from pgamit.network import Network
-from pgamit.pyStation import Station, StationCollection
-from pgamit.Utils import (process_date,
+from geode import pyGamitConfig
+from geode import pyDate
+from geode import Utils
+from geode import pyGamitTask
+from geode import pyGlobkTask
+from geode import pyGamitSession
+from geode import dbConnection
+from geode import pyJobServer
+from geode import pyParseZTD
+from geode import pyArchiveStruct
+from geode.pyETM import pyETMException
+from geode.network import Network
+from geode.pyStation import Station, StationCollection
+from geode.Utils import (process_date,
                           process_stnlist,
                           parseIntSet,
                           indent,
@@ -188,7 +188,7 @@ def purge_solutions(JobServer, args, dates, GamitConfig):
 
         pbar = tqdm(total=len(dates), ncols=80, desc=' -- Purge progress', disable=None)
 
-        modules = ('pgamit.pyDate', 'pgamit.dbConnection', 'os', 'glob', 'shutil')
+        modules = ('geode.pyDate', 'geode.dbConnection', 'os', 'glob', 'shutil')
 
         JobServer.create_cluster(purge_solution, progress_bar=pbar, modules=modules)
 
@@ -506,7 +506,7 @@ def ParseZTD(project, dates, Sessions, GamitConfig, JobServer):
 
     tqdm.write(' >> %s Parsing the tropospheric zenith delays...' % print_datetime())
 
-    modules = ('numpy', 'os', 're', 'datetime', 'traceback', 'pgamit.dbConnection', 'pgamit.pyZTD')
+    modules = ('numpy', 'os', 're', 'datetime', 'traceback', 'geode.dbConnection', 'geode.pyZTD')
 
     pbar = tqdm(total=len(dates), disable=None, desc=' >> Zenith total delay parsing', ncols=100)
 
@@ -532,8 +532,8 @@ def ExecuteGlobk(cnn, JobServer, GamitConfig, sessions, dates):
     tqdm.write(' >> %s Combining with GLOBK sessions with more than one subnetwork...'
                % print_datetime())
 
-    modules = ('os', 'shutil', 'pgamit.snxParse', 'subprocess', 'platform', 'traceback', 'glob',
-               'pgamit.dbConnection', 'math', 'datetime', 'pgamit.pyDate', 'pgamit.pyGlobkTask')
+    modules = ('os', 'shutil', 'geode.snxParse', 'subprocess', 'platform', 'traceback', 'glob',
+               'geode.dbConnection', 'math', 'datetime', 'geode.pyDate', 'geode.pyGlobkTask')
 
     pbar = tqdm(total=len(dates), disable=None, desc=' >> GLOBK combinations completion', ncols=100)
 
@@ -717,8 +717,8 @@ def run_parse_ztd(parse_task):
 def ExecuteGamit(cnn, JobServer, GamitConfig, stations, check_stations, ignore_missing, dates,
                  dry_run=False, create_kml=False):
 
-    modules = ('pgamit.pyRinex', 'datetime', 'os', 'shutil', 'pgamit.pyProducts', 'subprocess', 're', 'pgamit.pyETM',
-               'glob', 'platform', 'traceback', 'pgamit.pyGamitTask', 'zipfile')
+    modules = ('geode.pyRinex', 'datetime', 'os', 'shutil', 'geode.pyProducts', 'subprocess', 're', 'geode.pyETM',
+               'glob', 'platform', 'traceback', 'geode.pyGamitTask', 'zipfile')
 
     tqdm.write(' >> %s Creating GAMIT session instances and executing GAMIT, please wait...' % print_datetime())
 

@@ -7,8 +7,8 @@ import shutil
 import os
 
 # app
-from pgamit.metadata.station_info import StationInfoRecord
-from pgamit.Utils import file_read_all, add_version_argument
+from geode.metadata.station_info import StationInfoRecord
+from geode.Utils import file_read_all, add_version_argument
 
 
 def main():

@@ -28,20 +28,20 @@ import numpy
 import scandir
 
 # app
-from pgamit import pyArchiveStruct
-from pgamit import dbConnection
-from pgamit import pyDate
-from pgamit import pyRinex
-from pgamit import pyRinexName
-from pgamit import pyOTL
-from pgamit.metadata.station_info import StationInfo, StationInfoRecord, StationInfoException
-from pgamit import pyProducts
-from pgamit import pyPPP
-from pgamit import pyOptions
-from pgamit import Utils
-from pgamit import pyJobServer
-from pgamit import pyEvents
-from pgamit.Utils import (add_version_argument,
+from geode import pyArchiveStruct
+from geode import dbConnection
+from geode import pyDate
+from geode import pyRinex
+from geode import pyRinexName
+from geode import pyOTL
+from geode.metadata.station_info import StationInfo, StationInfoRecord, StationInfoException
+from geode import pyProducts
+from geode import pyPPP
+from geode import pyOptions
+from geode import Utils
+from geode import pyJobServer
+from geode import pyEvents
+from geode.Utils import (add_version_argument,
                           process_date,
                           ecef2lla,
                           file_append,
@@ -640,8 +640,8 @@ def scan_rinex(cnn, JobServer, pyArchive, archive_path, master_list, ignore):
     pbar = tqdm(ncols=80, unit='crz', disable=None)
 
     depfuncs = (verify_rinex_date_multiday,)
-    modules  = ('pgamit.dbConnection', 'pgamit.pyDate', 'pgamit.pyRinex', 'shutil', 'platform', 'datetime',
-                'traceback', 'pgamit.pyOptions', 'pgamit.pyEvents', 'pgamit.Utils', 'os', 'pgamit.pyRinexName')
+    modules  = ('geode.dbConnection', 'geode.pyDate', 'geode.pyRinex', 'shutil', 'platform', 'datetime',
+                'traceback', 'geode.pyOptions', 'geode.pyEvents', 'geode.Utils', 'os', 'geode.pyRinexName')
 
     JobServer.create_cluster(try_insert, dependencies=depfuncs, modules=modules, callback=callback_handle)
 
@@ -687,8 +687,8 @@ def process_otl(cnn, JobServer, master_list):
     pbar = tqdm(total=len(records), ncols=80, disable=None)
 
     depfuncs = (ecef2lla,)
-    modules  = ('pgamit.dbConnection', 'pgamit.pyRinex', 'pgamit.pyArchiveStruct', 'pgamit.pyOTL', 'pgamit.pyPPP',
-                'numpy', 'platform', 'pgamit.pyProducts', 'traceback', 'pgamit.pyOptions')
+    modules  = ('geode.dbConnection', 'geode.pyRinex', 'geode.pyArchiveStruct', 'geode.pyOTL', 'geode.pyPPP',
+                'numpy', 'platform', 'geode.pyProducts', 'traceback', 'geode.pyOptions')
 
     JobServer.create_cluster(obtain_otl, depfuncs, callback_handle, progress_bar=pbar, modules=modules)
 

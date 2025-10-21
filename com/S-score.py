@@ -12,9 +12,9 @@ import argparse
 import math
 
 # app
-from pgamit import pyOkada
-from pgamit import dbConnection
-from pgamit.Utils import add_version_argument, stationID, print_columns
+from geode import pyOkada
+from geode import dbConnection
+from geode.Utils import add_version_argument, stationID, print_columns
 
 
 def main():

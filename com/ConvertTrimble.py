@@ -10,8 +10,8 @@ import argparse
 import os
 
 # app
-from pgamit.ConvertRaw import ConvertRaw
-from pgamit.Utils import required_length, add_version_argument
+from geode.ConvertRaw import ConvertRaw
+from geode.Utils import required_length, add_version_argument
 
 
 def main():

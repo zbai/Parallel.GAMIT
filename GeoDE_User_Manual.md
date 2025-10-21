@@ -3242,7 +3242,7 @@ Database connection pooling:
 
 ```python# For high-frequency operations, use connection pooling
 # Add to Python scripts:
-from pgamit import dbConnection
+from geode import dbConnection
 
 # Reuse connections
 cnn = dbConnection.Cnn("gnss_data.cfg")

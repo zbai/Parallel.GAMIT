@@ -17,16 +17,16 @@ from dataclasses import asdict
 from datetime import datetime
 from scipy.interpolate import griddata
 
-from pgamit.etm.etm_functions.etm_function import EtmFunction
-from pgamit.dbConnection import Cnn
-from pgamit.etm.etm_functions.polynomial import PolynomialFunction
-from pgamit.etm.etm_functions.periodic import PeriodicFunction
-from pgamit.etm.etm_functions.jumps import JumpFunction
-from pgamit.etm.core.etm_config import EtmConfig
-from pgamit.etm.core.etm_engine import enum_dict_factory, EtmEncoder
-from pgamit.pyDate import Date
-from pgamit.etm.core.type_declarations import JumpType
-from pgamit.Utils import (add_version_argument, load_json,
+from geode.etm.etm_functions.etm_function import EtmFunction
+from geode.dbConnection import Cnn
+from geode.etm.etm_functions.polynomial import PolynomialFunction
+from geode.etm.etm_functions.periodic import PeriodicFunction
+from geode.etm.etm_functions.jumps import JumpFunction
+from geode.etm.core.etm_config import EtmConfig
+from geode.etm.core.etm_engine import enum_dict_factory, EtmEncoder
+from geode.pyDate import Date
+from geode.etm.core.type_declarations import JumpType
+from geode.Utils import (add_version_argument, load_json,
                           process_date_str, file_write, azimuthal_equidistant)
 
 

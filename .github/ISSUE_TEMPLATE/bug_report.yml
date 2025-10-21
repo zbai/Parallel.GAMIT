@@ -72,28 +72,28 @@ body:
   attributes:
     label: Actual Results
     description: |
-      Please paste or describe the results you observe instead of the expected results. If you observe an error, please paste the error message including the **full traceback** of the exception, **and the final print statement from pgamit**. For example:
+      Please paste or describe the results you observe instead of the expected results. If you observe an error, please paste the error message including the **full traceback** of the exception, **and the final print statement from geode**. For example:
 
       ```python-traceback
       ---------------------------------------------------------------------------
       2024-10-21 09:08:16 g2global 2024 041 -> Creating network clusters
       -- Processing type is global with 731 active stations
       Traceback (most recent call last):
-      File "/fs/project/gomez.124/opt/conda/pgamit/bin/ParallelGamit.py", line 756, in
+      File "/fs/project/gomez.124/opt/conda/geode/bin/ParallelGamit.py", line 756, in
       main()
-      File "/fs/project/gomez.124/opt/conda/pgamit/bin/ParallelGamit.py", line 399, in main
+      File "/fs/project/gomez.124/opt/conda/geode/bin/ParallelGamit.py", line 399, in main
       sessions = ExecuteGamit(cnn, JobServer, GamitConfig, stations, check_stations, args.ignore_missing, dates,
-      File "/fs/project/gomez.124/opt/conda/pgamit/bin/ParallelGamit.py", line 700, in ExecuteGamit
+      File "/fs/project/gomez.124/opt/conda/geode/bin/ParallelGamit.py", line 700, in ExecuteGamit
       net_object = Network(cnn, archive, GamitConfig, stations, date, check_stations, ignore_missing)
-      File "/fs/project/gomez.124/opt/conda/pgamit/lib/python3.10/site-packages/pgamit/network.py", line 176, in init
+      File "/fs/project/gomez.124/opt/conda/geode/lib/python3.10/site-packages/geode/network.py", line 176, in init
       self.sessions = self.create_gamit_sessions(cnn, archive, clusters,
-      File "/fs/project/gomez.124/opt/conda/pgamit/lib/python3.10/site-packages/pgamit/network.py", line 382, in create_gamit_sessions
+      File "/fs/project/gomez.124/opt/conda/geode/lib/python3.10/site-packages/geode/network.py", line 382, in create_gamit_sessions
       sessions.append(GamitSession(cnn, archive, self.name, self.org,
-      File "/fs/project/gomez.124/opt/conda/pgamit/lib/python3.10/site-packages/pgamit/pyGamitSession.py", line 72, in init
+      File "/fs/project/gomez.124/opt/conda/geode/lib/python3.10/site-packages/geode/pyGamitSession.py", line 72, in init
       stations_.append(stn for stn in stations if stn not in ties)
-      File "/fs/project/gomez.124/opt/conda/pgamit/lib/python3.10/site-packages/pgamit/pyStation.py", line 299, in append
+      File "/fs/project/gomez.124/opt/conda/geode/lib/python3.10/site-packages/geode/pyStation.py", line 299, in append
       raise pyStationException('type: ' + str(type(station)) +
-      pgamit.pyStation.pyStationException: type: <class 'generator'> invalid. Can only append Station objects or lists of Station objects
+      geode.pyStation.pyStationException: type: <class 'generator'> invalid. Can only append Station objects or lists of Station objects
       ```
     placeholder: >
       Please paste or specifically describe the actual output or traceback.
@@ -104,9 +104,9 @@ body:
     label: Versions
     render: shell
     description: |
-      If you built pgamit from the git repo, please provide the commit hash of your build; if you installed pgamit via pip, run the following and paste the output below.
+      If you built geode from the git repo, please provide the commit hash of your build; if you installed geode via pip, run the following and paste the output below.
       ```python
-      import pgamit; pgamit.__version__
+      import geode; geode.__version__
       ```
   validations:
     required: true

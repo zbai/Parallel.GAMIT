@@ -1,10 +1,10 @@
 Installation
 =================
 
-Currently pgamit requires Python 3.10 or later.
+Currently geode requires Python 3.10 or later.
 
 
-Once installed, you can run pgamit from any folder containing the .cfg file
+Once installed, you can run geode from any folder containing the .cfg file
 with the configuration to access the RINEX and orbits archive, database, etc.
 Commands are included in your PATH so you can execute, for example `PlotETM.py
 igm1`
@@ -15,7 +15,7 @@ As a library
 Parallel.GAMIT can be installed using pip:
 
 ```
-pip install pgamit
+pip install geode-gnss
 ```
 
 This will install the python libraries and dependencies, but does not setup
@@ -30,7 +30,7 @@ sudo apt install pgadmin4-desktop
 As a development or production environment
 ------------------------------------------
 
-To install the latest version of pgamit from our master branch, we
+To install the latest version of geode from our master branch, we
 recommend using either [conda](https://github.com/conda/conda) or 
 [mamba](https://github.com/mamba-org/mamba); see
 [here](https://mamba.readthedocs.io/en/latest/index.html) for instructions on
@@ -48,22 +48,22 @@ From the project directory, build and activate the environment using:
 
 ```
 conda env update --file environment.yml
-conda activate pgamit
+conda activate geode
 ```
 
 You can deactivate the environment using `conda deactivate`, and 
-reactivate (without reinstalling) with `conda activate pgamit`. To update
+reactivate (without reinstalling) with `conda activate geode`. To update
 the environment, edit the environment.yml file and then run:
 
 ```
-conda env update --file environment.yml --name pgamit
+conda env update --file environment.yml --name geode
 ```
 
 Other external dependencies that require a licence
 --------------------------------------------------
 
 > [!IMPORTANT]
-> pgamit still requires access to some executables (and GAMIT) which are not installed by default. These programs, however, are not all needed if you are planning to just execute time series analysis. The external dependencies are:
+> geode still requires access to some executables (and GAMIT) which are not installed by default. These programs, however, are not all needed if you are planning to just execute time series analysis. The external dependencies are:
 > + GAMIT/GLOBK: http://www-gpsg.mit.edu/gg/
 > + GFZRNX: https://gnss.gfz-potsdam.de/services/gfzrnx
 > + rnx2crx / crx2rnx: https://terras.gsi.go.jp/ja/crx2rnx.html (although this is also installed with GAMIT/GLOBK)

@@ -25,10 +25,10 @@ import simplekml
 from tqdm import tqdm
 
 # app
-from pgamit import dbConnection, pyDate, pyJobServer, pyOptions
-from pgamit.metadata.station_info import StationInfoHeightCodeNotFound, StationInfo
-from pgamit.pyGamitConfig import GamitConfiguration
-from pgamit.Utils import process_stnlist, stationID, plot_rinex_completion, add_version_argument
+from geode import dbConnection, pyDate, pyJobServer, pyOptions
+from geode.metadata.station_info import StationInfoHeightCodeNotFound, StationInfo
+from geode.pyGamitConfig import GamitConfiguration
+from geode.Utils import process_stnlist, stationID, plot_rinex_completion, add_version_argument
 
 global kml, folder_project, folder_allstns, stnlist
 
@@ -255,7 +255,7 @@ def generate_kml_stninfo(JobServer, cnn, project, data=False,
                              depfuncs,
                              callback_handle,
                              pbar,
-                             modules=('pgamit.pyDate', 'pgamit.dbConnection',
+                             modules=('geode.pyDate', 'geode.dbConnection',
                                       'datetime', 'numpy', 'io', 'base64'))
 
     for stn in rs:
