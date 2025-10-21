@@ -112,6 +112,19 @@ class EtmFunction(ABC):
     def get_parameter_dict(self) -> Dict[str, Any]:
         """Get parameters as dictionary for database"""
         parameter_dict = asdict(self.p)
+
+        parameter_dict['frequencies'] = parameter_dict['frequencies'].tolist()
+        parameter_dict['relaxation'] = parameter_dict['relaxation'].tolist()
+
+        if parameter_dict['params'][0].size:
+            parameter_dict['params'] = [i.tolist() for i in parameter_dict['params']]
+            parameter_dict['sigmas'] = [i.tolist() for i in parameter_dict['sigmas']]
+            parameter_dict['covar'] = [i.tolist() for i in parameter_dict['covar']]
+        else:
+            parameter_dict['params'] = []
+            parameter_dict['sigmas'] = []
+            parameter_dict['covar'] = []
+
         parameter_dict['NetworkCode'] = self.config.network_code
         parameter_dict['StationCode'] = self.config.station_code
         parameter_dict['soln'] = self.config.solution.solution_type.code

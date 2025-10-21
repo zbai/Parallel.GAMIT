@@ -14,6 +14,7 @@ from ...pyDate import Date
 from ...Utils import load_json
 from ...dbConnection import Cnn
 from ..core.type_declarations import PeriodicStatus, JumpType, EtmException
+from ..core.logging_config import setup_etm_logging
 from ..core.data_classes import (SolutionOptions, ModelingParameters,
                                  ValidationRules, StationMetadata, JumpParameters)
 from ..visualization.data_classes import PlotOutputConfig
@@ -28,7 +29,8 @@ class EtmConfig:
                  custom_config: Optional[Dict[str, Any]] = None,
                  cnn: Cnn = None,
                  solution_type: SolutionOptions = None,
-                 json_file: Union[str, dict] = None):
+                 json_file: Union[str, dict] = None,
+                 silent: bool = False):
         """
         Initialize ETM configuration
 
@@ -39,6 +41,7 @@ class EtmConfig:
             station_code: Station code (if loading from database)
             json_file: either a json file path or a json dict or string to load data from
         """
+        setup_etm_logging(level=logging.CRITICAL if silent else logging.INFO)
 
         self.json_file: Union[str, dict] = json_file
 

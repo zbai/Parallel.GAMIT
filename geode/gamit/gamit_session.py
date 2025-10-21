@@ -12,11 +12,10 @@ import simplekml
 from tqdm import tqdm
 
 # app
-from . import pyRinexName
-from .pyStation import StationInstance, StationCollection
-from .Utils import determine_frame, file_open, stationID, chmod_exec
-from . import pyGamitConfig
-from . import snxParse
+from geode import pyRinexName
+from geode.pyStation import StationInstance, StationCollection
+from geode.Utils import determine_frame, file_open, stationID, chmod_exec
+from geode import snxParse
 
 
 class GamitSessionException(Exception):
@@ -54,8 +53,8 @@ class GamitSession(object):
             self.DirName = self.NetName
 
         self.date           = date
-        self.GamitOpts      = GamitConfig.gamitopt  # type: pyGamitConfig.GamitConfiguration().gamitopt
-        self.Config         = GamitConfig           # type: pyGamitConfig.GamitConfiguration
+        self.GamitOpts      = GamitConfig.gamitopt
+        self.Config         = GamitConfig
         self.frame          = None
         self.params         = None
         # to store the polyhedron read from the final SINEX

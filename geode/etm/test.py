@@ -2,7 +2,7 @@ import logging
 import numpy as np
 
 from geode.pyDate import Date
-from geode import station_info
+from geode.metadata import station_info
 from geode.Utils import load_json, process_date_str
 from geode.etm.core.type_declarations import CovarianceFunction, SolutionType
 from geode.etm.core.etm_engine import EtmEngine
@@ -75,7 +75,7 @@ def get_prefit_models(config, args):
 #config.plotting_config.filename = '/home/demian/pg_osu/'
 #etm.plot()
 
-config = EtmConfig('arg', 'mzga', cnn=cnn)
+config = EtmConfig('arg', '25ma', cnn=cnn)
 config.solution.solution_type = SolutionType.PPP
 # config.solution.stack_name = 'igs14'
 
@@ -118,7 +118,7 @@ config.plotting_config.plot_remove_jumps = False
 config.validate_config()
 
 etm = EtmEngine(config, cnn=cnn)
-etm.run_adjustment(cnn=cnn, try_save_to_db=False, try_loading_db=False)
+etm.run_adjustment(cnn=cnn, try_save_to_db=True, try_loading_db=True)
 
 etm.save_etm(filename='/home/demian/pg_osu/',
              dump_observations=True,

@@ -15,11 +15,11 @@ import numpy
 import zipfile
 
 # app
-from . import pyRinex
-from . import pyProducts
-from .Utils import (file_write, file_open,
-                    file_append, file_readlines,
-                    chmod_exec, stationID)
+from geode import pyRinex
+from geode import pyProducts
+from geode.Utils import (file_write, file_open,
+                         file_append, file_readlines,
+                         chmod_exec, stationID)
 
 
 def now_str():

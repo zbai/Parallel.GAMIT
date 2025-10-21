@@ -145,7 +145,7 @@ def check_rinex_stn(NetworkCode, StationCode, start_date, end_date):
                StationCode + ' using node ' + platform.node(), None
 
 
-def CheckRinexIntegrity(cnn, Config, stnlist, start_date, end_date, operation, JobServer):
+def check_rinex_integrity(cnn, Config, stnlist, start_date, end_date, operation, JobServer):
 
     global differences
 
@@ -213,7 +213,7 @@ def CheckRinexIntegrity(cnn, Config, stnlist, start_date, end_date, operation, J
             pbar.close()
 
 
-def StnInfoRinexIntegrity(cnn, stnlist, start_date, end_date, JobServer):
+def stn_info_rinex_integrity(cnn, stnlist, start_date, end_date, JobServer):
 
     global differences
 
@@ -293,7 +293,7 @@ def StnInfoRinexIntegrity(cnn, stnlist, start_date, end_date, JobServer):
             sys.stdout.write("No inconsistencies found.\n")
 
 
-def StnInfoCheck(cnn, stnlist, Config):
+def stn_info_check(cnn, stnlist, Config):
     # check that there are no inconsistencies in the station info records
 
     atx = dict()
@@ -428,7 +428,7 @@ def StnInfoCheck(cnn, stnlist, Config):
             tqdm.write(str(e))
 
 
-def CheckSpatialCoherence(cnn, stnlist, start_date, end_date):
+def check_spatial_coherence(cnn, stnlist, start_date, end_date):
 
     for stn in stnlist:
 
@@ -549,7 +549,7 @@ def RinexCount(cnn, stnlist, start_date, end_date):
         sys.stdout.write(' %4i %3i %4i' % (doy['year'], doy['doy'], doy['suma']))
 
 
-def GetStnGaps(cnn, stnlist, ignore_val, start_date, end_date):
+def get_stn_gaps(cnn, stnlist, ignore_val, start_date, end_date):
 
     for stn in stnlist:
         NetworkCode = stn['NetworkCode']
@@ -606,8 +606,8 @@ def PrintStationInfo(cnn, stnlist, short=False):
             sys.stderr.write(str(e) + '\n')
 
 
-def RenameStation(cnn, NetworkCode, StationCode, DestNetworkCode, DestStationCode, start_date, end_date, archive_path,
-                  delete_if_empty=True):
+def rename_station(cnn, NetworkCode, StationCode, DestNetworkCode, DestStationCode, start_date, end_date, archive_path,
+                   delete_if_empty=True):
 
     # make sure the destiny station exists
     try:
@@ -816,7 +816,7 @@ def RenameStation(cnn, NetworkCode, StationCode, DestNetworkCode, DestStationCod
         raise
 
 
-def VisualizeGaps(cnn, stnlist, start_date, end_date):
+def visualize_gaps(cnn, stnlist, start_date, end_date):
 
     for Stn in stnlist:
         stn_id = '%s.%s' % (Stn['NetworkCode'], Stn['StationCode'])
@@ -884,7 +884,7 @@ def VisualizeGaps(cnn, stnlist, start_date, end_date):
         sys.stdout.flush()
 
 
-def ExcludeSolutions(cnn, stnlist, start_date, end_date):
+def exclude_solutions(cnn, stnlist, start_date, end_date):
 
     for stn in stnlist:
         NetworkCode = stn['NetworkCode']
@@ -906,7 +906,7 @@ def ExcludeSolutions(cnn, stnlist, start_date, end_date):
                            % (soln['Year'], soln['DOY']))
 
 
-def DeleteRinex(cnn, stnlist, start_date, end_date, completion_limit=0.0):
+def delete_rinex(cnn, stnlist, start_date, end_date, completion_limit=0.0):
 
     Archive = pyArchiveStruct.RinexStruct(cnn)
 
@@ -1042,7 +1042,7 @@ def main():
     #####################################
 
     if args.check_rinex:
-        CheckRinexIntegrity(cnn, Config, stnlist, dates[0], dates[1], args.check_rinex[0], JobServer)
+        check_rinex_integrity(cnn, Config, stnlist, dates[0], dates[1], args.check_rinex[0], JobServer)
 
     #####################################
 
@@ -1052,25 +1052,25 @@ def main():
     #####################################
 
     if args.station_info_rinex:
-        StnInfoRinexIntegrity(cnn, stnlist, dates[0], dates[1], JobServer)
+        stn_info_rinex_integrity(cnn, stnlist, dates[0], dates[1], JobServer)
 
     #####################################
 
     if args.station_info_check:
-        StnInfoCheck(cnn, stnlist, Config)
+        stn_info_check(cnn, stnlist, Config)
 
     #####################################
 
     if args.data_gaps is not None:
-        GetStnGaps(cnn, stnlist, args.data_gaps, dates[0], dates[1])
+        get_stn_gaps(cnn, stnlist, args.data_gaps, dates[0], dates[1])
 
     if args.graphical_gaps:
-        VisualizeGaps(cnn, stnlist, dates[0], dates[1])
+        visualize_gaps(cnn, stnlist, dates[0], dates[1])
 
     #####################################
 
     if args.spatial_coherence is not None:
-        CheckSpatialCoherence(cnn, stnlist, dates[0], dates[1])
+        check_spatial_coherence(cnn, stnlist, dates[0], dates[1])
 
     #####################################
 
@@ -1080,7 +1080,7 @@ def main():
         except ValueError as e:
             parser.error(str(e))
 
-        ExcludeSolutions(cnn, stnlist, dates[0], dates[1])
+        exclude_solutions(cnn, stnlist, dates[0], dates[1])
 
     #####################################
 
@@ -1107,7 +1107,7 @@ def main():
         except ValueError as e:
             parser.error(str(e))
 
-        DeleteRinex(cnn, stnlist, dates[0], dates[1], float(args.delete_rinex[2]))
+        delete_rinex(cnn, stnlist, dates[0], dates[1], float(args.delete_rinex[2]))
 
     #####################################
 
@@ -1118,12 +1118,12 @@ def main():
         if '.' not in args.rename[0]:
             parser.error('Format for destiny station should be net.stnm')
         else:
-            DestNetworkCode = args.rename[0].split('.')[0]
-            DestStationCode = args.rename[0].split('.')[1]
+            dest_network_code = args.rename[0].split('.')[0]
+            dest_station_code = args.rename[0].split('.')[1]
 
-            RenameStation(cnn, stnlist[0]['NetworkCode'], stnlist[0]['StationCode'],
-                          DestNetworkCode, DestStationCode,
-                          dates[0], dates[1], Config.archive_path, args.delete_station)
+            rename_station(cnn, stnlist[0]['NetworkCode'], stnlist[0]['StationCode'],
+                           dest_network_code, dest_station_code,
+                           dates[0], dates[1], Config.archive_path, args.delete_station)
 
     JobServer.close_cluster()
 

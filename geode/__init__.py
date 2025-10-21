@@ -23,7 +23,6 @@ __all__ = [
     'pyDate',
     'pyOTL',
     'pyRinex',
-    'pyTerminal',
     'pyArchiveStruct',
     'pyOkada',
     'ConvertRaw',
@@ -34,13 +33,13 @@ __all__ = [
     'pyEvents',
     'pyPPP',
     'pyProducts',
-    'pyZTD',
+    'gamit.ztd',
     'pyStack',
-    'pyGamitConfig',
-    'pyGamitSession',
-    'pyGamitTask',
-    'pyGlobkTask',
-    'pyParseZTD',
+    'gamit.gamit_config',
+    'gamit.gamit_session',
+    'gamit.gamit_task',
+    'gamit.globk_task',
+    'gamit.parse_ztd',
     'pyStation'
 ]
 

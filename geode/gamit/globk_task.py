@@ -9,8 +9,8 @@ import subprocess
 import shutil
 
 # app
-from . import snxParse
-from .Utils import file_open, chmod_exec, stationID
+from geode import snxParse
+from geode.Utils import file_open, chmod_exec, stationID
 
 
 class GlobkException(Exception):

@@ -16,6 +16,9 @@ from tqdm import tqdm
 
 # app
 from .metadata.station_info import StationInfo, StationInfoHeightCodeNotFound
+from .etm.core.etm_config import EtmConfig
+from .etm.core.etm_engine import EtmEngine
+from .etm.core.type_declarations import SolutionType, EtmSolutionType
 from . import pyETM
 from . import pyBunch
 from . import pyDate
@@ -25,7 +28,7 @@ COMPLETION = 0.5
 INTERVAL   = 120
 
 
-class pyStationException(Exception):
+class StationException(Exception):
     def __init__(self, value):
         self.value = value
 
@@ -33,7 +36,7 @@ class pyStationException(Exception):
         return str(self.value)
 
 
-class pyStationCollectionException(pyStationException):
+class StationCollectionException(StationException):
     pass
 
 
@@ -104,7 +107,14 @@ class Station(object):
             self.missing_rinex = [pyDate.Date(mjd=d) for d in range(dates[0].mjd, dates[1].mjd+1)
                                   if d not in good_rinex]
 
-            self.etm         = pyETM.PPPETM(cnn, NetworkCode, StationCode)  # type: pyETM.PPPETM
+            config = EtmConfig(NetworkCode, StationCode, cnn=cnn, silent=True)
+            config.solution.solution_type = SolutionType.PPP
+
+            self.etm = EtmEngine(config=config, cnn=cnn)
+            self.etm.run_adjustment(cnn=cnn, try_save_to_db=True, try_loading_db=True)
+
+            # self.etm         = pyETM.PPPETM(cnn, NetworkCode, StationCode)  # type: pyETM.PPPETM
+
             self.StationInfo = StationInfo(cnn, NetworkCode, StationCode)
 
             # DDG: report RINEX files with Completion < 0.5
@@ -148,7 +158,7 @@ class Station(object):
     def __eq__(self, station):
 
         if not isinstance(station, Station):
-            raise pyStationException('type: '+str(type(station))+' invalid. Can only compare pyStation.Station')
+            raise StationException('type: ' + str(type(station)) + ' invalid. Can only compare pyStation.Station')
 
         return self.NetworkCode == station.NetworkCode and self.StationCode == station.StationCode
 
@@ -168,7 +178,7 @@ class Station(object):
 
 class StationInstance(object):
 
-    def __init__(self, cnn, archive, station, date, GamitConfig, is_tie=False):
+    def __init__(self, cnn, archive, station: Station, date, GamitConfig, is_tie=False):
 
         self.NetworkCode  = station.NetworkCode
         self.StationCode  = station.StationCode
@@ -185,9 +195,9 @@ class StationInstance(object):
 
         # save the station information as text
         try:
-            self.StationInfo = StationInfo(cnn,
-                                                         station.NetworkCode,
-                                                         station.StationCode, date).return_stninfo()
+            self.StationInfo = StationInfo(
+                cnn, station.NetworkCode, station.StationCode, date).return_stninfo()
+
         except StationInfoHeightCodeNotFound as e:
             tqdm.write(' -- WARNING: ' + str(e) + '. Antenna height will be used as is and GAMIT may produce a fatal.')
             self.StationInfo = StationInfo(cnn, station.NetworkCode,
@@ -196,15 +206,19 @@ class StationInstance(object):
         self.date         = date  # type: pyDate.Date
         self.Archive_path = GamitConfig.archive_path
 
-        # get the APR and sigmas for this date (let get_xyz_s determine which side of the jump returns, if any)
-        self.Apr, self.Sigmas, \
-            self.Window, self.source = station.etm.get_xyz_s(self.date.year, self.date.doy,
-                                                             sigma_h=float(GamitConfig.gamitopt['sigma_floor_h']),
-                                                             sigma_v=float(GamitConfig.gamitopt['sigma_floor_v']))
+        # get the APR and sigmas for this date
+        station.etm.config.modeling.sigma_floor_h = float(GamitConfig.gamitopt['sigma_floor_h'])
+        station.etm.config.modeling.sigma_floor_v = float(GamitConfig.gamitopt['sigma_floor_v'])
+        etm_output = station.etm.get_position(self.date, EtmSolutionType.OBSERVATION)
+
+        self.apr = etm_output['position']
+        self.source = etm_output['source']
+        self.sigmas = etm_output['sigmas']
+        self.window = station.etm.query_jump(self.date)
 
         # rinex file
-        self.ArchiveFile = archive.build_rinex_path(self.NetworkCode, self.StationCode,
-                                                    self.date.year, self.date.doy)
+        self.archive_file = archive.build_rinex_path(self.NetworkCode, self.StationCode,
+                                                     self.date.year, self.date.doy)
 
         # DDG: force RINEX 2 filenames even with RINEX 3 data
         self.filename = self.StationAlias + self.date.ddd() + '0.' + self.date.yyyy()[2:4] + 'd.Z'
@@ -221,31 +235,33 @@ class StationInstance(object):
         return {'NetworkCode' : self.NetworkCode,
                 'StationCode' : self.StationCode,
                 'StationAlias': self.StationAlias,
-                'source'      : os.path.join(self.Archive_path, self.ArchiveFile),
+                'source'      : os.path.join(self.Archive_path, self.archive_file),
                 'destiny'     : self.filename,
                 'lat'         : self.lat,
                 'lon'         : self.lon,
                 'height'      : self.height,
-                'jump'        : self.Window,
+                'jump'        : self.window,
                 'is_tie'      : self.is_tie}
 
     def GetApr(self):
-        x = self.Apr
+        x = self.apr
 
-        return ' ' + self.StationAlias.upper() + '_GPS ' + '{:12.3f}'.format(x[0, 0]) + ' ' + '{:12.3f}'.format(
-            x[1, 0]) + ' ' + '{:12.3f}'.format(x[2, 0]) + ' 0.000 0.000 0.000 ' + '{:8.4f}'.format(
+        return ' ' + self.StationAlias.upper() + '_GPS ' + '{:12.3f}'.format(x[0]) + ' ' + '{:12.3f}'.format(
+            x[1]) + ' ' + '{:12.3f}'.format(x[2]) + ' 0.000 0.000 0.000 ' + '{:8.4f}'.format(
             self.date.fyear)
 
     def GetSittbl(self):
-        s = self.Sigmas
+        s = self.sigmas
 
-        return self.StationAlias.upper() + ' ' + self.StationAlias.upper() + '_GPS' + 'NNN'.rjust(8) + '    {:.5}'.format(
-            '%5.3f' % (s[0, 0])) + ' ' + '{:.5}'.format('%5.3f' % (s[1, 0])) + ' ' + '{:.5}'.format(
-            '%5.3f' % (s[2, 0]))
+        return (self.StationAlias.upper() + ' ' + self.StationAlias.upper() +
+                '_GPS' + 'NNN'.rjust(8) +
+                '    {:.5}'.format('%5.3f' % (s[0])) + ' ' +
+                '{:.5}'.format('%5.3f' % (s[1])) + ' ' +
+                '{:.5}'.format('%5.3f' % (s[2])))
 
     def DebugCoord(self):
-        x = self.Apr
-        s = self.Sigmas
+        x = self.apr
+        s = self.sigmas
 
         if self.ppp is not None:
             return '%s %s_GPS %8.3f %8.3f %8.3f %14.3f %14.3f %14.3f %8.3f %8.3f %8.3f %8.4f %s' % \
@@ -253,14 +269,14 @@ class StationInstance(object):
                     self.ppp['X'] - self.X,
                     self.ppp['Y'] - self.Y,
                     self.ppp['Z'] - self.Z,
-                    x[0, 0], x[1, 0], x[2, 0],
-                    s[0, 0], s[1, 0], s[2, 0],
+                    x[0], x[1], x[2],
+                    s[0], s[1], s[2],
                     self.date.fyear, self.source)
         else:
             return '%s %s_GPS %-26s %14.3f %14.3f %14.3f %8.3f %8.3f %8.3f %8.4f %s' % \
                    (self.StationAlias.upper(), self.StationAlias.upper(), 'NO PPP COORDINATE',
-                    x[0, 0], x[1, 0], x[2, 0],
-                    s[0, 0], s[1, 0], s[2, 0],
+                    x[0], x[1], x[2],
+                    s[0], s[1], s[2],
                     self.date.fyear, self.source)
 
     def GetStationInformation(self):
@@ -289,7 +305,7 @@ class StationCollection(list):
         # DDG: removed arg check_aliases=True
 
         if not (isinstance(station, Station) or isinstance(station, list)):
-            raise pyStationException('type: ' + str(type(station)) +
+            raise StationException('type: ' + str(type(station)) +
                                      ' invalid. Can only append Station objects or lists of Station objects')
 
         if isinstance(station, Station):
@@ -428,7 +444,7 @@ class StationCollection(list):
         try:
             _ = self[station]
             return True
-        except pyStationCollectionException:
+        except StationCollectionException:
             return False
 
     def __getitem__(self, item):
@@ -441,16 +457,16 @@ class StationCollection(list):
             for stn in self:
                 if stn.netstn == item.lower():
                     return stn
-            raise pyStationCollectionException('Requested station code ' + item.lower() + ' could not be found')
+            raise StationCollectionException('Requested station code ' + item.lower() + ' could not be found')
 
         elif isinstance(item, Station):
             for stn in self:
                 if stn.netstn == item.netstn:
                     return stn
-            raise pyStationCollectionException('Requested station code ' + item.netstn + ' could not be found')
+            raise StationCollectionException('Requested station code ' + item.netstn + ' could not be found')
 
         else:
-            raise pyStationException('type: ' + str(type(item)) + ' invalid. Can only pass Station or String objects.')
+            raise StationException('type: ' + str(type(item)) + ' invalid. Can only pass Station or String objects.')
 
     def __contains__(self, item):
         return self.ismember(item)

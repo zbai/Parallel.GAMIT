@@ -11,6 +11,7 @@ import time
 import _thread
 import queue
 import traceback
+import os
 
 # deps
 from tqdm import tqdm
@@ -225,7 +226,9 @@ def setup(modules):
     function to import modules in the nodes
     :return: 0
     """
-    print(' >> Initializing node...')
+    from tqdm import tqdm
+
+    tqdm.write(' >> Initializing node...')
     for module in modules:
         # create a global object containing our module
         # DDG: to support imports like geode.pyDate, ignoring the geode and only accessing pyDate
@@ -233,11 +236,11 @@ def setup(modules):
         if '.' in module:
             module_obj = __import__(module, fromlist=[None])
             globals()[module.split('.')[-1]] = module_obj
-            print(' >> Importing module %s as %s' % (module, module.split('.')[-1]))
+            tqdm.write(' >> Importing module %s as %s' % (module, module.split('.')[-1]))
         else:
             module_obj = __import__(module)
             globals()[module] = module_obj
-            print(' >> Importing module %s' % module)
+            tqdm.write(' >> Importing module %s' % module)
 
     return 0
 
@@ -305,7 +308,7 @@ class JobServer:
         self.job_runner_inbox = queue.PriorityQueue()
         self.node_cleanup = None
 
-        print(" ==== Starting JobServer(dispy) ====")
+        tqdm.write(" ==== Starting JobServer(dispy) ====")
 
         # check that the run_parallel option is activated
         if self.run_parallel:
@@ -342,7 +345,7 @@ class JobServer:
                       'Ethernet card and check the node_list to make sure you have the correct IP addresses.')
                 # terminate execution if problems were found
                 self.cluster.close()
-                exit()
+                os._exit(1)
 
             for r in self.result:
                 if 'Test passed!' not in r:
@@ -350,7 +353,7 @@ class JobServer:
                     print(' >> Errors were encountered during initialization. Check messages.')
                     # terminate execution if problems were found
                     self.cluster.close()
-                    exit()
+                    os._exit(1)
 
             self.cluster.close()
         else:
@@ -360,7 +363,7 @@ class JobServer:
             if 'Test passed!' not in r:
                 print(r)
                 print(' >> Errors were encountered during initialization. Check messages.')
-                exit()
+                os._exit(1)
 
     def create_cluster(self, function, deps=(), callback=None, progress_bar=None, verbose=False, modules=(),
                        on_nodes_changed=None,
@@ -375,7 +378,14 @@ class JobServer:
         self.close    = True
         self.on_nodes_changed = on_nodes_changed
         self.node_cleanup     = node_cleanup
-        
+
+        # check that the modules exist and that there are no typos passed
+        try:
+            setup(modules)
+        except Exception as e:
+            tqdm.write('There were problems during module imports in create_cluster: ' + str(e))
+            os._exit(1)
+
         if not self.run_parallel:
             if node_setup:
                 node_setup()
@@ -511,7 +521,7 @@ class JobServer:
                 if self.on_nodes_changed:
                     self.on_nodes_changed(self.nodes)
 
-            elif N.Close == s:
+            elif N.Closed == s:
                 self.nodes.remove(node)
                 if self.on_nodes_changed:
                     self.on_nodes_changed(self.nodes)

@@ -29,7 +29,7 @@ from ...metadata.station_info import StationInfoRecord
 from ..data.solution_data import SolutionData
 from ..data.etm_database import load_parameters_db, save_parameters_db
 from ..core.etm_config import EtmConfig, SolutionOptions
-from ..core.type_declarations import EtmSolutionType, FitStatus
+from ..core.type_declarations import EtmSolutionType, FitStatus, SolutionType
 from ..core.data_classes import LeastSquares, AdjustmentResults
 from ..least_squares.design_matrix import DesignMatrix
 from ..least_squares.least_squares import EtmFit, AdjustmentModels
@@ -160,17 +160,28 @@ class EtmEngine:
     """Core mathematical engine for ETM processing, separated from business logic"""
 
     def __init__(self, config: EtmConfig,
-                 cnn: Cnn = None):
+                 cnn: Cnn = None, silent: bool = False, **kwargs):
 
-        setup_etm_logging()
+        setup_etm_logging(level=logging.CRITICAL if silent else logging.INFO)
 
         self.config = config
+
+        if config.solution.solution_type == SolutionType.DRA:
+            # DRA, turn off models
+            self.config.modeling.fit_metadata_jumps = False
+            self.config.modeling.fit_generic_jumps = False
+            self.config.modeling.fit_earthquakes = False
+            self.config.modeling.fit_auto_detected_jumps = False
+            # force zero auto coordinates in DRA mode
+            self.config.metadata.auto_x = np.array([0])
+            self.config.metadata.auto_y = np.array([0])
+            self.config.metadata.auto_z = np.array([0])
 
         # determine the type of object within the SolutionData class
         self.solution_data = SolutionData.create_instance(config)
 
         # load the data from connection or json file
-        self.solution_data.load_data(cnn)
+        self.solution_data.load_data(cnn, **kwargs)
 
         # check how many solutions we have available. If less than
         # 100 (most likely campaign) disable metadata jumps
@@ -189,8 +200,15 @@ class EtmEngine:
         self.jump_manager.build_jump_table(self.solution_data.time_vector[mask],
                                            self.solution_data.transform_to_local())
 
-        self.design_matrix = DesignMatrix(config, self.solution_data.time_vector,
-                                          [polynomial, periodic] + self.jump_manager.get_jump_functions())
+        if config.solution.solution_type == SolutionType.DRA:
+            # no periodic for DRA
+            self.design_matrix = DesignMatrix(config,
+                                              self.solution_data.time_vector,
+                                              [polynomial] + self.jump_manager.get_jump_functions())
+        else:
+            self.design_matrix = DesignMatrix(config,
+                                              self.solution_data.time_vector,
+                                              [polynomial, periodic] + self.jump_manager.get_jump_functions())
 
         # if adjustment strategy is LSQ_COLLOCATION, add the stochastic function to the design matrix
         # (although it is not used during the fit)
@@ -307,25 +325,32 @@ class EtmEngine:
 
         return etm_dump
 
-    def plot(self) -> None:
+    def plot(self) -> Union[str, None]:
 
         plotter = EtmPlotter(self.config)
         plot_data = PlotDataPreparer(self.config).prepare_time_series_data(self.solution_data, self.fit)
 
-        plotter.plot_time_series(plot_data)
+        return plotter.plot_time_series(plot_data)
 
-    def plot_hist(self) -> None:
+    def plot_hist(self) -> Union[str, None]:
 
         if self.config.modeling.status == FitStatus.POSTFIT:
             plotter = EtmPlotter(self.config)
             plot_data = PlotDataPreparer(self.config).prepare_time_series_data(self.solution_data, self.fit)
 
-            plotter.plot_histogram(plot_data)
+            return plotter.plot_histogram(plot_data)
+        else:
+            return None
 
-    def get_position(self, date: Date, etm_solution: EtmSolutionType = EtmSolutionType.MODEL) -> Dict:
+    def get_position(self, date: Date,
+                     etm_solution: EtmSolutionType = EtmSolutionType.MODEL) -> Dict:
         """
         use computed model to obtain a station position
         """
+        sigma_h = self.config.modeling.sigma_floor_h
+        sigma_v = self.config.modeling.sigma_floor_v
+        limit = self.config.modeling.least_squares_strategy.sigma_filter_limit
+
         model = [np.array([]), np.array([]), np.array([])]
         model_ecef = np.array([])
         stack_name = self.solution_data.stack_name.upper()
@@ -347,29 +372,59 @@ class EtmEngine:
             if i:
                 # solution found, save it
                 position = np.array([self.solution_data.x[i], self.solution_data.y[i], self.solution_data.z[i]])
+                sigmas = np.array([result.residuals[i] for result in self.fit.results])
+
                 if model_ecef.size:
                     if self.fit.outlier_flags[i]:
                         source = stack_name + ' with ETM solution: good'
                     else:
                         # filter coordinate because it was an outlier
                         position = model_ecef
+                        sigmas = sigmas * limit
                         source = stack_name + ' with ETM solution: filtered'
                 else:
                     source = stack_name + ' solution, but no ETM'
             else:
                 if model_ecef.size:
                     position = model_ecef
+                    sigmas = np.array([result.wrms for result in self.fit.results]) * limit
                     source = 'No ' + stack_name + ' solution: ETM'
                 else:
                     source = 'No ' + stack_name + ' solution, no ETM: mean coordinate'
                     position = np.array([self.solution_data.x.mean(),
                                          self.solution_data.y.mean(),
                                          self.solution_data.z.mean()])
+
+                    sigmas = np.array([self.solution_data.x.std(),
+                                       self.solution_data.y.std(),
+                                       self.solution_data.z.std()])
         else:
             if model_ecef.size:
                 source = 'ETM solution requested'
                 position = model_ecef
+                sigmas = np.array([result.wrms for result in self.fit.results])
             else:
                 raise Exception('Model requested by no ETM was found for ' + self.config.get_station_id())
 
-        return {'position': position.tolist(), 'source': source}
+        if self.config.modeling.status == self.config.modeling.status.POSTFIT:
+            # get the velocity of the site
+            for funct in self.design_matrix.functions:
+                if (funct.p.object == 'polynomial' and
+                    np.sqrt(np.sum(np.square([p[1] for p in funct.p.params]))) > 0.2):
+                    # fast moving station! bump up the sigma floor
+                    sigma_h = 99.9
+                    sigma_v = 99.9
+                    source += '. fast moving station, bumping up sigmas'
+
+        # apply floor sigmas
+        sigmas = np.sqrt(np.square(sigmas) + np.square(np.array([[sigma_h], [sigma_h], [sigma_v]])))
+
+        return {'position': position.tolist(), 'source': source, 'sigmas': sigmas.tolist()}
+
+    def query_jump(self, date: Date):
+        """return any jumps that may have occurred in the date being requested"""
+        for jump in self.design_matrix.functions:
+            if jump.p.object == 'jump' and Date(datetime=jump.p.jump_date) == date and jump.fit:
+                return Date(datetime=jump.p.jump_date)
+
+        return None

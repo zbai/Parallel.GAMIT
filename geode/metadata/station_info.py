@@ -131,7 +131,7 @@ class StationInfoRecord:
 
         # Update fields from parsed data
         for key, value in parsed.items():
-            if key in ('AntennaNorth', 'AntennaEast', 'AntennaHeight'):
+            if key in ('AntennaNorth', 'AntennaEast', 'AntennaHeight', 'AntennaDAZ'):
                 try:
                     object.__setattr__(self, key, float(value))
                 except (ValueError, TypeError):

@@ -35,7 +35,7 @@ import numpy as np
 from scipy.spatial import Delaunay, distance
 
 # app
-from .pyGamitSession import GamitSession
+from .gamit.gamit_session import GamitSession
 from .pyStation import StationCollection
 from .cluster import (BisectingQMeans, overcluster, prune,
                       select_central_point)

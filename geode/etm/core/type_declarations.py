@@ -147,13 +147,15 @@ class SolutionType(IntEnum):
     GAMIT = auto()
     PPP = auto()
     NGL = auto()
+    DRA = auto()
 
     @property
     def description(self) -> str:
         descriptions = {
             SolutionType.GAMIT: 'GAMIT: GNSS at MIT',
             SolutionType.PPP: 'Precise Point Positioning',
-            SolutionType.NGL: 'Nevada Geodetic Laboratory (GipsyX)'
+            SolutionType.NGL: 'Nevada Geodetic Laboratory (GipsyX)',
+            SolutionType.DRA: 'Daily repeatability analysis (DRA)'
         }
         return descriptions.get(self, 'UNKNOWN')
 
@@ -162,6 +164,7 @@ class SolutionType(IntEnum):
         code = {
             SolutionType.GAMIT: 'gamit',
             SolutionType.PPP: 'ppp',
-            SolutionType.NGL: 'ngl'
+            SolutionType.NGL: 'ngl',
+            SolutionType.DRA: 'dra'
         }
         return code.get(self, 'UNKNOWN')

@@ -257,7 +257,7 @@ class Menu(object):
             else:
                 edit_field = rs.dictresult()[0]['ReceiverCode']
 
-        elif fname in ('AntennaEast', 'AntennaNorth', 'AntennaHeight'):
+        elif fname in ('AntennaEast', 'AntennaNorth', 'AntennaHeight', 'AntennaDAZ'):
             # field has to be numeric
             try:
                 _ = float(edit_field)
@@ -391,6 +391,7 @@ def selection_main_menu(menu):
         record['AntennaCode']      = '' if stninfo is None else stninfo['AntennaCode']
         record['RadomeCode']       = '' if stninfo is None else stninfo['RadomeCode']
         record['AntennaSerial']    = '' if stninfo is None else stninfo['AntennaSerial']
+        record['AntennaDAZ']       = '0.0' if stninfo is None else stninfo['AntennaDAZ']
         record['Comments']         = ''
 
         new_record = []
@@ -447,6 +448,7 @@ def get_fields(position):
     record2['AntennaCode']      = ''
     record2['RadomeCode']       = ''
     record2['AntennaSerial']    = ''
+    record2['AntennaDAZ']       = '0.0'
     record2['Comments']         = ''
 
     for key in record2.keys():

@@ -879,19 +879,6 @@ def process_visits(JobServer):
     JobServer.close_cluster()
 
 
-def db_checks():
-    if 'rinexed' in cnn.get_columns('api_visitgnssdatafiles').keys():
-        # New field in table api_visitgnssdatafiles present, no need to migrate.
-        return
-
-    cnn.begin_transac()
-    cnn.query("""
-    ALTER TABLE api_visitgnssdatafiles
-    ADD COLUMN rinexed BOOLEAN DEFAULT FALSE;
-    """)
-    cnn.commit_transac()
-
-
 def main():
 
     # put connection and config in global variable
@@ -940,8 +927,6 @@ def main():
             print(" >> the provided media path in gnss_data.cfg is not accessible")
             exit()
 
-        # check the existence of the rinexed_visits table, if it does not exist, create one
-        db_checks()
         process_visits(JobServer)
 
     # set the data_xx directories

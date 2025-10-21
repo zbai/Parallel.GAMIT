@@ -211,7 +211,7 @@ class SolutionData(ABC):
 
     def _process_coordinate_solutions(self, solutions: List, solution_type: str = "solutions") -> None:
         """Common processing for coordinate solutions"""
-        if not solutions:
+        if not len(solutions):
             raise SolutionDataException(f"No {solution_type} for {self.get_station_id()}")
 
         # Filter by distance from reference coordinates
@@ -404,6 +404,8 @@ class SolutionData(ABC):
             instance = PPPSolutionData(config)
         elif config.solution.solution_type == SolutionType.GAMIT:
             instance = GAMITSolutionData(config.solution.stack_name, config)
+        elif config.solution.solution_type == SolutionType.DRA:
+            instance = DRASolutionData(config.solution.project, config)
         elif config.solution.solution_type == SolutionType.NGL:
             instance = FileSolutionData(config)
         else:
@@ -534,10 +536,12 @@ class GAMITSolutionData(SolutionData):
         elif self.config.json_file:
             # if self.config.json_file is set, try to load
             self._load_json(self.config.json_file)
-        else:
+        elif polyhedrons is None and cnn is None:
             raise SolutionDataException('No source for solution given')
+
+        self._process_polyhedrons(polyhedrons)
+
         if cnn:
-            self._process_polyhedrons(polyhedrons)
             self._load_project_info(cnn)
             self._load_missing_solutions(cnn)
 
@@ -566,7 +570,7 @@ class GAMITSolutionData(SolutionData):
 
     def _process_polyhedrons(self, polyhedrons: List) -> None:
         """Process polyhedron data into coordinate arrays"""
-        if not polyhedrons:
+        if not len(polyhedrons):
             raise SolutionDataException(f"No GAMIT polyhedrons available for {self.get_station_id()} "
                                         f"in stack {self.stack_name}")
 
@@ -609,6 +613,22 @@ class GAMITSolutionData(SolutionData):
             issues.append("No project information available")
 
         return issues
+
+
+class DRASolutionData(GAMITSolutionData):
+    def __init__(self, project: str, config: EtmConfig):
+        super().__init__(project, config)
+        self.soln = 'gamit'
+        self.stack_name = f'DRA {project}'
+        self.project = project
+
+        # Update config to reflect which solution we are working with
+        config.solution.project = project
+        self.config = config
+
+    def _load_project_info(self, cnn) -> None:
+        # no project info to extract from stacks, since no stack yet!
+        pass
 
 
 class FileSolutionData(SolutionData):

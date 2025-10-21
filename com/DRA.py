@@ -6,6 +6,7 @@ Author: Demian D. Gomez
 """
 
 import argparse
+import logging
 import os
 from datetime import datetime
 import json
@@ -14,6 +15,9 @@ import json
 import numpy as np
 from tqdm import tqdm
 import matplotlib
+
+from geode.etm.core.etm_engine import EtmEngine
+
 if not os.environ.get('DISPLAY', None):
     matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -23,7 +27,9 @@ import numpy
 
 # app
 from geode import dbConnection
-from geode import pyETM
+from geode.etm.core import etm_engine
+from geode.etm.core import etm_config
+from geode.etm.core import type_declarations
 from geode import pyDate
 from geode import pyJobServer
 from geode import pyOptions
@@ -47,52 +53,90 @@ def sql_select(project, fields, date2):
               fields, project, date2.year, date2.doy)
 
 
+def save_excluded_soln(cnn, etm, network_code: str, station_code: str, project: str):
+
+    res_mag = numpy.sqrt(numpy.sum(numpy.square([r.residuals for r in etm.fit.results]), axis=0))
+
+    for date, f, r in zip(etm.solution_data.coordinates.dates,
+                          etm.fit.outlier_flags,
+                          res_mag):
+
+        if not cnn.query_float('SELECT * FROM gamit_soln_excl WHERE "NetworkCode" = \'%s\' AND '
+                               '"StationCode" = \'%s\' AND "Project" = \'%s\' AND '
+                               '"Year" = %i AND "DOY" = %i'
+                               % (network_code, station_code, project,
+                                  date.year, date.doy)) \
+                and not f:
+
+            cnn.query('INSERT INTO gamit_soln_excl ("NetworkCode", "StationCode", "Project", '
+                      '"Year", "DOY", residual) VALUES (\'%s\', \'%s\', \'%s\', %i ,%i, %.4f)'
+                      % (network_code, station_code, project, date.year, date.doy, r))
+
+
 def compute_dra(ts, NetworkCode, StationCode,
                 pdates, project, histogram=False, save_excluded=False):
+
     try:
+        from geode.etm.core.logging_config import setup_etm_logging
+        # deactivate messages
+        setup_etm_logging(level=logging.CRITICAL)
+
         # load from the db
         cnn = dbConnection.Cnn('gnss_data.cfg')
 
+        config = etm_config.EtmConfig(NetworkCode, StationCode, cnn=cnn)
+        config.plotting_config.plot_show_outliers = True
+        config.solution.solution_type = type_declarations.SolutionType.DRA
+        config.solution.project = project
+        # force linear components only
+        config.modeling.poly_terms = 1
+
         # to pass the filename back to the callback_handler
         filename = project + '_dra/' + NetworkCode + '.' + StationCode
+
         if ts.size:
 
             if ts.shape[0] > 2:
                 dts = numpy.append(numpy.diff(ts[:, 0:3], axis=0),
                                    ts[1:, -3:], axis=1)
 
-                dra_ts = pyETM.GamitSoln(cnn, dts, NetworkCode,
-                                         StationCode, project)
+                etm = etm_engine.EtmEngine(config=config, cnn=cnn, polyhedrons=dts)
+                etm.run_adjustment(cnn=cnn, try_save_to_db=False, try_loading_db=False)
 
-                etm = pyETM.DailyRep(cnn, NetworkCode, StationCode,
-                                     False, False, dra_ts, save_excluded=save_excluded)
+                fig_file = ''
+                his_file = ''
 
-                figfile = ''
-                hisfile = ''
+                if etm.config.modeling.status == etm.config.modeling.status.POSTFIT:
+                    # got a DRA back
+                    config.plotting_config.file_io = io.BytesIO()
+                    config.plotting_config.plot_time_window = pdates
 
-                if etm.A is not None:
-                    figfile = etm.plot(fileio=io.BytesIO(),
-                                       plot_missing=False, t_win=pdates)
+                    fig_file = etm.plot()
+
                     if histogram:
-                        hisfile = etm.plot_hist(fileio=io.BytesIO())
+                        his_file = etm.plot_hist()
+
+                    if save_excluded:
+                        save_excluded_soln(cnn, etm, NetworkCode, StationCode, project)
+
                     # save the wrms
-                    return (etm.factor[0] * 1000, etm.factor[1] * 1000,
-                            etm.factor[2] * 1000, figfile, hisfile,
-                            filename, NetworkCode,
-                            StationCode, etm.soln.lat[0],
-                            etm.soln.lon[0], etm.soln.height[0])
+                    return (
+                        etm.fit.results[0].wrms * 1000, etm.fit.results[1].wrms * 1000,
+                        etm.fit.results[2].wrms * 1000, fig_file, his_file, filename, NetworkCode,
+                        StationCode, config.metadata.lat[0], config.metadata.lon[0], config.metadata.height[0]
+                    )
                 else:
-                    return (None, None, None, figfile, hisfile,
-                            filename, NetworkCode,
-                            StationCode, etm.soln.lat[0],
-                            etm.soln.lon[0], etm.soln.height[0])
+                    return (
+                        None, None, None, fig_file, his_file,
+                        filename, NetworkCode, StationCode,
+                        config.metadata.lat[0], config.metadata.lon[0], config.metadata.height[0]
+                    )
+
     except Exception as e:
         raise Exception('While working on %s.%s' % (NetworkCode,
                                                     StationCode) + '\n') from e
 
-    return (None, None, None, '', '',
-            filename, NetworkCode,
-            StationCode, 0, 0, 0)
+    return None, None, None, '', '', filename, NetworkCode, StationCode, 0, 0, 0
 
 
 class DRA(list):
@@ -156,7 +200,7 @@ class DRA(list):
     def stack_dra(self):
 
         for j in tqdm(list(range(len(self) - 1)),
-                      desc=' >> Daily repetitivity analysis progress',
+                      desc=' >> Daily repeatability analysis progress',
                       ncols=160):
 
             # should only attempt to align a polyhedron that is unaligned
@@ -293,11 +337,10 @@ def main():
              pyDate.Date(year=2100, doy=1)]
 
     Config = pyOptions.ReadOptions("gnss_data.cfg")
-    # type: pyOptions.ReadOptions
+
     JobServer = pyJobServer.JobServer(
         Config, check_archive=False, check_atx=False, check_executables=False,
         run_parallel=not args.noparallel)
-    # type: pyJobServer.JobServer
 
     try:
         dates = process_date(args.date_filter)
@@ -332,28 +375,29 @@ def main():
 
     dra.stack_dra()
 
-    tqdm.write(''' >> Daily repetitivity analysis done. DOYs with wrms > 8 mm
-               are shown below:''')
+    tqdm.write(" >> Daily repeatability analysis done. DOYs with wrms > 8 mm are shown below:")
     for i, d in enumerate(dra):
         if d.wrms is not None:
             if d.wrms > 0.008:
-                tqdm.write(''' -- %s (%04i) %2i it wrms: %4.1f
-                           D-W: %5.3f IQR: %4.1f''' %
-                           (d.date.yyyyddd(),
-                            d.stations_used,
-                            d.iterations,
-                            d.wrms * 1000,
-                            d.down_frac,
-                            d.iqr * 1000))
+                tqdm.write(
+                    " -- %s (%04i) %2i it wrms: %4.1f D-W: %5.3f IQR: %4.1f" % (
+                        d.date.yyyyddd(), d.stations_used, d.iterations, d.wrms * 1000,
+                        d.down_frac, d.iqr * 1000)
+                )
 
     qbar = tqdm(total=len(dra.stations), desc=' >> Computing DRAs',
                 ncols=160, disable=None)
 
-    modules = ('geode.pyETM', 'geode.dbConnection',
-               'traceback', 'io', 'numpy')
+
+    modules = ('geode.dbConnection',
+               'geode.etm.core.etm_engine',
+               'geode.etm.core.etm_config',
+               'geode.etm.core.type_declarations',
+               'io', 'numpy', 'logging')
+
     JobServer.create_cluster(compute_dra, progress_bar=qbar,
                              callback=callback_handler,
-                             modules=modules)
+                             modules=modules, deps=(save_excluded_soln,))
 
     # plot each DRA
     for stn in dra.stations:
@@ -361,6 +405,7 @@ def main():
         StationCode = stn['StationCode']
 
         ts = dra.get_station(NetworkCode, StationCode)
+
         JobServer.submit(ts, NetworkCode, StationCode, pdates,
                          project, args.histogram, args.save_excluded)
 

@@ -844,38 +844,11 @@ def hash_check(cnn, master_list, sdate, edate, rehash=False, h_tolerant=0):
         print(' -- Done rehashing PPP records.')
 
 
-def db_checks(cnn):
-    fields = cnn.get_columns('ppp_soln')
-
-    if 'orbit' not in fields.keys():
-        # New field in table ppp_soln present, no need to migrate.
-        cnn.begin_transac()
-        cnn.query("""
-                ALTER TABLE ppp_soln
-                ADD COLUMN orbit VARCHAR(100) DEFAULT '';
-                """)
-        cnn.commit_transac()
-
-    if fields['hash'].lower() != 'bigint':
-        # check the database to modify the ppp_soln table hash column from integer to bigint
-        print(' >> Converting hash column in ppp_soln to BIGINT. This operation might take a while...')
-        cnn.begin_transac()
-        cnn.query("""
-                ALTER TABLE ppp_soln
-                ALTER COLUMN hash TYPE BIGINT;
-                """)
-        cnn.commit_transac()
-
-
 def process_ppp(cnn, Config, pyArchive, archive_path, JobServer, master_list, sdate, edate, h_tolerance):
 
     print(" >> Running PPP on the RINEX files in the archive...")
 
     master_list = [item['NetworkCode'] + '.' + item['StationCode'] for item in master_list]
-
-    # DDG: new field in ppp_soln table -> orbit. It declared which orbit was used to obtain a solution
-    # DDG: check the database to modify the ppp_soln table hash column from integer to bigint
-    db_checks(cnn)
 
     # for each rinex in the db, run PPP and get a coordinate
     rs_rnx = cnn.query('SELECT rinex.* FROM rinex_proc as rinex '

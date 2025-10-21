@@ -93,6 +93,75 @@ def debug(s):
         file_append('/tmp/db.log', "DB: %s\n" % s)
 
 
+def run_db_migrations(cnn: 'Cnn'):
+    # New field in table api_visitgnssdatafiles
+    if 'rinexed' not in cnn.get_columns('api_visitgnssdatafiles').keys():
+        print(' >> Adding rinexed field to api_visitgnssdatafiles')
+        cnn.begin_transac()
+        cnn.query("""
+        ALTER TABLE api_visitgnssdatafiles
+        ADD COLUMN rinexed BOOLEAN DEFAULT FALSE;
+        """)
+        cnn.commit_transac()
+
+    # New AntennaDAZ field in table stationinfo
+    if 'AntennaDAZ' not in cnn.get_columns('stationinfo').keys():
+        print(' >> Adding AntennaDAZ field to stationinfo')
+        cnn.begin_transac()
+        cnn.query("""
+        ALTER TABLE stationinfo 
+        ADD COLUMN "AntennaDAZ" NUMERIC(4,1) DEFAULT 0.0
+        CHECK ("AntennaDAZ" >= 0.0 AND "AntennaDAZ" <= 360.0);
+        """)
+        cnn.commit_transac()
+
+    # modifications to ppp_soln to store big int values
+    fields = cnn.get_columns('ppp_soln')
+
+    if 'orbit' not in fields.keys():
+        print(' >> Adding orbit field to ppp_soln')
+        # New field in table ppp_soln present, no need to migrate.
+        cnn.begin_transac()
+        cnn.query("""
+        ALTER TABLE ppp_soln
+        ADD COLUMN orbit VARCHAR(100) DEFAULT '';
+        """)
+        cnn.commit_transac()
+
+    if fields['hash'].lower() != 'bigint':
+        # check the database to modify the ppp_soln table hash column from integer to bigint
+        print(' >> Converting hash column in ppp_soln to BIGINT. This operation might take a while...')
+        cnn.begin_transac()
+        cnn.query("""
+        ALTER TABLE ppp_soln
+        ALTER COLUMN hash TYPE BIGINT;
+        """)
+        cnn.commit_transac()
+
+    # check precision of lat lon height and auto_[x|y|z] in stations table
+    stn_types = cnn.query_float("""
+    SELECT 
+        column_name,
+        data_type,
+        numeric_precision,
+        numeric_scale
+    FROM information_schema.columns 
+        WHERE table_name = 'stations' 
+        AND column_name = 'auto_x';
+    """, as_dict=True)
+    if stn_types[0]['numeric_precision'] is None:
+        print(' >> Converting lat lon height and auto_[x|y|z] types')
+        cnn.begin_transac()
+        cnn.query("""
+        ALTER TABLE stations ALTER COLUMN auto_x TYPE NUMERIC(16,5) USING ROUND(auto_x::numeric, 5);
+        ALTER TABLE stations ALTER COLUMN auto_y TYPE NUMERIC(16,5) USING ROUND(auto_y::numeric, 5);
+        ALTER TABLE stations ALTER COLUMN auto_z TYPE NUMERIC(16,5) USING ROUND(auto_z::numeric, 5);
+        ALTER TABLE stations ALTER COLUMN lat    TYPE NUMERIC(12,9) USING ROUND(lat::numeric, 9);
+        ALTER TABLE stations ALTER COLUMN lon    TYPE NUMERIC(12,9) USING ROUND(lon::numeric, 9);
+        ALTER TABLE stations ALTER COLUMN height TYPE NUMERIC(10,5) USING ROUND(height::numeric, 5);
+        """)
+        cnn.commit_transac()
+
 def adapt_numpy_array(numpy_array):
     return psycopg2.extensions.adapt(numpy_array.tolist())
 
@@ -170,6 +239,8 @@ class Cnn(object):
                 self.cursor = self.cnn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
                 debug("Database connection established")
+
+                run_db_migrations(self)
 
             except psycopg2.Error as e:
                 raise e

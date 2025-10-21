@@ -13,8 +13,8 @@ import traceback
 import numpy
 
 # app
-from . import dbConnection
-from .Utils import file_readlines
+from geode import dbConnection
+from geode.Utils import file_readlines
 
 
 class ParseZtdTask(object):

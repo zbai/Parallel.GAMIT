@@ -8,9 +8,9 @@ import configparser
 import os
 
 # app
-from .pyOptions import ReadOptions
-from . import pyBunch
-from .Utils import file_open
+from geode.pyOptions import ReadOptions
+from geode import pyBunch
+from geode.Utils import file_open
 
 
 class pyGamitConfigException(Exception):

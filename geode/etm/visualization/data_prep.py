@@ -122,8 +122,12 @@ class PlotDataPreparer:
 
         for funct in etm_results.design_matrix.functions:
             if funct.p.object == 'jump':
-                jump_tables[3].append(funct)
                 tables = funct.print_parameters()
+                # loop and add the jump twice to account for multiple lines in co+postseismic
+                # this is because in time series template we loop using jump_tables
+                #@todo: make the loop in time series template use the jumps to call and build tables right there
+                for _ in range(len(tables[0])):
+                    jump_tables[3].append(funct)
                 for i in range(3):
                     jump_tables[i].extend(tables[i])
 
