@@ -245,27 +245,27 @@ class Date(object):
                     else:
                         self.year = int(arg) + 2000
                 else:
-                    self.year = arg
+                    self.year = int(arg)
             elif key == 'doy':
-                self.doy = arg
+                self.doy = int(arg)
             elif key == 'day':
-                self.day = arg
+                self.day = int(arg)
             elif key == 'month':
-                self.month = arg
+                self.month = int(arg)
             elif key == 'gpsweek':
-                self.gpsWeek = arg
+                self.gpsWeek = int(arg)
             elif key == 'gpsweekday':
-                self.gpsWeekDay = arg
+                self.gpsWeekDay = int(arg)
             elif key in ('fyear','fractionalyear','fracyear'):
                 self.fyear = arg
             elif key == 'mjd':
-                self.mjd = arg
+                self.mjd = int(arg)
             elif key == 'hour':  # DDG 03-28-2017: include hour to work with station info object
-                self.hour = arg
+                self.hour = int(arg)
             elif key == 'minute':  # DDG 03-28-2017: include minute to work with station info object
-                self.minute = arg
+                self.minute = int(arg)
             elif key == 'second':  # DDG 03-28-2017: include second to work with station info object
-                self.second = arg
+                self.second = int(arg)
             elif key == 'datetime':  # DDG 03-28-2017: handle conversion from datetime to pyDate
                 if isinstance(arg, datetime):
                     self.day    = arg.day
@@ -392,32 +392,39 @@ class Date(object):
         else:
             return '%04i %03i %02i %02i %02i' % (self.year, self.doy, self.hour, self.minute, self.second)
 
-    def __check_cmp(self, date):
-        if not isinstance(date, Date):
-            raise pyDateException('type: %s invalid. Can only compare pyDate.Date objects' % str(type(date)))
+    @staticmethod
+    def __check_cmp(date) -> 'Date':
+        if isinstance(date, datetime):
+            return Date(datetime=date)
+        elif isinstance(date, Date):
+            return date
+        else:
+            raise pyDateException(
+                'type: %s invalid. Can only compare pyDate.Date or datetime objects' % str(type(date))
+            )
 
     def __lt__(self, date):
-        self.__check_cmp(date)
+        date = self.__check_cmp(date)
         return self.fyear < date.fyear
 
     def __le__(self, date):
-        self.__check_cmp(date)
+        date = self.__check_cmp(date)
         return self.fyear <= date.fyear
 
     def __gt__(self, date):
-        self.__check_cmp(date)
+        date = self.__check_cmp(date)
         return self.fyear > date.fyear
 
     def __ge__(self, date):
-        self.__check_cmp(date)
+        date = self.__check_cmp(date)
         return self.fyear >= date.fyear
 
     def __eq__(self, date):
-        self.__check_cmp(date)
+        date = self.__check_cmp(date)
         return self.mjd == date.mjd
 
     def __ne__(self, date):
-        self.__check_cmp(date)
+        date = self.__check_cmp(date)
         return self.mjd != date.mjd
 
     def __add__(self, ndays):

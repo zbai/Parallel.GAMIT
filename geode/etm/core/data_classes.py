@@ -6,7 +6,7 @@ Author: Demian D. Gomez
 
 import numpy as np
 from dataclasses import dataclass, field
-from typing import List, Optional, Any, Union
+from typing import List, Optional, Any, Union, Callable
 from datetime import datetime
 
 # app
@@ -121,6 +121,9 @@ class Earthquake(BaseDataClass):
     magnitude: float = 0
     distance: float = 0
     location: str = None
+    strike: List[float] = field(default_factory=lambda: [])
+    dip: List[float] = field(default_factory=lambda: [])
+    rake: List[float] = field(default_factory=lambda: [])
     jump_type: JumpType = None
 
     def __post_init__(self):
@@ -202,7 +205,7 @@ class ModelingParameters(BaseDataClass):
     # if not all data is to be fit, introduce a time window
     data_model_window: List[List[float]] = None
     # type of adjustment strategy to use
-    least_squares_strategy: LeastSquares = LeastSquares()
+    least_squares_strategy: LeastSquares = field(default_factory=LeastSquares)
     # pre-fit models to apply to the data before doing a fit
     prefit_models: List = field(default_factory=lambda: [])
 
@@ -210,9 +213,15 @@ class ModelingParameters(BaseDataClass):
     sigma_floor_h: float = 0.10
     sigma_floor_v: float = 0.15
     # minimum number of days between earthquakes
-    earthquake_min_days: int = 30
+    earthquake_min_days: int = 3
+    # minimum magnitude to consider adding jumps
+    earthquake_magnitude_limit: int = 6.0
+    # earthquakes to add to the fit even if they fall outside of earthquake_magnitude_limit
+    earthquakes_cherry_picked: List[str] = field(default_factory=lambda: [])
+    # flag to activste / deactivate checks between jumps
+    check_jump_collisions: bool = True
     # minimum number of days between jumps
-    jump_min_days: int = 5
+    jump_min_days: int = 3
     # years to add postseismic decays from jumps back in time
     post_seismic_back_lim: int = 365 * 5
 
@@ -340,7 +349,7 @@ class SolutionOptions(BaseDataClass):
 @dataclass
 class ValidationRules(BaseDataClass):
     """Configuration for validation rules"""
-    max_relaxation_amplitude: float = 4.0  # meters
+    max_relaxation_amplitude: float = 100.0  # meters (inflated after tests from 4 to 100)
     min_solutions_for_etm: int = 4
     min_data_for_jump: int = 50  # data points
     max_condition_number: float = 3.5 # log10 of the condition number

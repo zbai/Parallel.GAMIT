@@ -661,9 +661,15 @@ class EtmFit:
 
             self.config.modeling.status = FitStatus.POSTFIT
         else:
+
             self.results = [AdjustmentResults()] * 3
             self.config.modeling.status = FitStatus.UNABLE_TO_FIT
             self.outlier_flags = np.ones(solution_data.solutions).astype(bool)
+
+            logger.info(self.config.modeling.status.description + ' ' +
+                        f'solutions: {solution_data.solutions} '
+                        f'rank deficiency: {design_matrix.rank_deficient}')
+
             # deactivate all functions
             for funct in design_matrix.functions:
                 funct.fit = False

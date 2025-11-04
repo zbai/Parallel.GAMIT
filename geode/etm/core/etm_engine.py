@@ -1,7 +1,7 @@
 from enum import IntEnum
 from dataclasses import asdict
 from datetime import datetime
-from typing import Dict, Optional, Union
+from typing import Dict, Optional, Union, List
 import logging
 import json
 import numpy as np
@@ -10,6 +10,8 @@ import platform
 import os
 
 from importlib.metadata import version, PackageNotFoundError
+
+from .type_declarations import PeriodicStatus
 
 try:
     VERSION = str(version("geode"))
@@ -156,6 +158,10 @@ class EtmEncoder(json.JSONEncoder):
         return obj
 
 
+class EtmEngineException(Exception):
+    pass
+
+
 class EtmEngine:
     """Core mathematical engine for ETM processing, separated from business logic"""
 
@@ -268,7 +274,7 @@ class EtmEngine:
 
         dm = self.design_matrix
         mask = self.config.modeling.get_observation_mask(self.solution_data.time_vector)
-        # create a station_meta copy to replace the stationinforecord instances
+        # create a station_meta copy to replace the StationInfoRecord instances
         station_meta = copy.deepcopy(self.config.metadata)
         station_meta.station_information = [item.to_json() for item in station_meta.station_information]
 
@@ -342,40 +348,45 @@ class EtmEngine:
         else:
             return None
 
-    def get_position(self, date: Date,
+    def get_position(self, dates: Union[Date, List[Date]],
                      etm_solution: EtmSolutionType = EtmSolutionType.MODEL) -> Dict:
         """
         use computed model to obtain a station position
         """
+
+        if isinstance(dates, Date):
+            dates = [dates]
+
         sigma_h = self.config.modeling.sigma_floor_h
         sigma_v = self.config.modeling.sigma_floor_v
         limit = self.config.modeling.least_squares_strategy.sigma_filter_limit
 
         model = [np.array([]), np.array([]), np.array([])]
-        model_ecef = np.array([])
+        model_ecef = [np.array([]), np.array([]), np.array([])]
         stack_name = self.solution_data.stack_name.upper()
 
         # find the model value, if fit done
         if self.config.modeling.status == self.config.modeling.status.POSTFIT:
             for i in range(3):
                 model[i] = (self.design_matrix.alternate_time_vector(
-                    np.array([date.fyear])) @ self.fit.results[i].parameters)[0]
+                    np.array([date.fyear for date in dates])) @ self.fit.results[i].parameters)
 
             # transform back to ecef
-            model_ecef = self.solution_data.transform_to_ecef(model)
-            model_ecef = np.array([model_ecef[0][0], model_ecef[1][0], model_ecef[2][0]])
+            model_ecef = np.array(self.solution_data.transform_to_ecef(model))
 
         if etm_solution == EtmSolutionType.OBSERVATION:
             # find the date of the request
-            i = np.where(self.solution_data.time_vector_mjd == date.mjd)
+            mask = np.isin(self.solution_data.time_vector_mjd, [date.mjd for date in dates])
+            i = np.where(mask)[0]
 
-            if i:
+            if i.size:
                 # solution found, save it
                 position = np.array([self.solution_data.x[i], self.solution_data.y[i], self.solution_data.z[i]])
                 sigmas = np.array([result.residuals[i] for result in self.fit.results])
 
-                if model_ecef.size:
-                    if self.fit.outlier_flags[i]:
+                # check if model is not empty
+                if model_ecef[0].size:
+                    if np.all(self.fit.outlier_flags[i]):
                         source = stack_name + ' with ETM solution: good'
                     else:
                         # filter coordinate because it was an outlier
@@ -385,39 +396,42 @@ class EtmEngine:
                 else:
                     source = stack_name + ' solution, but no ETM'
             else:
-                if model_ecef.size:
+                if model_ecef[0].size:
                     position = model_ecef
-                    sigmas = np.array([result.wrms for result in self.fit.results]) * limit
-                    source = 'No ' + stack_name + ' solution: ETM'
+                    sigmas = np.array([[result.wrms] * len(dates) for result in self.fit.results]) * limit
+                    source = 'No ' + stack_name + ' solution for requested dates: ETM'
                 else:
-                    source = 'No ' + stack_name + ' solution, no ETM: mean coordinate'
-                    position = np.array([self.solution_data.x.mean(),
-                                         self.solution_data.y.mean(),
-                                         self.solution_data.z.mean()])
+                    source = 'No ' + stack_name + ' solution for requested dates, no ETM: mean coordinate'
+                    position = np.array([[self.solution_data.x.mean()] * len(dates),
+                                         [self.solution_data.y.mean()] * len(dates),
+                                         [self.solution_data.z.mean()] * len(dates)])
 
-                    sigmas = np.array([self.solution_data.x.std(),
-                                       self.solution_data.y.std(),
-                                       self.solution_data.z.std()])
+                    sigmas = np.array([[self.solution_data.x.std()] * len(dates),
+                                       [self.solution_data.y.std()] * len(dates),
+                                       [self.solution_data.z.std()] * len(dates)])
         else:
             if model_ecef.size:
                 source = 'ETM solution requested'
                 position = model_ecef
-                sigmas = np.array([result.wrms for result in self.fit.results])
+                sigmas = np.array([[result.wrms] * len(dates) for result in self.fit.results])
             else:
                 raise Exception('Model requested by no ETM was found for ' + self.config.get_station_id())
 
         if self.config.modeling.status == self.config.modeling.status.POSTFIT:
             # get the velocity of the site
             for funct in self.design_matrix.functions:
-                if (funct.p.object == 'polynomial' and
-                    np.sqrt(np.sum(np.square([p[1] for p in funct.p.params]))) > 0.2):
-                    # fast moving station! bump up the sigma floor
-                    sigma_h = 99.9
-                    sigma_v = 99.9
-                    source += '. fast moving station, bumping up sigmas'
+                if funct.p.object == 'polynomial':
+                    if np.sqrt(np.sum(np.square([p[1] for p in funct.p.params]))) > 0.2:
+                        # fast moving station! bump up the sigma floor
+                        sigma_h = 99.9
+                        sigma_v = 99.9
+                        source += '. fast moving station, bumping up sigmas'
+                    break
 
         # apply floor sigmas
-        sigmas = np.sqrt(np.square(sigmas) + np.square(np.array([[sigma_h], [sigma_h], [sigma_v]])))
+        sigmas = np.sqrt(np.square(sigmas) +
+                         np.square(np.array(
+                             [[sigma_h] * len(dates), [sigma_h] * len(dates), [sigma_v] * len(dates)])))
 
         return {'position': position.tolist(), 'source': source, 'sigmas': sigmas.tolist()}
 
@@ -428,3 +442,150 @@ class EtmEngine:
                 return Date(datetime=jump.p.jump_date)
 
         return None
+
+    def pull_params(self):
+        """
+        method to obtain the current parameters of the station (in json format)
+        periodic returns a dictionary with the periods as keys and a str following the description
+        in periodic_status_dict
+        """
+        date = Date(fyear=self.config.modeling.reference_epoch)
+
+        poly_dict = {'terms': self.config.modeling.poly_terms,
+                     'Year': date.year,
+                     'DOY' : date.doy}
+
+        jumps = [{'Year': jump.p.jump_date.year,
+                  'DOY': Date(datetime=jump.p.jump_date).doy,
+                  'action': jump.user_action,
+                  'fit': jump.fit,
+                  'type': jump.p.jump_type,
+                  'relaxation': jump.p.relaxation.tolist(),
+                  'metadata': jump.p.metadata} for jump in self.jump_manager.jumps]
+
+        periodic = {}
+        # create a dictionary with keys that equal the 1/f (period) requested or automatically added
+        for f in self.config.modeling.frequencies:
+            funct = self.design_matrix.get_periodic()
+
+            if f is not None and f in funct.p.frequencies:
+                # if in the list it is either automatic or requested by user, so pass
+                # the status from the modeling configuration
+                status = self.config.modeling.periodic_status
+            else:
+                # if not present maybe it was not possible to fit
+                status = PeriodicStatus.UNABLE_TO_FIT
+
+            periodic[1 / f] = status
+
+        return {'polynomial': poly_dict, 'periodic': periodic, 'jumps': jumps}
+
+    def push_params(self, cnn, params=None, reset_polynomial=False, reset_periodic=False, reset_jumps=False):
+        """
+        cnn             : database connection object
+        params          :
+            a dictionary containing the following keys, for each of the corresponding objects
+                {'object': 'polynomial', 'terms': int, 'Year': int, 'DOY': int}
+            terms: sets the number of terms to use in the polynomial (eg. 2, 3, 4, etc)
+            Year: sets the reference year part of the date for the site (if passed, then DOY is needed).
+                It can be = None or not passed
+            DOY: sets the reference day of year part of the date for the site (if passed,
+                then year is needed). It can be = None or not passed
+            {'object': 'periodic', 'frequencies': list[float]}
+                frequencies: a list of integers of the frequencies to fit. This value must be
+                passed as days. If no periodic terms are requested, then pass [].
+            {'object': 'jump', 'Year': int, 'DOY': int, 'action': str, 'jump_type': int, 'relaxation': list}
+                Year: sets the year part of the discontinuity date. Mandatory.
+                DOY: sets the day of year part of the discontinuity date. Mandatory
+                action: two possible values, '-' or '+' to add or remove a jump. Mandatory.
+                jump_type: jump type, can be 0 for mechanical, 1 for co+postseismic and 2 for postseismic
+                only, see type_dict_user
+            relaxation: mandatory when type is > 0, list of floats with the relaxation times in years
+        reset_polynomial: rest
+        reset_periodic  : rest
+        reset_jumps     : rest
+
+        Raises:
+            EtmEngineException
+        """
+
+        # for polynomial and periodic, trigger reset anyway since we need to get rid of the old records
+        if params:
+            if params['object'] == 'polynomial':
+                reset_polynomial = True
+                # sanity checks
+                if 'Year' in params.keys() and 'DOY' in params.keys():
+                    if params['Year'] is not None and type(params['Year']) is not int:
+                        raise EtmEngineException('Parameter Year must be of type int')
+                    if params['Year'] is not None and type(params['DOY']) is not int:
+                        raise EtmEngineException('Parameter DOY must be of type int')
+                elif ('Year' in params.keys() and 'DOY' not in params.keys()) or \
+                        ('Year' not in params.keys() and 'DOY' in params.keys()):
+                    raise EtmEngineException('Both parameters Year and DOY must be specified if either one is set')
+
+                # check that terms is an integer > 0
+                if type(params['terms']) is not int or params['terms'] <= 0:
+                    raise EtmEngineException('Parameter terms must be of type int > 0')
+
+                # check that the date is valid
+                if 'Year' in params.keys() and 'DOY' in params.keys():
+                    _ = Date(year=params['Year'], doy=params['DOY'])
+
+            elif params['object'] == 'periodic':
+                reset_periodic = True
+
+                # check that frequencies are not negative
+                for i, f in enumerate(params['frequencies']):
+                    if f <= 0:
+                        raise EtmEngineException('Cannot insert negative frequencies for periodic components')
+                    else:
+                        params['frequencies'][i] = 1/f
+
+            # add the fields for station and network
+            params['NetworkCode'] = self.config.network_code
+            params['StationCode'] = self.config.station_code
+            params['soln'] = self.solution_data.config.solution.solution_type.code
+
+        if reset_polynomial:
+            # reset to default
+            cnn.delete('etm_params', NetworkCode=self.config.network_code, StationCode=self.config.station_code,
+                       soln=self.solution_data.config.solution.solution_type.code, object='polynomial')
+
+        if reset_periodic:
+            # reset to default
+            cnn.delete('etm_params', NetworkCode=self.config.network_code, StationCode=self.config.station_code,
+                       soln=self.solution_data.config.solution.solution_type.code, object='periodic')
+
+        if reset_jumps:
+            # reset to default
+            cnn.delete('etm_params', NetworkCode=self.config.network_code, StationCode=self.config.station_code,
+                       soln=self.solution_data.config.solution.solution_type.code, object='jump')
+
+        if params:
+            if params['object'] == 'jump':
+
+                if params['jump_type'] < 0:
+                    raise EtmEngineException('jump_type must be >= 0')
+
+                if params['action'] == '+' and params['jump_type'] > 0 and 'relaxation' not in params.keys():
+                    raise EtmEngineException('Relaxation parameters needed when jump_type > 0 and action = +')
+
+                if 'relaxation' in params.keys():
+                    if len(params['relaxation']):
+                        for r in params['relaxation']:
+                            if type(r) not in (float, int):
+                                raise EtmEngineException('Relaxation parameters must be float type')
+                            if r <= 0:
+                                raise EtmEngineException('Relaxation parameters must be > 0')
+                    elif not len(params['relaxation']) and params['jump_type'] > 0:
+                        raise EtmEngineException('At least one relaxation needed for jump_type > 0')
+
+                # query params to find the jump
+                qpar = copy.deepcopy(params)
+                qpar = {k: v for k, v in qpar.items() if k not in ('action', 'relaxation', 'jump_type')}
+
+                # remove existing parameters
+                cnn.delete('etm_params', **qpar)
+
+            # insert the parameters passed to the database
+            cnn.insert('etm_params', **params)

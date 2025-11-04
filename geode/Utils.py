@@ -14,6 +14,8 @@ from datetime import datetime
 from zlib import crc32 as zlib_crc32
 from pathlib import Path
 from typing import Union
+import geopandas as gpd
+from shapely.geometry import Point
 
 # deps
 import numpy
@@ -701,8 +703,17 @@ def process_stnlist(cnn, stnlist_in, print_summary=True, summary_title=None):
         else:
             stnlist = [stnl for stnl in stnlist if stnl['StationCode'] != stn]
 
-    # sort the dictionary
+    # sort the dictionary and remove duplicates
     stnlist = sorted(stnlist, key=lambda i: i['StationCode'])
+
+    # create a unique set
+    stnlist_no_duplicates = []
+
+    for stn in stnlist:
+        if stationID(stn) not in [stationID(stn) for stn in stnlist_no_duplicates]:
+            stnlist_no_duplicates.append(stn)
+
+    stnlist = stnlist_no_duplicates
 
     if print_summary:
         if summary_title is None:
@@ -1159,12 +1170,65 @@ def azimuthal_equidistant(c_lon: np.ndarray, c_lat: np.ndarray, grid_lon: np.nda
     # azimuthal equidistant
     cosd = lambda x: np.cos(np.deg2rad(x))
     sind = lambda x: np.sin(np.deg2rad(x))
-    sin = lambda x: np.sin(x)
-    acos = lambda x: np.arccos(x)
 
-    c = acos(sind(c_lat) * sind(grid_lat) + cosd(c_lat) * cosd(grid_lat) * cosd(grid_lon - c_lon))
-    k = c / sin(c) * 6371
-    x = k * cosd(grid_lat) * sind(grid_lon - c_lon)
-    y = k * (cosd(c_lat) * sind(grid_lat) - sind(c_lat) * cosd(grid_lat) * cosd(grid_lon - c_lon))
+    c = np.arccos(sind(c_lat) * sind(grid_lat) +
+                  cosd(c_lat) * cosd(grid_lat) * cosd(grid_lon - c_lon))
+
+    # For small c, use Taylor expansion: c/sin(c) ≈ 1 + c²/6
+    threshold = 1e-7
+    scale_factor = np.where(c < threshold,
+                            1.0 + c ** 2 / 6.0,  # Taylor approximation
+                            c / np.sin(c))
+    k = scale_factor * 6371.0
+
+    x = -k * cosd(grid_lat) * sind(grid_lon - c_lon)
+    y = -k * (cosd(c_lat) * sind(grid_lat) -
+              sind(c_lat) * cosd(grid_lat) * cosd(grid_lon - c_lon))
 
     return x, y
+
+def inverse_azimuthal(x, y, lon, lat):
+    # inverse azimuthal equidistant
+    cosd = lambda x: np.cos(np.deg2rad(x))
+    sind = lambda x: np.sin(np.deg2rad(x))
+    atand = lambda x: np.rad2deg(np.arctan(x))
+    asind = lambda x: np.rad2deg(np.arcsin(x))
+
+    r = np.sqrt(np.square(x) + np.square(y)).flatten()
+    c = r / 6371.
+
+    i_lat = asind(np.cos(c) * sind(lat) + y.flatten() * np.sin(c) * cosd(lat) / r)
+    i_lon = lon + atand((x.flatten() * np.sin(c)) / (r * cosd(lat) * np.cos(c) - y.flatten() * sind(lat) * np.sin(c)))
+
+    return i_lon, i_lat
+
+
+def get_tectonic_plate(longitude, latitude):
+    """
+    Determine which tectonic plate a point is on.
+
+    Parameters:
+    -----------
+    longitude : float
+        Longitude in decimal degrees
+    latitude : float
+        Latitude in decimal degrees
+    Returns:
+    --------
+    str or None : Name and code of the tectonic plate or None if not found
+    """
+    from importlib.resources import files
+    data_path = files('geode.elasticity.data').joinpath('PB2002_plates.json')
+
+    filename = str(data_path)
+
+    plates = gpd.read_file(filename)
+
+    point = Point(longitude, latitude)  # Note: Point takes (lon, lat)
+
+    # Check which plate contains the point
+    for idx, plate in plates.iterrows():
+        if plate.geometry.contains(point):
+            return plate['Code'], plate['PlateName']  # or use 'Code' for plate code
+
+    return None

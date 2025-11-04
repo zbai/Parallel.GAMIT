@@ -40,7 +40,7 @@ The elastic half-space (Z<0) is uniform and isotropic. The displacement field pr
 on scalar alpha, where alpha = mu/(lambda+mu). When the Lamé parameters lambda and mu are equal, the elastic is said to
 be a Poisson solid and alpha=0.5
 
-The stations where displacememts are to be computed have coordinates x and y (which can be scalars, vectors or
+The stations where displacements are to be computed have coordinates x and y (which can be scalars, vectors or
 matrices, but must have the same sizes. THe output arguments ux, uy and uz, which have the sames sizes as input
 arguments x and y, are the X, Y and Z components of displacement at each station.
 
@@ -415,20 +415,20 @@ class Score(object):
         # determine if lat lon within the mask, or determine score for station
         # convert lat lon to mask coordinates
         c = np.arccos(sind(self.lat) * sind(lat) + cosd(self.lat) * cosd(lat) * cosd(lon - self.lon))
-        if c != 0:
-            k = c / np.sin(c) * 6371
-        else:
-            k = 0
+        k = np.zeros_like(c)
+        k[c != 0] = c[c != 0] / np.sin(c[c != 0]) * 6371
         x = k * cosd(lat) * sind(lon - self.lon)
         y = k * (cosd(self.lat) * sind(lat) - sind(self.lat) * cosd(lat) * cosd(lon - self.lon))
 
+        qp = np.column_stack((x, y))
+
         if self.c_mask.size > 0:
             # if mask is available, use mask
-            _, i = self.kd_c.query((x, y))
+            _, i = self.kd_c.query(qp)
             s_score = self.c_mask.flatten()[i] + 0
 
             # repeat, this time inflating the level-2 mask to get the postseismic
-            _, i = self.kd_p.query((x, y))
+            _, i = self.kd_p.query(qp)
             p_score = self.p_mask.flatten()[i] + 0
         else:
             s_score = a * self.mag - np.log10(np.sqrt(np.square(x) + np.square(y))) + b
@@ -586,26 +586,7 @@ class Mask(Score):
     A mask object takes an earthquake id as a parameter and calculates the mask or loads it from the database
     """
 
-    def __init__(self, cnn: dbConnection, earthquake_id: str, density=750):
-        # first check that the new fields exist or create them
-        if 'density' not in cnn.get_columns('earthquakes').keys():
-            cnn.begin_transac()
-            cnn.query("""
-                    ALTER TABLE earthquakes
-                    ADD COLUMN density INTEGER   DEFAULT NULL,
-                    ADD COLUMN c_kml   TEXT      DEFAULT NULL,
-                    ADD COLUMN cp_kml  TEXT      DEFAULT NULL;
-                    """)
-            cnn.commit_transac()
-
-        # check that the index exists
-        idx = cnn.query("SELECT * FROM pg_indexes WHERE tablename = 'earthquakes' "
-                        "AND indexname = 'earthquake_id_key'")
-
-        if not len(idx):
-            cnn.begin_transac()
-            cnn.query("""CREATE UNIQUE INDEX earthquake_id_key ON earthquakes (id);""")
-            cnn.commit_transac()
+    def __init__(self, cnn: dbConnection.Cnn, earthquake_id: str, density=750):
 
         eq = cnn.get('earthquakes', {'id': earthquake_id})
 
@@ -623,7 +604,8 @@ class Mask(Score):
 
             # save values to database only if density is 750 or above
             if density >= 750:
-                cnn.update('earthquakes', {'density': density, 'c_kml'  : self.c_kml, 'cp_kml' : self.cp_kml},
+                cnn.update('earthquakes',
+                           {'density': density, 'c_kml'  : self.c_kml, 'cp_kml' : self.cp_kml},
                            id=eq['id'])
         else:
             self.c_kml = eq['c_kml']
@@ -797,5 +779,5 @@ if __name__ == '__main__':
     print(_score.save_masks(kmz_file='test.kmz', include_postseismic=True))
 
     et = EarthquakeTable(conn, 'us20003k7a')
-    print(et.stations)
+    print(et.c_stations)
 

@@ -11,6 +11,7 @@ from ...pyDate import Date
 from ..etm_functions.etm_function import EtmFunction
 from ..core.etm_config import EtmConfig
 from ..core.type_declarations import JumpType
+from ..core.data_classes import Earthquake
 
 
 class JumpFunction(EtmFunction):
@@ -22,12 +23,14 @@ class JumpFunction(EtmFunction):
                  magnitude: Optional[int] = 0,
                  epi_distance: Optional[float] = 0,
                  user_action: Optional[str] = 'A',
-                 fit: bool = True, **kwargs):
+                 fit: bool = True,
+                 earthquake: Earthquake = None, **kwargs):
 
         self.date = date
         self.magnitude = magnitude
         self.epi_distance = epi_distance
         self.user_action = user_action
+        self.earthquake = earthquake
         # start with was_modified = False to indicate that the ETM did not alter this jump yet
         self.was_modified = False
 
@@ -194,6 +197,37 @@ class JumpFunction(EtmFunction):
             #        self.p.jump_type = JumpType.COSEISMIC_ONLY
             #        self.param_count = 1
             #        self.design = self._create_step_function(time_vector)
+
+    def get_relaxation_cols(self, relaxation: Union[float, List, np.ndarray] = None,
+                            return_col_of_design_matrix: bool = True) -> List:
+        """
+        method to retrieve the column of a given relaxation (or all if None)
+        if return_col_of_design_matrix then the returned index if that of the ETM design matrix
+        if not return_col_of_design_matrix then the index is that
+        returns cols in the order passed to the method
+        """
+        if relaxation is None:
+            relaxation = self.p.relaxation
+        elif isinstance(relaxation, float):
+            relaxation = [relaxation]
+
+        out_cols = []
+        for relax in relaxation:
+            idx = np.where(np.isin(self.p.relaxation, relax))[0].tolist()
+
+            if len(idx):
+                if return_col_of_design_matrix:
+                    if self.p.jump_type == JumpType.COSEISMIC_JUMP_DECAY:
+                        out_cols.append(self.column_index[idx[0] + 1])
+                    elif self.p.jump_type == JumpType.POSTSEISMIC_ONLY:
+                        out_cols.append(self.column_index[idx[0]])
+                else:
+                    if self.p.jump_type == JumpType.COSEISMIC_JUMP_DECAY:
+                        out_cols.append(idx[0] + 1)
+                    elif self.p.jump_type == JumpType.POSTSEISMIC_ONLY:
+                        out_cols.append(idx[0])
+
+        return out_cols
 
     def get_design_ts(self, ts: np.ndarray) -> np.ndarray:
         """Generate design matrix for given time series"""
@@ -383,22 +417,37 @@ class JumpFunction(EtmFunction):
         # if one is geophysical but the other is not, use this flag
         lt_design_jump_min_days = design_overlap <= self.config.modeling.jump_min_days
 
+        logger.debug(f'Comparing: {self.date} {self.p.jump_type} with {other.date} {other.p.jump_type}')
+
+        logger.debug(f'lt_design_eq_min_days  : {lt_design_eq_min_days} '
+                     f'with design_overlap: {design_overlap} and '
+                     f'earthquake_min_days: {self.config.modeling.earthquake_min_days}')
+
+        logger.debug(f'lt_design_jump_min_days: {lt_design_jump_min_days} with '
+                     f'jump_min_days: {self.config.modeling.jump_min_days}')
+
         # Decision logic based on jump types and data availability
-        if self._is_geophysical() and other._is_geophysical():
+        if self.is_geophysical() and other.is_geophysical():
             # Two geophysical user_jumps
             # there are more than two weeks of data to constrain params, return false (not equal)
             # otherwise, decide based on the magnitude of events
             if lt_earthquake_min_days or lt_design_eq_min_days:
-                # Insufficient data separation, by date or data points - choose by magnitude
-                return True, self if self.magnitude > other.magnitude else other
+                # Insufficient data separation, by date or data points - choose by magnitude if jump happened after
+                # start of the data. Otherwise, (before the start of data) leave most recent
+                if other.date.fyear < self._time_vector.min() and self.date.fyear < self._time_vector.min():
+                    logger.debug('Decision made based on date')
+                    return True, self if self.date > other.date else other
+                else:
+                    logger.debug('Decision made based on magnitude')
+                    return True, self if self.magnitude > other.magnitude else other
             else:
                 return False, None  # Can coexist
-        elif self._is_geophysical() and not other._is_geophysical():
+        elif self.is_geophysical() and not other.is_geophysical():
             if lt_design_jump_min_days:
                 return True, self  # geophysical prevails
             else:
                 return False, None # Can coexist
-        elif not self._is_geophysical() and other._is_geophysical():
+        elif not self.is_geophysical() and other.is_geophysical():
             if lt_design_jump_min_days:
                 return True, other  # geophysical prevails
             else:
@@ -413,7 +462,7 @@ class JumpFunction(EtmFunction):
             else:
                 return False, None  # Can coexist
 
-    def _is_geophysical(self) -> bool:
+    def is_geophysical(self) -> bool:
         """Check if jump is geophysical, i.e. if >= COSEISMIC_JUMP_DECAY"""
         return self.p.jump_type >= JumpType.COSEISMIC_JUMP_DECAY
 
@@ -431,14 +480,16 @@ class JumpFunction(EtmFunction):
     def __str__(self) -> str:
         """String representation for debugging"""
         out_str = [f"{self.user_action} {self.date.yyyyddd()}",
-                   f"{self.p.jump_type.description}",
-                   f"fit: {self.fit}",
-                   f"param count: {self.param_count}"]
+                   f"{self.p.jump_type.description:27s}",
+                   f"fit: {str(self.fit)[0]:1s}",
+                   f"params: {self.param_count}"]
 
         if self.p.jump_type >= JumpType.COSEISMIC_JUMP_DECAY:
-            out_str.append(f"relaxation: [" + " ".join([f'{item:.2f}' for item in self.p.relaxation.tolist()]) + "]")
-            out_str.append(f"magnitude: {self.magnitude:.1f}")
-            out_str.append(f"epi_distance: {self.epi_distance:.1f} km")
+            out_str.append(f"mag: {self.magnitude:.1f}")
+            out_str.append(f"epi_dist: {self.epi_distance:6.1f} km")
+            if self.earthquake is not None:
+                out_str.append(f"id: {self.earthquake.id:32s}")
+            out_str.append(f"relax: [" + " ".join([f'{item:.2f}' for item in self.p.relaxation.tolist()]) + "]")
 
         return '; '.join(out_str)
 

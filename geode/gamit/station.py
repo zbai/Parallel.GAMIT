@@ -15,14 +15,14 @@ import numpy as np
 from tqdm import tqdm
 
 # app
-from .metadata.station_info import StationInfo, StationInfoHeightCodeNotFound
-from .etm.core.etm_config import EtmConfig
-from .etm.core.etm_engine import EtmEngine
-from .etm.core.type_declarations import SolutionType, EtmSolutionType
-from . import pyETM
-from . import pyBunch
-from . import pyDate
-from .Utils import stationID
+from geode.metadata.station_info import StationInfo, StationInfoHeightCodeNotFound, StationInfoNoRecordFound
+from geode.etm.core.etm_config import EtmConfig
+from geode.etm.core.etm_engine import EtmEngine
+from geode.etm.core.type_declarations import SolutionType, EtmSolutionType
+from geode.etm.core.data_classes import SolutionOptions
+from geode import pyBunch
+from geode import pyDate
+from geode.Utils import stationID
 
 COMPLETION = 0.5
 INTERVAL   = 120
@@ -92,14 +92,15 @@ class Station(object):
 
             # get the available dates for the station (RINEX files with conditions to be processed)
             rs = cnn.query(
-                'SELECT "ObservationYear" as y, "ObservationDOY" as d FROM rinex_proc '
+                'SELECT "ObservationYear" as y, "ObservationDOY" as d, "Completion" as c FROM rinex_proc '
                 'WHERE "NetworkCode" = \'%s\' AND "StationCode" = \'%s\' AND '
-                '("ObservationYear", "ObservationDOY") BETWEEN (%s) AND (%s) AND '
-                '"Completion" >= %.3f AND "Interval" <= %i'
+                '("ObservationYear", "ObservationDOY") BETWEEN (%s) AND (%s) AND "Interval" <= %i'
                 % (NetworkCode, StationCode, dates[0].yyyy() + ', ' + dates[0].ddd(),
-                   dates[1].yyyy() + ', ' + dates[1].ddd(), COMPLETION, INTERVAL))
+                   dates[1].yyyy() + ', ' + dates[1].ddd(), INTERVAL))
 
-            self.good_rinex = [pyDate.Date(year=r['y'], doy=r['d']) for r in rs.dictresult()]
+            rs = rs.dictresult()
+
+            self.good_rinex = [pyDate.Date(year=r['y'], doy=r['d']) for r in rs if r['c'] >= COMPLETION]
 
             # create a set of the missing days
             good_rinex = {d.mjd for d in self.good_rinex}
@@ -107,24 +108,32 @@ class Station(object):
             self.missing_rinex = [pyDate.Date(mjd=d) for d in range(dates[0].mjd, dates[1].mjd+1)
                                   if d not in good_rinex]
 
-            config = EtmConfig(NetworkCode, StationCode, cnn=cnn, silent=True)
-            config.solution.solution_type = SolutionType.PPP
+            solution_options = SolutionOptions()
+            solution_options.solution_type = SolutionType.PPP
+
+            config = EtmConfig(NetworkCode, StationCode, cnn=cnn,
+                               solution_options=solution_options, silent=True)
+
 
             self.etm = EtmEngine(config=config, cnn=cnn)
             self.etm.run_adjustment(cnn=cnn, try_save_to_db=True, try_loading_db=True)
 
-            # self.etm         = pyETM.PPPETM(cnn, NetworkCode, StationCode)  # type: pyETM.PPPETM
-
             self.StationInfo = StationInfo(cnn, NetworkCode, StationCode)
 
+            valid_rinex = []
+            for date in self.good_rinex:
+                try:
+                    self.StationInfo.check_coverage(date)
+                    valid_rinex.append(date)
+                except StationInfoNoRecordFound:
+                    tqdm.write(f'    WARNING: Observations for day {date.yyyymmdd()} ({date.yyyyddd()}) '
+                               f'have a gap or no station information. Day will be removed from the processing '
+                               f'to avoid a GAMIT FATAL during the run.')
+
+            self.good_rinex = valid_rinex
+
             # DDG: report RINEX files with Completion < 0.5
-            rs = cnn.query_float(
-                'SELECT "ObservationYear" as y, "ObservationDOY" as d FROM rinex_proc '
-                'WHERE "NetworkCode" = \'%s\' AND "StationCode" = \'%s\' AND '
-                '("ObservationYear", "ObservationDOY") BETWEEN (%s) AND (%s) AND '
-                '"Completion" < %.3f AND "Interval" <= %i'
-                % (NetworkCode, StationCode, dates[0].yyyy() + ', ' + dates[0].ddd(),
-                   dates[1].yyyy() + ', ' + dates[1].ddd(), COMPLETION, INTERVAL))
+            rs = [r for r in rs if r['c'] < COMPLETION]
 
             if len(rs):
                 tqdm.write('    WARNING: The requested date interval has %i days with < 50%% of observations. '
@@ -211,9 +220,9 @@ class StationInstance(object):
         station.etm.config.modeling.sigma_floor_v = float(GamitConfig.gamitopt['sigma_floor_v'])
         etm_output = station.etm.get_position(self.date, EtmSolutionType.OBSERVATION)
 
-        self.apr = etm_output['position']
+        self.apr = [item[0] for item in etm_output['position']]
         self.source = etm_output['source']
-        self.sigmas = etm_output['sigmas']
+        self.sigmas = [item[0] for item in etm_output['sigmas']]
         self.window = station.etm.query_jump(self.date)
 
         # rinex file

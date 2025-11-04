@@ -22,6 +22,7 @@ dependencies:
   - scikit-image
   - shapely
   - obspy
+  - geopandas
   - pip
   - pip:
     - country_converter

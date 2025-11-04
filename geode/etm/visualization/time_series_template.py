@@ -175,7 +175,7 @@ class TimeSeriesTemplate(PlotTemplate):
 
             for j, item in enumerate(reversed(table)):
                 line, color = item
-                if jumps[j].constrained[i]:
+                if jumps[len(jumps) - j - 1].constrained[i]:
                     bbox = dict(
                         edgecolor='black',  # Border color
                         facecolor='none',  # Transparent background

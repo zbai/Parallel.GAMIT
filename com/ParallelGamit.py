@@ -30,12 +30,12 @@ from geode.gamit import gamit_task
 from geode.gamit import globk_task
 from geode.gamit import gamit_session
 from geode.gamit import parse_ztd
+from geode.gamit.station import Station, StationCollection
 from geode import dbConnection
 from geode import pyJobServer
 from geode import pyArchiveStruct
-from geode.pyETM import pyETMException
+from geode.etm.data.solution_data import SolutionDataException
 from geode.network import Network
-from geode.pyStation import Station, StationCollection
 from geode.Utils import (process_date,
                           process_stnlist,
                           parseIntSet,
@@ -182,7 +182,7 @@ def purge_solution(pwd, project, date):
 
 def purge_solutions(JobServer, args, dates, GamitConfig):
 
-    if args.purge:
+    if args.purge or args.purge_exit:
 
         print(' >> Purging selected year-doys before run:')
 
@@ -228,7 +228,7 @@ def station_list(cnn, stations, dates):
             tqdm.write(prGreen(' -- %s -> adding...' % stationID(Stn)))
             try:
                 stn_obj.append(Station(cnn, NetworkCode, StationCode, dates))
-            except pyETMException:
+            except SolutionDataException:
                 tqdm.write(prRed('    %s -> station exists, but there was a problem initializing ETM.'
                                  % stationID(Stn)))
         else:
@@ -336,6 +336,10 @@ def main():
     parser.add_argument('-p', '--purge', action='store_true', default=False,
                         help="Purge year doys from the database and directory structure and re-run the solution.")
 
+    parser.add_argument('-pe', '--purge_exit', action='store_true', default=False,
+                        help="Purge year doys from the database and directory structure and "
+                             "exit without running GAMIT.")
+
     parser.add_argument('-dry', '--dry_run', action='store_true',
                         help="Generate the directory structures (locally) but do not run GAMIT. "
                              "Output is left in the production directory.")
@@ -424,6 +428,9 @@ def main():
         # ignore if calling a dry run
         # purge solutions if requested
         purge_solutions(JobServer, args, dates, GamitConfig)
+        if args.purge_exit:
+            tqdm.write(' >> %s Successful exit from ParallelGamit (no run)' % print_datetime())
+            exit(0)
     elif args.purge:
         tqdm.write(' >> Dry run or check mode activated. Cannot purge solutions in this mode.')
 
@@ -438,7 +445,7 @@ def main():
         # parse the zenith delay outputs
         exec_parse_ztd(GamitConfig.NetworkConfig.network_id.lower(), dates, sessions, GamitConfig, JobServer)
 
-    tqdm.write(' >> %s Successful exit from Parallel.GAMIT' % print_datetime())
+    tqdm.write(' >> %s Successful exit from ParallelGamit' % print_datetime())
 
 
 def generate_kml(dates, sessions, GamitConfig):

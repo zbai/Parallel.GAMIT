@@ -1,4 +1,4 @@
-from typing import List, Tuple
+from typing import List, Tuple, Union
 import numpy as np
 import logging
 
@@ -45,6 +45,22 @@ class DesignMatrix:
         self._assign_column_indices()
         return self._build_matrix(self.time_vector)
 
+    def get_periodic(self) -> Union[None, EtmFunction]:
+        """return the periodic object in the design matrix"""
+        for f in self.functions:
+            if f.p.object == 'periodic':
+                return f
+
+        return None
+
+    def get_polynomial(self) -> Union[None, EtmFunction]:
+        """return the periodic object in the design matrix"""
+        for f in self.functions:
+            if f.p.object == 'polynomial':
+                return f
+
+        return None
+
     def validate_parameters(self) -> List[Tuple[EtmFunction, str]]:
         """call the individual elements in functions and runs validations"""
         validation = []
@@ -76,9 +92,10 @@ class DesignMatrix:
         c = np.zeros((params,))
 
         for funct in const:
+            # logger.info(f'Applying constraint {repr(funct)}')
             # find the function type in the design matrix
             for f in self.functions:
-                if funct.p.object == f.p.object:
+                if funct.p.object == f.p.object and f.fit:
                     # functions of same type. Simplify jump comparison to just date, ignore time
                     if (f.p.object == 'jump' and
                         Date(datetime=f.p.jump_date) == Date(datetime=funct.p.jump_date)) or f.p.object != 'jump':
@@ -99,13 +116,13 @@ class DesignMatrix:
                         pt = np.zeros((c_params, c_params))
                         k = 0
                         for i in range(f.param_count):
-                            if not np.isnan(funct.p.params[comp][i]):
+                            if len(funct.p.params[comp]) > i and not np.isnan(funct.p.params[comp][i]):
                                 # flag component as constrained
                                 f.constrained[comp] = True
 
                                 j = f.column_index[i]
-                                logger.debug(f'Constraining column {j} to {funct.p.params[comp][i]} sigma '
-                                             f'{funct.p.sigmas[comp][i]}')
+                                logger.info(f'Constraining column {j} for {repr(f)} to {funct.p.params[comp][i]:.5f} '
+                                            f'sigma {funct.p.sigmas[comp][i]:.8f} using constraint {repr(funct)}')
                                 nt[k, j:j+1] = 1
                                 # pseudo observation weights
                                 pt[k, k] = 1 / funct.p.sigmas[comp][i] ** 2

@@ -4,7 +4,7 @@ import numpy as np
 from geode.pyDate import Date
 from geode.metadata import station_info
 from geode.Utils import load_json, process_date_str
-from geode.etm.core.type_declarations import CovarianceFunction, SolutionType
+from geode.etm.core.type_declarations import CovarianceFunction, SolutionType, EtmSolutionType
 from geode.etm.core.etm_engine import EtmEngine
 from geode.etm.core.etm_config import EtmConfig
 from geode.etm.etm_functions.polynomial import PolynomialFunction
@@ -75,7 +75,7 @@ def get_prefit_models(config, args):
 #config.plotting_config.filename = '/home/demian/pg_osu/'
 #etm.plot()
 
-config = EtmConfig('arg', '25ma', cnn=cnn)
+config = EtmConfig('ars', 'cbca', cnn=cnn)
 config.solution.solution_type = SolutionType.PPP
 # config.solution.stack_name = 'igs14'
 
@@ -101,7 +101,7 @@ config.modeling.fit_auto_detected_jumps_method = 'dbscan'
 #illapel.p.params = [np.array([0.0, np.nan, np.nan]), np.array([0.0, np.nan, np.nan]), np.array([0.0, np.nan, np.nan])]
 #illapel.p.sigmas = [np.array([0.00001, np.nan, np.nan]), np.array([0.00001, np.nan, np.nan]), np.array([0.00001, np.nan, np.nan])]
 
-config.modeling.prefit_models = get_prefit_models(config, ['/home/demian/pg_osu/arg.mzac_ppp.json', 'jump', '2010_058'])
+#config.modeling.prefit_models = get_prefit_models(config, ['/home/demian/pg_osu/arg.mzac_ppp.json', 'jump', '2010_058'])
 # config.modeling.least_squares_strategy.constraints.extend([poly_model, illapel])
 
 # options for plotting
@@ -119,7 +119,7 @@ config.validate_config()
 
 etm = EtmEngine(config, cnn=cnn)
 etm.run_adjustment(cnn=cnn, try_save_to_db=True, try_loading_db=True)
-
+a = etm.get_position([Date(fyear=2004.0), Date(fyear=2004.1)], EtmSolutionType.OBSERVATION)
 etm.save_etm(filename='/home/demian/pg_osu/',
              dump_observations=True,
              dump_design_matrix=True,

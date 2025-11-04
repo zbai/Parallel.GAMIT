@@ -55,7 +55,8 @@ dependencies = [
     "xmltodict==0.13.0",
     "scikit-image",
     "shapely",
-    "obspy"
+    "obspy",
+    "geopandas"
 ]
 
 [project.urls]

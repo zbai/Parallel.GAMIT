@@ -13,7 +13,7 @@ from tqdm import tqdm
 
 # app
 from geode import pyRinexName
-from geode.pyStation import StationInstance, StationCollection
+from geode.gamit.station import StationInstance, StationCollection
 from geode.Utils import determine_frame, file_open, stationID, chmod_exec
 from geode import snxParse
 
@@ -297,9 +297,10 @@ $$\n""" % (self.Config.options['otlmodel']))
             os.remove(station_path)
 
         with file_open(station_path, 'w') as stninfo_file:
-            stninfo_file.write('*SITE  Station Name      Session Start      Session Stop       Ant Ht   HtCod  '
-                               'Ant N    Ant E    Receiver Type         Vers                  SwVer  '
-                               'Receiver SN           Antenna Type     Dome   Antenna SN          \n')
+            stninfo_file.write(
+                '*SITE  Station Name      Session Start      Session Stop       Ant Ht   HtCod  Ant N    Ant E    '
+                'Receiver Type         Vers                  SwVer  Receiver SN           Antenna Type     '
+                'Dome   Antenna SN            AntDAZ  \n')
 
             for stn in self.StationInstances:
                 # stninfo_file.write(stn.StationInfo.return_stninfo() + '\n')
@@ -438,13 +439,15 @@ $$\n""" % (self.Config.options['otlmodel']))
         styles_tie.highlightstyle.iconstyle.scale     = 5
         styles_tie.highlightstyle.labelstyle.scale    = 3
 
-        folder_net = kml.newfolder(name=self.DirName)
+        ties_net = kml.newfolder(name=self.DirName + '-ties')
+        rstn_net = kml.newfolder(name=self.DirName + '-non_ties')
 
         for stn in self.stations_dict + self.tie_dict:
-            pt = folder_net.newpoint(**stn)
             if stn in self.tie_dict:
+                pt = ties_net.newpoint(**stn)
                 pt.stylemap = styles_tie
             else:
+                pt = rstn_net.newpoint(**stn)
                 pt.stylemap = styles_stn
 
         # DDG Jun 17 2025: the wrong version of simplekml was being used, now using latest

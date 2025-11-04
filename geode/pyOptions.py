@@ -107,7 +107,9 @@ class ReadOptions:
         for ac in self.options['sp3_ac'].split(','):
             for cs in self.options['sp3_cs'].split(','):
                 for st in self.options['sp3_st'].split(','):
-                    self.sp3types.append(ac.upper() + '[0-9]' + cs.upper() + st.upper() + '_{YYYYDDD}0000_{PER}_{INT}_')
+                    self.sp3types.append(ac.strip().upper() + '[0-9]' +
+                                         cs.strip().upper() +
+                                         st.strip().upper() + '_{YYYYDDD}0000_{PER}_{INT}_')
 
         # repeat the types but for repro2 orbits (short names), in case repro3 do not exist
         for ac in self.options['sp3_ac'].split(','):

@@ -28,7 +28,7 @@ class EtmConfig:
                  station_code: str = '',
                  custom_config: Optional[Dict[str, Any]] = None,
                  cnn: Cnn = None,
-                 solution_type: SolutionOptions = None,
+                 solution_options: SolutionOptions = None,
                  json_file: Union[str, dict] = None,
                  silent: bool = False):
         """
@@ -145,8 +145,8 @@ class EtmConfig:
                 "prefit": "Prefit"
             }
         }
-        if solution_type:
-            self.solution = solution_type
+        if solution_options:
+            self.solution = solution_options
 
         if cnn:
             # loading parameters from the database
@@ -233,9 +233,9 @@ class EtmConfig:
         query = '''
             SELECT "terms", "Year", "DOY" FROM etm_params 
             WHERE "NetworkCode" = '%s' AND "StationCode" = '%s' 
-            AND "object" = 'polynomial' AND "soln" = 'gamit'
+            AND "object" = 'polynomial' AND "soln" = '%s'
             LIMIT 1
-        ''' % (self.network_code, self.station_code)
+        ''' % (self.network_code, self.station_code,  self.solution.solution_type.code)
 
         try:
             result = cnn.query_float(query, as_dict=True)
@@ -259,9 +259,9 @@ class EtmConfig:
         query = '''
             SELECT "frequencies" FROM etm_params 
             WHERE "NetworkCode" = '%s' AND "StationCode" = '%s' 
-            AND "object" = 'periodic' AND "soln" = 'gamit'
+            AND "object" = 'periodic' AND "soln" = '%s'
             LIMIT 1
-        ''' % (self.network_code, self.station_code)
+        ''' % (self.network_code, self.station_code,  self.solution.solution_type.code)
 
         try:
             result = cnn.query_float(query, as_dict=True)
@@ -282,7 +282,7 @@ class EtmConfig:
 
         # @todo: analyze if "soln" = 'gamit' always or should also allow 'ppp'
         query = '''
-            SELECT "Year", "DOY", "action", "jump_type", "relaxation" 
+            SELECT "Year", "DOY", "action", "jump_type", "relaxation", "soln"
             FROM etm_params 
             WHERE "NetworkCode" = '%s' AND "StationCode" = '%s' 
             AND "object" = 'jump' AND "soln" = '%s' ORDER BY ("Year", "DOY")
@@ -292,6 +292,7 @@ class EtmConfig:
             result = cnn.query_float(query, as_dict=True)
 
             if result:
+                self.modeling.user_jumps = []
                 # Store jump configuration for later use
                 for jump in result:
                     if jump['jump_type'] == 1:
@@ -313,14 +314,21 @@ class EtmConfig:
 
             # now earthquakes
             # no information yet of data dates, load everything that is possible
-            score = ScoreTable(cnn, self.metadata.lat[0], self.metadata.lon[0],
+            score = ScoreTable(cnn, self.network_code, self.station_code,
+                               self.metadata.lat[0], self.metadata.lon[0],
                                self.metadata.first_obs - self.modeling.post_seismic_back_lim,
-                               self.metadata.last_obs)
+                               self.metadata.last_obs,
+                               magnitude_limit=self.modeling.earthquake_magnitude_limit,
+                               force_events=self.modeling.earthquakes_cherry_picked)
+
             self.modeling.earthquake_jumps = score.table
 
         except EtmException as e:
             logger.debug(f"No jump config in database: {e}")
             self.modeling.user_jumps = []
+
+    def refresh_config(self, cnn: Cnn):
+        self._load_jump_config(cnn)
 
     def get_label(self, key: str) -> str:
         """Get localized label"""

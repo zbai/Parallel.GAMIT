@@ -10,7 +10,7 @@ from __future__ import annotations
 import datetime
 import os
 from dataclasses import dataclass, field
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
 
 import numpy as np
 
@@ -39,6 +39,10 @@ class StationInfoException(Exception):
 
 class StationInfoHeightCodeNotFound(StationInfoException):
     """Exception for missing height code translations."""
+    pass
+
+
+class StationInfoNoRecordFound(StationInfoException):
     pass
 
 
@@ -463,6 +467,28 @@ class StationInfo:
 
         return missing
 
+    def check_coverage(self, date: Union[Date, List]) -> None:
+        """
+        check that the station info covers the date being requested
+
+        Args:
+            date: date or list of dates to check
+
+        Returns:
+            None
+
+        Raises:
+            StationInfoNoRecordFound: If no record for the query date was found for the station
+        """
+        if isinstance(date, Date):
+            date = [date]
+
+        for d in date:
+            try:
+                self._find_matching_record(d)
+            except StationInfoException as e:
+                raise StationInfoNoRecordFound(str(e)) from e
+
     def station_info_gaps(self) -> List[Dict]:
         """
         Check for gaps in station info or data outside coverage.
@@ -663,7 +689,7 @@ class StationInfo:
             Converted record
 
         Raises:
-            pyStationInfoHeightCodeNotFound: If conversion not possible
+            StationInfoHeightCodeNotFound: If conversion not possible
         """
         if record.HeightCode == 'DHARP':
             return record

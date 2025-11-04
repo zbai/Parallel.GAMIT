@@ -104,7 +104,11 @@ def read_kml_or_kmz(cnn: dbConnection.Cnn, file_path: str, metadata: str):
 
         # if a connection to the database is available, get s-scores
         if cnn:
-            score = ScoreTable(cnn, coord[0][0], coord[1][0], Date(year=1990, doy=1), Date(datetime=datetime.now()))
+            score = ScoreTable(cnn, network_code, station_code,
+                               lat=coord[0][0], lon=coord[1][0],
+                               sdate=Date(year=1990, doy=1),
+                               edate=Date(datetime=datetime.now()),
+                               magnitude_limit=6.0)
             score_table = score.table
         else:
             score_table = []
@@ -215,14 +219,13 @@ def process_fit_dates(args):
 def print_query(args, etm: EtmEngine):
 
     mode_obs = EtmSolutionType.MODEL if args.query[0] == 'model' else EtmSolutionType.OBSERVATION
-    q_date = Date(fyear=float(args.query[1]))
-
-    solution = etm.get_position(q_date, mode_obs)
+    date_index = 1
 
     strp = ''
     # if user requests velocity too, output it
     if etm.config.modeling.status == etm.config.modeling.status.POSTFIT:
         if 'vel' in args.query:
+            date_index += 1
             vxyz = []
             for x in etm.design_matrix.functions:
                 if x.p.object == 'polynomial':
@@ -231,6 +234,7 @@ def print_query(args, etm: EtmEngine):
                 strp = '%8.5f %8.5f %8.5f ' % (vxyz[0], vxyz[1], vxyz[2])
 
         if 'per' in args.query:
+            date_index += 1
             pxyz = []
             for x in etm.design_matrix.functions:
                 if x.p.object == 'periodic':
@@ -239,9 +243,16 @@ def print_query(args, etm: EtmEngine):
                     # also output seasonal terms, if requested
                     strp += ' '.join(pxyz)
 
-    print(' %s %14.5f %14.5f %14.5f %8.3f %s -> %s' \
-          % (etm.config.get_station_id(), solution['position'][0],
-             solution['position'][1], solution['position'][2], q_date.fyear, strp, solution['source']))
+    q_date = []
+    for d in args.query[date_index:]:
+        q_date.append(process_date_str(d))
+
+    solution = etm.get_position(q_date, mode_obs)
+
+    for i, d in enumerate(q_date):
+        print(' %s %14.5f %14.5f %14.5f %8.3f %s -> %s' \
+              % (etm.config.get_station_id(), solution['position'][0][i],
+                 solution['position'][1][i], solution['position'][2][i], d.fyear, strp, solution['source']))
 
 
 def get_prefit_models(config, args):
@@ -418,6 +429,24 @@ def main():
                              'in pairs for data ranges to be included in the ETM fit. Data outside '
                              'the range will be plotted but not included in the fit')
 
+    parser.add_argument('-no_jump_check', '--no_jump_check', action='store_true', default=False,
+                        help="Avoid checking for possible collisions between jumps which can lead to "
+                             "unstable systems of equations. Default is to check jump collisions")
+
+    parser.add_argument('-s_score', '--s_score_mag_limit', type=float, default=6.0, metavar='magnitude',
+                        help="Limit the s-score search to earthquakes with magnitude >= {magnitude}. Default is 6.0")
+
+    parser.add_argument('-force', '--force_earthquakes', nargs='+', default=[], metavar='event_id',
+                        help="Add cherry-picked seismic earthquake (that fall outside of s_score_mag_limit) to the "
+                             "list of jump functions to fit (using the USGS event id). Event needs to have an "
+                             "s-score > 0 to be considered, even if it has been cherry-picked")
+
+    parser.add_argument('-cond', '--max_condition_number', type=float, default=3.5, metavar='log10(cond)',
+                        help="Maximum acceptable log10 condition number for a jump function. Jump parameters with "
+                             "log10(cond) > max_condition_number will get their smallest relaxation value removed. If "
+                             "high condition number persists, then the jump will be reduced to POSTSEISMIC-ONLY if "
+                             "jump is CO+POSTSEISMIC")
+
     parser.add_argument('-sigma', '--sigma_limit', type=float, default=2.5,
                         help="Number of sigmas for the limit of outlier detection. Default is 2.5 sigma")
 
@@ -504,12 +533,12 @@ def main():
                         help="Fit unmodeled but automatically detected jumps. "
                              "Choose between two algorithms: angry (used and provided by JPL) and dbscan")
 
-    parser.add_argument('-q', '--query', nargs='*',
-                        metavar='{type} {date} ', default=[],
+    parser.add_argument('-q', '--query', nargs='+',
+                        metavar='{type} [vel] [per] {date} ... {date} ', default=[],
                         help='Specify "model" or "solution" to get the '
                              'ETM value or the value of the daily solution (if exists). '
-                             'Specify the date of the desired output. Append "vel" and "per" '
-                             'to also include the velocity and seasonal (periodic) components. '
+                             'Specify the date/dates of the desired output. Append "vel" and "per" after model or '
+                             'solution to also include the velocity and seasonal (periodic) components. '
                              'Output is in XYZ.')
 
     parser.add_argument('-no_save', '--no_save_database', action='store_true', default=False,
@@ -547,29 +576,32 @@ def main():
 
     for stn in stnlist:
 
+        # initialize the solution options to pass to EtmConfig
+        solution_options = SolutionOptions()
+
+        if not args.filename:
+            solution_options.solution_type = SolutionType.PPP if args.solution == 'ppp' else SolutionType.GAMIT
+            solution_options.stack_name = args.solution
+        else:
+            filename = args.filename.replace('{net}', stn['NetworkCode']).replace('{stn}', stn['StationCode'])
+            # requested a file as the source of data
+            solution_options.solution_type = SolutionType.NGL
+            solution_options.stack_name = 'external file'
+            solution_options.format = args.format
+            solution_options.filename = filename
+            # do not save anything to the database in filename mode
+            args.no_save_database = True
+
         try:
             if from_kmz:
                 print('About to process ' + stn['network_code'] + '.' + stn['station_code'])
                 config = EtmConfig(stn['network_code'], stn['station_code'], json_file=stn)
             else:
                 print('About to process ' + stn['NetworkCode'] + '.' + stn['StationCode'])
-                config = EtmConfig(stn['NetworkCode'], stn['StationCode'], cnn=cnn)
+                config = EtmConfig(stn['NetworkCode'], stn['StationCode'], cnn=cnn, solution_options=solution_options)
 
             # select language for plots
             config.language = args.language.lower()
-
-            if not args.filename:
-                config.solution.solution_type = SolutionType.PPP if args.solution == 'ppp' else SolutionType.GAMIT
-                config.solution.stack_name = args.solution
-            else:
-                filename = args.filename.replace('{net}', stn['NetworkCode']).replace('{stn}', stn['StationCode'])
-                # requested a file as the source of data
-                config.solution.solution_type = SolutionType.NGL
-                config.solution.stack_name = 'external file'
-                config.solution.format = args.format
-                config.solution.filename = filename
-                # do not save anything to the database in filename mode
-                args.no_save_database = True
 
             config.plotting_config.plot_time_window = plot_dates
 
@@ -591,6 +623,7 @@ def main():
             config.modeling.data_model_window = process_fit_dates(args)
             config.modeling.prefit_models = get_prefit_models(config, args.prefit_model)
 
+            config.modeling.check_jump_collisions = not args.no_jump_check
             config.modeling.least_squares_strategy.adjustment_model = ADJUSTMENT_MODEL_MAP[args.least_squares_strategy]
             config.modeling.fit_auto_detected_jumps = args.fit_auto_jumps[0] is not None
             config.modeling.fit_auto_detected_jumps_method = args.fit_auto_jumps[0]
@@ -606,6 +639,14 @@ def main():
 
             if not os.path.exists(args.directory):
                 os.mkdir(args.directory)
+
+            config.validation.max_condition_number = args.max_condition_number
+            config.modeling.post_seismic_back_lim = 10 * 365
+            # do not estimate s-score for events < s_score_mag_limit
+            config.modeling.earthquake_magnitude_limit = args.s_score_mag_limit
+            config.modeling.earthquakes_cherry_picked = args.force_earthquakes
+            if not from_kmz:
+                config.refresh_config(cnn)
 
             etm = EtmEngine(config, cnn=cnn)
             etm.run_adjustment(cnn=cnn,

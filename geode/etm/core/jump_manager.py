@@ -3,7 +3,7 @@ Project: Geodesy Database Engine (GeoDE)
 Date: 9/13/25 5:22 PM
 Author: Demian D. Gomez
 """
-from typing import List, Tuple
+from typing import List, Tuple, Union
 import numpy as np
 import logging
 
@@ -41,15 +41,16 @@ class JumpManager:
             time_vector: Time vector for jump evaluation
             observations: neu list of observations to apply auto-jumps (if selected)
         """
-        logger.info("Building jump table")
-
+        logger.info("Loading earthquake jump table")
         # Load earthquake-based user_jumps
         self._load_earthquake_jumps(time_vector)
 
         # Load mechanical/generic user_jumps
+        logger.info("Loading manual jump table")
         self._load_manual_jumps(time_vector)
 
         # load metadata changes
+        logger.info("Loading metadata jump table")
         self._load_mechanical_jumps(time_vector)
 
         # Add automatic jump detection
@@ -63,6 +64,8 @@ class JumpManager:
         # self._validate_jump_constraints(time_vector)
 
         logger.info(f"Final jump table: {len(self.get_active_jumps())} active jumps of {len(self.jumps)}")
+        for jump in self.jumps:
+            logger.info(str(jump) if jump.p.jump_type != JumpType.AUTO_DETECTED else print_yellow(str(jump)))
 
     def _load_earthquake_jumps(self, time_vector: np.ndarray) -> None:
         """Load earthquake-based user_jumps from catalog"""
@@ -80,10 +83,11 @@ class JumpManager:
                     magnitude=eq.magnitude,
                     epi_distance=eq.distance,
                     jump_type=eq.jump_type,
-                    fit=self.config.modeling.fit_earthquakes
+                    fit=self.config.modeling.fit_earthquakes,
+                    earthquake=eq
                 )
 
-                self.add_jump(jump)
+                self.add_jump(jump, self.config.modeling.check_jump_collisions)
 
     def _load_mechanical_jumps(self, time_vector: np.ndarray) -> None:
         """Load mechanical user_jumps from station metadata and database"""
@@ -166,28 +170,44 @@ class JumpManager:
     def get_jump_functions(self) -> List[JumpFunction]:
         return [jump for jump in self.jumps]
 
+    def get_geophysical_jump(self, id_or_jump: Union[JumpFunction, str]):
+        if isinstance(id_or_jump, JumpFunction):
+            event_id = id_or_jump.earthquake.id
+        else:
+            event_id = id_or_jump
+
+        return [jump for jump in self.jumps if jump.is_geophysical()
+                and jump.earthquake is not None
+                and jump.earthquake.id == event_id]
+
     def get_parameter_count(self) -> int:
         """Get total parameter count for active user_jumps"""
         return sum(jump.param_count for jump in self.jumps if jump.fit)
 
-    def add_jump(self, jump: JumpFunction) -> None:
-        """Add jump with conflict resolution"""
+    def add_jump(self, jump: JumpFunction, check_jump_collisions=True) -> None:
+        """
+        Add jump with conflict resolution
+        parameter check_jump_collisions controls if we should check or not for any collisions / problems
+        for fitting jumps in the time series. Intended for stacking etm objects
+        """
         # Check for conflicts with existing user_jumps
-        for existing_jump in self.jumps:
-            if existing_jump.fit:
-                is_equivalent, preferred = existing_jump.__eq__(jump)
-                if is_equivalent:
-                    if preferred is jump:
-                        existing_jump.remove_from_fit()
-                    else:
-                        # if the jump that is going to be deactivated is an auto jump,
-                        # do not add it to the list!
-                        if jump.p.jump_type == JumpType.AUTO_DETECTED:
-                            logger.info('DETECTED BUT REMOVED: ' + str(jump))
-                            return
+        if check_jump_collisions:
+            for existing_jump in self.jumps:
+                if existing_jump.fit:
+                    is_equivalent, preferred = existing_jump.__eq__(jump)
+                    if is_equivalent:
+                        if preferred is jump:
+                            existing_jump.remove_from_fit()
+                        else:
+                            # if the jump that is going to be deactivated is an auto jump,
+                            # do not add it to the list!
+                            if jump.p.jump_type == JumpType.AUTO_DETECTED:
+                                logger.info('DETECTED BUT REMOVED: ' + str(jump))
+                                return
 
-                        jump.remove_from_fit()
-                    break
+                            jump.remove_from_fit()
+                        break
+
 
         if jump.fit:
             # if jump got deactivated, do not bother to find it, some other jump already won
@@ -204,7 +224,7 @@ class JumpManager:
             if not jump.user_action == user_action:
                 jump.user_action = user_action
 
-        logger.info(str(jump) if jump.p.jump_type != JumpType.AUTO_DETECTED else print_yellow(str(jump)))
+        # logger.info(str(jump) if jump.p.jump_type != JumpType.AUTO_DETECTED else print_yellow(str(jump)))
 
         self.jumps.append(jump)
 
@@ -240,8 +260,15 @@ class JumpManager:
             if j.date not in jump_dates:
                 if j.jump_type == JumpType.MECHANICAL_MANUAL:
                     metadata = 'Manual mechanic jump'
+                    earthquake = None
                 else:
                     metadata = 'Manual geophysical jump'
+                    earthquake = None
+                    # try to find a match (using the date) with one of the earthquakes
+                    for eq in self.config.modeling.earthquake_jumps:
+                        if eq.date == j.date:
+                            earthquake = eq
+                            break
 
                 jump = JumpFunction(
                     config=self.config,
@@ -250,7 +277,8 @@ class JumpManager:
                     jump_type=j.jump_type,
                     user_action=j.action,
                     metadata=metadata,
-                    fit=self.config.modeling.fit_generic_jumps
+                    fit=self.config.modeling.fit_generic_jumps,
+                    earthquake=earthquake
                 )
                 self.add_jump(jump)
 
@@ -262,3 +290,9 @@ class JumpManager:
             all_issues.extend(issues)
         return all_issues
 
+    def get_first_geophysical(self) -> Union[JumpFunction, None]:
+        for jump in self.jumps:
+            if jump.fit and jump.p.jump_type >= JumpType.COSEISMIC_JUMP_DECAY:
+                return jump
+
+        return None

@@ -94,6 +94,7 @@ def debug(s):
 
 
 def run_db_migrations(cnn: 'Cnn'):
+    ##################################################################
     # New field in table api_visitgnssdatafiles
     if 'rinexed' not in cnn.get_columns('api_visitgnssdatafiles').keys():
         print(' >> Adding rinexed field to api_visitgnssdatafiles')
@@ -104,6 +105,7 @@ def run_db_migrations(cnn: 'Cnn'):
         """)
         cnn.commit_transac()
 
+    ##################################################################
     # New AntennaDAZ field in table stationinfo
     if 'AntennaDAZ' not in cnn.get_columns('stationinfo').keys():
         print(' >> Adding AntennaDAZ field to stationinfo')
@@ -115,6 +117,7 @@ def run_db_migrations(cnn: 'Cnn'):
         """)
         cnn.commit_transac()
 
+    ##################################################################
     # modifications to ppp_soln to store big int values
     fields = cnn.get_columns('ppp_soln')
 
@@ -128,6 +131,7 @@ def run_db_migrations(cnn: 'Cnn'):
         """)
         cnn.commit_transac()
 
+    ##################################################################
     if fields['hash'].lower() != 'bigint':
         # check the database to modify the ppp_soln table hash column from integer to bigint
         print(' >> Converting hash column in ppp_soln to BIGINT. This operation might take a while...')
@@ -138,6 +142,7 @@ def run_db_migrations(cnn: 'Cnn'):
         """)
         cnn.commit_transac()
 
+    ##################################################################
     # check precision of lat lon height and auto_[x|y|z] in stations table
     stn_types = cnn.query_float("""
     SELECT 
@@ -161,6 +166,62 @@ def run_db_migrations(cnn: 'Cnn'):
         ALTER TABLE stations ALTER COLUMN height TYPE NUMERIC(10,5) USING ROUND(height::numeric, 5);
         """)
         cnn.commit_transac()
+
+    ##################################################################
+    # For the Mask object: check that the new fields exist or create them
+    if 'density' not in cnn.get_columns('earthquakes').keys():
+        cnn.begin_transac()
+        cnn.query("""
+                    ALTER TABLE earthquakes
+                    ADD COLUMN density INTEGER   DEFAULT NULL,
+                    ADD COLUMN c_kml   TEXT      DEFAULT NULL,
+                    ADD COLUMN cp_kml  TEXT      DEFAULT NULL;
+                    """)
+        cnn.commit_transac()
+
+    # check that the index exists
+    idx = cnn.query("SELECT * FROM pg_indexes WHERE tablename = 'earthquakes' "
+                    "AND indexname = 'earthquake_id_key'")
+
+    if not len(idx):
+        cnn.begin_transac()
+        cnn.query("""CREATE UNIQUE INDEX earthquake_id_key ON earthquakes (id);""")
+        cnn.commit_transac()
+
+    ##################################################################
+    # s_score_cache for storing the s_score values and not calculate them all the time
+
+    s_score_cache = cnn.query_float("""
+        SELECT EXISTS (
+            SELECT FROM information_schema.tables 
+            WHERE table_schema = 'public'
+            AND table_name = 's_score_cache');
+        """, as_dict=True)
+
+    if not s_score_cache[0]['exists']:
+        cnn.begin_transac()
+        cnn.query("""
+            CREATE TABLE s_score_cache (
+                network_code VARCHAR(3) NOT NULL,
+                station_code VARCHAR(4) NOT NULL,
+                event_id VARCHAR(40) NOT NULL,
+                coseismic NUMERIC(10,6),
+                postseismic NUMERIC(10,6),
+                hash BIGINT,
+                PRIMARY KEY (network_code, station_code, event_id),
+                FOREIGN KEY (network_code, station_code) 
+                    REFERENCES stations("NetworkCode", "StationCode") 
+                    ON DELETE CASCADE,
+                FOREIGN KEY (event_id) 
+                    REFERENCES earthquakes(id) 
+                    ON DELETE CASCADE
+            );
+            CREATE INDEX idx_s_score_cache_hash ON s_score_cache(hash);
+            CREATE INDEX idx_s_score_cache_station ON s_score_cache(network_code, station_code);
+            CREATE INDEX idx_s_score_cache_event ON s_score_cache(event_id);
+                """)
+        cnn.commit_transac()
+
 
 def adapt_numpy_array(numpy_array):
     return psycopg2.extensions.adapt(numpy_array.tolist())

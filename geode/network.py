@@ -36,7 +36,7 @@ from scipy.spatial import Delaunay, distance
 
 # app
 from .gamit.gamit_session import GamitSession
-from .pyStation import StationCollection
+from .gamit.station import StationCollection
 from .cluster import (BisectingQMeans, overcluster, prune,
                       select_central_point)
 from .plots import plot_global_network

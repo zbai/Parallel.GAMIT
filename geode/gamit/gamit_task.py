@@ -139,6 +139,9 @@ class GamitTask(object):
 
                 self.finish()
 
+            # DDG: removed from not dry_run section to copy back to solution folder
+            self.move_pwd_to_solution_dir()
+
             return results
 
         except Exception:
@@ -150,7 +153,7 @@ class GamitTask(object):
             # problem might occur during copytree or rmtree or some other operation before opening monitor.log
             if copy_done:
                 # if the copy was done, then it is possible to write, so log the error in monitor
-                self.log('ERROR in pyGamitTask.start()\n%s' % msg)
+                self.log('ERROR in GamitTask.start()\n%s' % msg)
 
                 # the solution folder exists because it was created by GamitSession to start the processing.
                 # erase it to upload the result
@@ -257,7 +260,8 @@ class GamitTask(object):
         self.log('fetching orbits')
 
         try:
-            Sp3 = pyProducts.GetSp3Orbits(self.orbits['sp3_path'], self.date, self.orbits['sp3types'], self.pwd_igs, True)
+            Sp3 = pyProducts.GetSp3Orbits(
+                self.orbits['sp3_path'], self.date, self.orbits['sp3types'], self.pwd_igs, True)
 
             self.log(f'sp3 orbit found: {Sp3.sp3_filename} -> {Sp3.file_path}')
 
@@ -423,6 +427,14 @@ class GamitTask(object):
                             zf.write(ff, os.path.basename(ff))
                         os.remove(ff)
 
+        except:
+            msg = traceback.format_exc() + '\nProcessing %s date %s on node %s' \
+                  % (self.params['NetName'], self.date.yyyyddd(), platform.node())
+
+            self.log(f'ERROR in GamitTask.finish()\n{msg}')
+
+    def move_pwd_to_solution_dir(self):
+        try:
             try:
                 if not os.path.exists(os.path.dirname(self.solution_pwd)):
                     os.makedirs(os.path.dirname(self.solution_pwd))
@@ -446,7 +458,7 @@ class GamitTask(object):
             msg = traceback.format_exc() + '\nProcessing %s date %s on node %s' \
                   % (self.params['NetName'], self.date.yyyyddd(), platform.node())
 
-            self.log(f'ERROR in pyGamitTask.finish()\n{msg}')
+            self.log(f'ERROR in GamitTask.move_pwd_to_solution_dir()\n{msg}')
 
     def create_replace_links(self):
         replace_ln_file_path = os.path.join(self.pwd, 'replace_links.sh')

@@ -27,7 +27,7 @@ from tqdm import tqdm
 # app
 from geode import dbConnection, pyDate, pyJobServer, pyOptions
 from geode.metadata.station_info import StationInfoHeightCodeNotFound, StationInfo
-from geode.pyGamitConfig import GamitConfiguration
+from geode.gamit.gamit_config import GamitConfiguration
 from geode.Utils import process_stnlist, stationID, plot_rinex_completion, add_version_argument
 
 global kml, folder_project, folder_allstns, stnlist
