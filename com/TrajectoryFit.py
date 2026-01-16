@@ -24,12 +24,12 @@ if not os.environ.get('DISPLAY', None):
     matplotlib.use('Agg')
 
 # app
-from pgamit import dbConnection
-from pgamit import Utils
-from pgamit import pyETM
-from pgamit import pyDate
-from pgamit.Utils import stationID, file_write, add_version_argument
-from pgamit.pyETM import CO_SEISMIC_JUMP_DECAY, CO_SEISMIC_DECAY
+from geode import dbConnection
+from geode import Utils
+from geode import pyETM
+from geode import pyDate
+from geode.Utils import stationID, file_write, add_version_argument
+from geode.pyETM import CO_SEISMIC_JUMP_DECAY, CO_SEISMIC_DECAY
 
 
 def plot_station_param(NetworkCode, StationCode, parameter_name, unit, pn, pe):

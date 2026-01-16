@@ -3,8 +3,8 @@ requires = ["setuptools>=64", "setuptools-scm>=8"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "pgamit"
-dynamic = ["version", "keywords"]
+name = "geode"
+dynamic = ["version"]
 description = "A Python wrapper to parallelize GAMIT executions"
 authors = [
   { name = "Demián D. Gómez", email = "demiang@gmail.com"},
@@ -15,6 +15,7 @@ maintainers = [
 ]
 license = { file = "LICENSE" }
 readme = "README.md"
+keywords = ["GNSS", "GAMIT", "geodesy", "GPS", "parallel processing"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
@@ -29,6 +30,7 @@ dependencies = [
     "psycopg2-binary==2.9.9",
     "pycos",
     "country-converter",
+    "charset-normalizer==3.4.4",
     "earthscope-cli==0.8.2",
     "earthscope-sdk==0.2.0",
     "basemap==1.4.0",
@@ -53,7 +55,8 @@ dependencies = [
     "xmltodict==0.13.0",
     "scikit-image",
     "shapely",
-    "obspy"
+    "obspy",
+    "geopandas"
 ]
 
 [project.urls]
@@ -61,6 +64,6 @@ dependencies = [
 "Bug Tracker" = "https://github.com/demiangomez/Parallel.GAMIT/issues"
 
 [tool.setuptools]
-packages = ["pgamit"]
+packages = ["geode"]
 
 [tool.setuptools_scm]

@@ -28,20 +28,20 @@ import numpy
 import scandir
 
 # app
-from pgamit import pyArchiveStruct
-from pgamit import dbConnection
-from pgamit import pyDate
-from pgamit import pyRinex
-from pgamit import pyRinexName
-from pgamit import pyOTL
-from pgamit import pyStationInfo
-from pgamit import pyProducts
-from pgamit import pyPPP
-from pgamit import pyOptions
-from pgamit import Utils
-from pgamit import pyJobServer
-from pgamit import pyEvents
-from pgamit.Utils import (add_version_argument,
+from geode import pyArchiveStruct
+from geode import dbConnection
+from geode import pyDate
+from geode import pyRinex
+from geode import pyRinexName
+from geode import pyOTL
+from geode.metadata.station_info import StationInfo, StationInfoRecord, StationInfoException
+from geode import pyProducts
+from geode import pyPPP
+from geode import pyOptions
+from geode import Utils
+from geode import pyJobServer
+from geode import pyEvents
+from geode.Utils import (add_version_argument,
                           process_date,
                           ecef2lla,
                           file_append,
@@ -425,10 +425,10 @@ def insert_stninfo(NetworkCode, StationCode, stninfofile):
                ' using node ' + platform.node()
 
     try:
-        stnInfo = pyStationInfo.StationInfo(cnn, NetworkCode, StationCode, allow_empty=True)
+        stnInfo = StationInfo(cnn, NetworkCode, StationCode, allow_empty=True)
         stninfo = stnInfo.parse_station_info(stninfofile)
 
-    except pyStationInfo.pyStationInfoException:
+    except StationInfoException:
         return traceback.format_exc() + ' insert_stninfo: ' + NetworkCode + ' ' + StationCode + \
                ' using node ' + platform.node()
 
@@ -441,9 +441,9 @@ def insert_stninfo(NetworkCode, StationCode, stninfofile):
         if stn.get('StationCode').lower() == StationCode:
             try:
                 # call station info again in case there was a change from other records
-                stnobj = pyStationInfo.StationInfo(cnn, NetworkCode, StationCode, allow_empty=True)
-                stnobj.InsertStationInfo(stn)
-            except pyStationInfo.pyStationInfoException as e:
+                stnobj = StationInfo(cnn, NetworkCode, StationCode, allow_empty=True)
+                stnobj.insert_station_info(stn)
+            except StationInfoException as e:
                 errors.append(str(e))
 
             except:
@@ -543,7 +543,7 @@ def execute_ppp(record, rinex_path, h_tolerance):
                     cnn.close()
                     return
 
-                stninfo = pyStationInfo.StationInfo(cnn, NetworkCode, StationCode, Rinex.date, h_tolerance=h_tolerance)
+                stninfo = StationInfo(cnn, NetworkCode, StationCode, Rinex.date, h_tolerance=h_tolerance)
 
                 Rinex.normalize_header(stninfo, 
                                        x = stn[0]['auto_x'], 
@@ -555,8 +555,8 @@ def execute_ppp(record, rinex_path, h_tolerance):
                                   stn[0]['Harpos_coeff_otl'],
                                   Config.options,
                                   Config.sp3types, (),
-                                  stninfo.to_dharp(stninfo.currentrecord).AntennaHeight,
-                                  hash = stninfo.currentrecord.hash) as ppp:
+                                  stninfo.to_dharp(stninfo.current_record).AntennaHeight,
+                                  hash = stninfo.current_record.hash) as ppp:
                     ppp.exec_ppp()
 
                     # verify that the solution is from the station it claims to be
@@ -587,7 +587,7 @@ def execute_ppp(record, rinex_path, h_tolerance):
             pyRinex.pyRinexExceptionBadFile,
             pyRinex.pyRinexExceptionSingleEpoch,
             pyPPP.pyRunPPPException,
-            pyStationInfo.pyStationInfoException) as e:
+            StationInfoException) as e:
 
         e.event['StationCode'] = StationCode
         e.event['NetworkCode'] = NetworkCode
@@ -640,8 +640,8 @@ def scan_rinex(cnn, JobServer, pyArchive, archive_path, master_list, ignore):
     pbar = tqdm(ncols=80, unit='crz', disable=None)
 
     depfuncs = (verify_rinex_date_multiday,)
-    modules  = ('pgamit.dbConnection', 'pgamit.pyDate', 'pgamit.pyRinex', 'shutil', 'platform', 'datetime',
-                'traceback', 'pgamit.pyOptions', 'pgamit.pyEvents', 'pgamit.Utils', 'os', 'pgamit.pyRinexName')
+    modules  = ('geode.dbConnection', 'geode.pyDate', 'geode.pyRinex', 'shutil', 'platform', 'datetime',
+                'traceback', 'geode.pyOptions', 'geode.pyEvents', 'geode.Utils', 'os', 'geode.pyRinexName')
 
     JobServer.create_cluster(try_insert, dependencies=depfuncs, modules=modules, callback=callback_handle)
 
@@ -687,8 +687,8 @@ def process_otl(cnn, JobServer, master_list):
     pbar = tqdm(total=len(records), ncols=80, disable=None)
 
     depfuncs = (ecef2lla,)
-    modules  = ('pgamit.dbConnection', 'pgamit.pyRinex', 'pgamit.pyArchiveStruct', 'pgamit.pyOTL', 'pgamit.pyPPP',
-                'numpy', 'platform', 'pgamit.pyProducts', 'traceback', 'pgamit.pyOptions')
+    modules  = ('geode.dbConnection', 'geode.pyRinex', 'geode.pyArchiveStruct', 'geode.pyOTL', 'geode.pyPPP',
+                'numpy', 'platform', 'geode.pyProducts', 'traceback', 'geode.pyOptions')
 
     JobServer.create_cluster(obtain_otl, depfuncs, callback_handle, progress_bar=pbar, modules=modules)
 
@@ -713,7 +713,7 @@ def scan_station_info(JobServer, pyArchive, archive_path, master_list):
 
     pbar = tqdm(total=len(stninfo), ncols=80, disable=None)
 
-    modules = ('pgamit.dbConnection', 'pgamit.pyStationInfo', 'sys', 'datetime', 'pgamit.pyDate',
+    modules = ('pgamit.dbConnection', 'pgamit.metadata.station_info', 'sys', 'datetime', 'pgamit.pyDate',
                'platform', 'traceback')
 
     JobServer.create_cluster(insert_stninfo, callback=callback_handle, progress_bar=pbar, modules=modules)
@@ -743,7 +743,7 @@ def scan_station_info_man(cnn, pyArchive, stn_info_path, stations, stn_info_net,
     NetworkCode = stn_info_net
 
     def process_stations(stninfo_file_list, desc):
-        stn_info_obj = pyStationInfo.StationInfo(cnn)
+        stn_info_obj = StationInfo(cnn)
         stn_list     = stn_info_obj.parse_station_info(stninfo_file_list)
         stn_codes    = set(stn['StationCode'].lower() for stn in stn_list)
 
@@ -821,21 +821,21 @@ def hash_check(cnn, master_list, sdate, edate, rehash=False, h_tolerant=0):
 
                 dd = rinex['ObservationSTime'] + (rinex['ObservationETime'] - rinex['ObservationSTime']) // 2
 
-                stninfo = pyStationInfo.StationInfo(cnn, soln['NetworkCode'], soln['StationCode'],
+                stninfo = StationInfo(cnn, soln['NetworkCode'], soln['StationCode'],
                                                     pyDate.Date(datetime = dd),
                                                     h_tolerance = h_tolerant)
 
                 # DDG: now also add the value of the CRC32 of orbit
-                if stninfo.currentrecord.hash + crc32(soln['orbit']) != soln['hash']:
+                if stninfo.current_record.hash + crc32(soln['orbit']) != soln['hash']:
                     if not rehash:
                         tqdm.write(" -- Hash value for %s does not match with Station Information hash. "
                                    "PPP coordinate will be recalculated." % obs_id)
                         cnn.delete('ppp_soln', **soln)
                     else:
                         tqdm.write(" -- %s has been rehashed." % obs_id)
-                        cnn.update('ppp_soln', {'hash': stninfo.currentrecord.hash + crc32(soln['orbit'])}, **soln)
+                        cnn.update('ppp_soln', {'hash': stninfo.current_record.hash + crc32(soln['orbit'])}, **soln)
 
-        except pyStationInfo.pyStationInfoException as e:
+        except StationInfoException as e:
             tqdm.write(str(e))
 
     if not rehash:
@@ -844,38 +844,11 @@ def hash_check(cnn, master_list, sdate, edate, rehash=False, h_tolerant=0):
         print(' -- Done rehashing PPP records.')
 
 
-def db_checks(cnn):
-    fields = cnn.get_columns('ppp_soln')
-
-    if 'orbit' not in fields.keys():
-        # New field in table ppp_soln present, no need to migrate.
-        cnn.begin_transac()
-        cnn.query("""
-                ALTER TABLE ppp_soln
-                ADD COLUMN orbit VARCHAR(100) DEFAULT '';
-                """)
-        cnn.commit_transac()
-
-    if fields['hash'].lower() != 'bigint':
-        # check the database to modify the ppp_soln table hash column from integer to bigint
-        print(' >> Converting hash column in ppp_soln to BIGINT. This operation might take a while...')
-        cnn.begin_transac()
-        cnn.query("""
-                ALTER TABLE ppp_soln
-                ALTER COLUMN hash TYPE BIGINT;
-                """)
-        cnn.commit_transac()
-
-
 def process_ppp(cnn, Config, pyArchive, archive_path, JobServer, master_list, sdate, edate, h_tolerance):
 
     print(" >> Running PPP on the RINEX files in the archive...")
 
     master_list = [item['NetworkCode'] + '.' + item['StationCode'] for item in master_list]
-
-    # DDG: new field in ppp_soln table -> orbit. It declared which orbit was used to obtain a solution
-    # DDG: check the database to modify the ppp_soln table hash column from integer to bigint
-    db_checks(cnn)
 
     # for each rinex in the db, run PPP and get a coordinate
     rs_rnx = cnn.query('SELECT rinex.* FROM rinex_proc as rinex '
@@ -894,7 +867,7 @@ def process_ppp(cnn, Config, pyArchive, archive_path, JobServer, master_list, sd
 
     pbar = tqdm(total=len(tblrinex), ncols=80, disable=None)
 
-    modules = ('pgamit.dbConnection', 'pgamit.pyRinex', 'pgamit.pyPPP', 'pgamit.pyStationInfo', 'pgamit.pyDate',
+    modules = ('pgamit.dbConnection', 'pgamit.pyRinex', 'pgamit.pyPPP', 'pgamit.metadata.station_info', 'pgamit.pyDate',
                'pgamit.pyProducts', 'os', 'platform', 'pgamit.pyArchiveStruct', 'traceback', 'pgamit.pyOptions',
                'pgamit.pyEvents', 'pgamit.Utils')
 
@@ -967,7 +940,7 @@ def export_station(cnn, stnlist, pyArchive, archive_path, dataless):
         rinex_lst = rinex_lst.dictresult()
         # rinex_lst = pyArchive.get_rinex_record(NetworkCode=NetworkCode, StationCode=StationCode)
         # list of metadata
-        stninfo = pyStationInfo.StationInfo(cnn, NetworkCode, StationCode, allow_empty=True)
+        stninfo = StationInfo(cnn, NetworkCode, StationCode, allow_empty=True)
 
         export_dic = {'NetworkCode' : NetworkCode,
                       'StationCode' : StationCode,
@@ -1184,7 +1157,7 @@ def insert_station(cnn, network, station):
 def try_insert_files(cnn, archive, station, NetworkCode, StationCode, rinex):
 
     import_stninfo = station['StationInfo']
-    stninfo        = pyStationInfo.StationInfo(cnn, NetworkCode, StationCode, allow_empty=True)
+    stninfo        = StationInfo(cnn, NetworkCode, StationCode, allow_empty=True)
 
     if rinex:
         # a station file with rinex data in it. Attempt to insert the data and the associated station information
@@ -1204,16 +1177,16 @@ def try_insert_files(cnn, archive, station, NetworkCode, StationCode, rinex):
                                    % (NetworkCode, StationCode, os.path.basename(rnx)))
 
                     try:
-                        pyStationInfo.StationInfo(cnn, NetworkCode, StationCode, rinexinfo.date)
+                        StationInfo(cnn, NetworkCode, StationCode, rinexinfo.date)
 
-                    except pyStationInfo.pyStationInfoException:
+                    except StationInfoException:
 
                         # station info not in db! import the corresponding station info
 
                         stninfo_inserted = False
 
                         for record in import_stninfo:
-                            import_record = pyStationInfo.StationInfoRecord(NetworkCode, StationCode, record)
+                            import_record = StationInfoRecord(NetworkCode, StationCode, _record=record)
 
                             # DDG: to avoid problems with files that contain two different station info records, check
                             # that import_record.DateEnd.datetime() is not less than the first observation of the rinex
@@ -1227,10 +1200,10 @@ def try_insert_files(cnn, archive, station, NetworkCode, StationCode, rinex):
 
                                 # the record we are looking for
                                 try:
-                                    stninfo.InsertStationInfo(import_record)
+                                    stninfo.insert_station_info(import_record)
                                     stninfo_inserted = True
 
-                                except pyStationInfo.pyStationInfoException as e:
+                                except StationInfoException as e:
                                     tqdm.write('    ' + str(e))
 
                         if not stninfo_inserted:
@@ -1244,14 +1217,14 @@ def try_insert_files(cnn, archive, station, NetworkCode, StationCode, rinex):
 
         for record in import_stninfo:
 
-            import_record = pyStationInfo.StationInfoRecord(NetworkCode, StationCode, record)
+            import_record = StationInfoRecord(NetworkCode, StationCode, _record=record)
 
             try:
-                stninfo.InsertStationInfo(import_record)
+                stninfo.insert_station_info(import_record)
                 tqdm.write('  -- Successful insert: %s -> %s' % (str(import_record['DateStart']), 
                                                                  str(import_record['DateEnd'])))
 
-            except pyStationInfo.pyStationInfoException as e:
+            except StationInfoException as e:
                 tqdm.write(' -- ' + str(e))
 
 
@@ -1273,7 +1246,7 @@ def get_rinex_file(cnn, stnlist, date, Archive_path):
 
             with pyRinex.ReadRinex(NetworkCode, StationCode, rinex, False) as Rinex:  # type: pyRinex.ReadRinex
 
-                StationInfo = pyStationInfo.StationInfo(cnn, NetworkCode, StationCode, Rinex.date)
+                StationInfo = StationInfo(cnn, NetworkCode, StationCode, Rinex.date)
 
                 Rinex.normalize_header(StationInfo)
                 Rinex.compress_local_copyto('./')
@@ -1316,13 +1289,13 @@ def main():
 
     parser.add_argument('-export', '--export_station', nargs='?', metavar='[dataless seed]', default=None, const=False,
                         help="Export a station from the local database that can be imported into another "
-                             "Parallel.GAMIT system using the -import option."
+                             "GeoDE system using the -import option."
                              "One file is created per station in the current directory. If the [dataless seed] switch "
                              "is passed (e.g. -export true), then the export seed is created without data "
                              "(only metadata included, i.e. station info, station record, etc).")
 
     parser.add_argument('-import', '--import_station', nargs='+', type=str, metavar=('{default net}', '{zipfiles}'),
-                        help="Import a station from zipfiles produced by another Parallel.GAMIT system. "
+                        help="Import a station from zipfiles produced by another GeoDE system. "
                              "Wildcards are accepted to import multiple zipfiles. If station does not exist, use "
                              "{default net} to specify the network where station should be added to. If {default net} "
                              "does not exit, it will be created. Station list is ignored.")

@@ -38,21 +38,21 @@ import argparse
 from tqdm import tqdm
 
 # app
-from pgamit.Utils import (file_append, file_try_remove, file_open,
+from geode.Utils import (file_append, file_try_remove, file_open,
                           dir_try_remove, stationID, get_field_or_attr, add_version_argument)
-from pgamit import ConvertRaw
-from pgamit import pyJobServer
-from pgamit import pyEvents
-from pgamit import pyOptions
-from pgamit import Utils
-from pgamit import pyOTL
-from pgamit import pyRinex
-from pgamit import pyRinexName
-from pgamit import dbConnection
-from pgamit import pyStationInfo
-from pgamit import pyArchiveStruct
-from pgamit import pyPPP
-from pgamit import pyProducts
+from geode import ConvertRaw
+from geode import pyJobServer
+from geode import pyEvents
+from geode import pyOptions
+from geode import Utils
+from geode import pyOTL
+from geode import pyRinex
+from geode import pyRinexName
+from geode import dbConnection
+from geode.metadata.station_info import StationInfoException
+from geode import pyArchiveStruct
+from geode import pyPPP
+from geode import pyProducts
 
 repository_data_in = ''
 cnn = dbConnection.Cnn('gnss_data.cfg')
@@ -116,7 +116,7 @@ def insert_station_w_lock(cnn, StationCode, filename,
             from geopy.geocoders import Nominatim
             import country_converter as coco
             # find the country code for the station
-            geolocator = Nominatim(user_agent="Parallel.GAMIT")
+            geolocator = Nominatim(user_agent="GeoDE")
             location = geolocator.reverse("%f, %f" % (lat, lon))
 
             if location and 'country_code' in location.raw['address'].keys():
@@ -620,7 +620,7 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry):
         fill_event(e.event)
         error_handle(cnn, e.event, crinez, reject_folder, filename)
 
-    except pyStationInfo.pyStationInfoException as e:
+    except StationInfoException as e:
 
         retry_folder = retry_folder.replace(
             '%reason%', 'station_info_exception')
@@ -834,13 +834,13 @@ def process_visits(JobServer):
     # import modules
     JobServer.create_cluster(process_visit_file, depfuncs,
                              callback_handle, pbar,
-                             modules=('pgamit.pyRinex',
-                                      'pgamit.ConvertRaw',
-                                      'pgamit.pyEvents',
-                                      'pgamit.dbConnection',
-                                      'pgamit.pyRunWithRetry',
-                                      'pgamit.Utils',
-                                      'pgamit.pyRinexName',
+                             modules=('geode.pyRinex',
+                                      'geode.ConvertRaw',
+                                      'geode.pyEvents',
+                                      'geode.dbConnection',
+                                      'geode.pyRunWithRetry',
+                                      'geode.Utils',
+                                      'geode.pyRinexName',
                                       'platform', 'os'))
 
     for record in rs:
@@ -861,13 +861,13 @@ def process_visits(JobServer):
     # import modules
     JobServer.create_cluster(merge_rinex_files, depfuncs,
                              callback_handle, pbar,
-                             modules=('pgamit.pyRinex',
-                                      'pgamit.ConvertRaw',
-                                      'pgamit.pyEvents',
-                                      'pgamit.dbConnection',
-                                      'pgamit.pyRunWithRetry',
-                                      'pgamit.Utils',
-                                      'pgamit.pyRinexName',
+                             modules=('geode.pyRinex',
+                                      'geode.ConvertRaw',
+                                      'geode.pyEvents',
+                                      'geode.dbConnection',
+                                      'geode.pyRunWithRetry',
+                                      'geode.Utils',
+                                      'geode.pyRinexName',
                                       'platform', 'os'))
     for record in stns:
         JobServer.submit(Config, record)
@@ -877,19 +877,6 @@ def process_visits(JobServer):
 
     tqdm.write(' >> Done merging RINEX files')
     JobServer.close_cluster()
-
-
-def db_checks():
-    if 'rinexed' in cnn.get_columns('api_visitgnssdatafiles').keys():
-        # New field in table api_visitgnssdatafiles present, no need to migrate.
-        return
-
-    cnn.begin_transac()
-    cnn.query("""
-    ALTER TABLE api_visitgnssdatafiles
-    ADD COLUMN rinexed BOOLEAN DEFAULT FALSE;
-    """)
-    cnn.commit_transac()
 
 
 def main():
@@ -940,8 +927,6 @@ def main():
             print(" >> the provided media path in gnss_data.cfg is not accessible")
             exit()
 
-        # check the existence of the rinexed_visits table, if it does not exist, create one
-        db_checks()
         process_visits(JobServer)
 
     # set the data_xx directories
@@ -1052,14 +1037,14 @@ def main():
                              depfuncs,
                              callback_handle,
                              pbar,
-                             modules=('pgamit.pyRinex',
-                                      'pgamit.pyArchiveStruct',
-                                      'pgamit.pyOTL', 'pgamit.pyStationInfo',
-                                      'pgamit.dbConnection', 'pgamit.Utils',
-                                      'pgamit.pyDate', 'pgamit.pyProducts',
-                                      'pgamit.pyOptions', 'pgamit.pyEvents',
-                                      'pgamit.pyRinexName',
-                                      'pgamit.pyPPP', 'os', 'uuid',
+                             modules=('geode.pyRinex',
+                                      'geode.pyArchiveStruct',
+                                      'geode.pyOTL', 'geode.pyStationInfo',
+                                      'geode.dbConnection', 'geode.Utils',
+                                      'geode.pyDate', 'geode.pyProducts',
+                                      'geode.pyOptions', 'geode.pyEvents',
+                                      'geode.pyRinexName',
+                                      'geode.pyPPP', 'os', 'uuid',
                                       'datetime', 'numpy', 'traceback',
                                       'platform'))
 

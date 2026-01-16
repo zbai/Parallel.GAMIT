@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Project: Parallel.GAMIT 
+Project: Geodesy Database Engine (GeoDE)
 Date: 9/25/24 11:29AM
 Author: Demian D. Gomez
 
@@ -12,9 +12,9 @@ import argparse
 import math
 
 # app
-from pgamit import pyOkada
-from pgamit import dbConnection
-from pgamit.Utils import add_version_argument, stationID, print_columns
+from geode import pyOkada
+from geode import dbConnection
+from geode.Utils import add_version_argument, stationID, print_columns
 
 
 def main():

@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Project: Parallel.GAMIT 
+Project: Geodesy Database Engine (GeoDE)
 Date: 4/20/25 11:23 AM 
 Author: Demian D. Gomez
 
@@ -12,16 +12,18 @@ import argparse
 import simplekml
 import numpy as np
 from tqdm import tqdm
+import matplotlib
+matplotlib.use('Qt5Agg')
 import matplotlib.pyplot as plt
 import json
 
-from pgamit.pyDate import Date
-from pgamit import dbConnection
-from pgamit.pyDate import Date
-from pgamit.cluster import BisectingQMeans, select_central_point, overcluster, prune
-from pgamit.agglomerative import DeterministicClustering
-from pgamit.Utils import station_list_help, process_date, process_stnlist, stationID, add_version_argument, file_write
-from pgamit.plots import plot_global_network, plot_geographic_cluster_graph
+from geode.pyDate import Date
+from geode import dbConnection
+from geode.pyDate import Date
+from geode.cluster import BisectingQMeans, select_central_point, overcluster, prune
+from geode.agglomerative import DeterministicClustering
+from geode.Utils import station_list_help, process_date, process_stnlist, stationID, add_version_argument, file_write
+from geode.plots import plot_global_network, plot_geographic_cluster_graph
 
 
 def generate_kmz(OC, lla, stations, central_points, filename):
@@ -83,8 +85,10 @@ def generate_kmz(OC, lla, stations, central_points, filename):
 
 def main():
 
-    parser = argparse.ArgumentParser(description='Script to estimate run times from clustering. Two algorithms are '
-                                                 'available: qmeans and deterministic.')
+    parser = argparse.ArgumentParser(
+        description='Script to estimate run times from clustering. Two algorithms are '
+                    'available: qmeans and deterministic.'
+    )
 
     parser.add_argument('stnlist', type=str, nargs='+', metavar='all|net.stnm',
                         help=station_list_help())
@@ -335,7 +339,7 @@ def main():
         axs[0].set_ylabel('Frequency')
         axs[0].set_title('Cluster size histogram', fontsize=14, fontweight='bold')
         plt.tight_layout()
-        plt.show()
+        plt.savefig('output_figure.png', dpi=150, bbox_inches='tight')
         # plot_global_network(central_points_ids, OC, np.arange(0, OC.shape[0] - 1, 1), points, './map.png')
 
 

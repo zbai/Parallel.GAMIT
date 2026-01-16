@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """
 Original author: Federico Fernandez (IGN)
-Project: Parallel.GAMIT
+Project: Geodesy Database Engine (GeoDE)
 Date: Jul 31 2023 12:24 PM
 Modified by: Demian D. Gomez
 
@@ -14,9 +14,9 @@ import os
 from tqdm import tqdm
 
 # app
-from pgamit.Utils import required_length, process_date, add_version_argument
-from pgamit import pyDate
-from pgamit import dbConnection
+from geode.Utils import required_length, process_date, add_version_argument
+from geode import pyDate
+from geode import dbConnection
 
 CONFIG_FILE = 'gnss_data.cfg'
 

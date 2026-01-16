@@ -16,11 +16,11 @@ import traceback
 import re
 
 # app
-from pgamit import pyOptions
-from pgamit import dbConnection
-from pgamit import pyStationInfo
-from pgamit import pyDate
-from pgamit.Utils import process_date, add_version_argument
+from geode import pyOptions
+from geode import dbConnection
+from geode.metadata.station_info import StationInfo, StationInfoRecord
+from geode import pyDate
+from geode.Utils import process_date, add_version_argument
 
 
 cnn       = dbConnection.Cnn('gnss_data.cfg')
@@ -257,7 +257,7 @@ class Menu(object):
             else:
                 edit_field = rs.dictresult()[0]['ReceiverCode']
 
-        elif fname in ('AntennaEast', 'AntennaNorth', 'AntennaHeight'):
+        elif fname in ('AntennaEast', 'AntennaNorth', 'AntennaHeight', 'AntennaDAZ'):
             # field has to be numeric
             try:
                 _ = float(edit_field)
@@ -302,7 +302,7 @@ def delete_record(menu):
     global StnInfo
 
     if 'New station information' not in menu.title:
-        StnInfo.DeleteStationInfo(StnInfo.records[menu.record_index])
+        StnInfo.delete_station_info(StnInfo.records[menu.record_index])
 
 
 def save_changes(menu):
@@ -327,16 +327,16 @@ def save_changes(menu):
                     record[fname] = None
 
         # convert the dictionary into a valid StationInfoRecord object
-        record = pyStationInfo.StationInfoRecord(stn['NetworkCode'], stn['StationCode'], record)
+        record = StationInfoRecord(stn['NetworkCode'], stn['StationCode'], _record=record)
 
         # try to insert and catch errors
         try:
             if 'New station information' in menu.title:
                 # insert new
-                StnInfo.InsertStationInfo(record)
+                StnInfo.insert_station_info(record)
             else:
                 # update a station info record
-                StnInfo.UpdateStationInfo(StnInfo.records[menu.record_index], record)
+                StnInfo.update_station_info(StnInfo.records[menu.record_index], record)
         except Exception as e:
             menu.ShowError(traceback.format_exc())
             return False
@@ -348,7 +348,7 @@ def save_changes(menu):
 def get_records():
 
     global StnInfo
-    StnInfo = pyStationInfo.StationInfo(cnn, stn['NetworkCode'], stn['StationCode'], allow_empty=True)
+    StnInfo = StationInfo(cnn, stn['NetworkCode'], stn['StationCode'], allow_empty=True)
 
     out = []
 
@@ -391,6 +391,7 @@ def selection_main_menu(menu):
         record['AntennaCode']      = '' if stninfo is None else stninfo['AntennaCode']
         record['RadomeCode']       = '' if stninfo is None else stninfo['RadomeCode']
         record['AntennaSerial']    = '' if stninfo is None else stninfo['AntennaSerial']
+        record['AntennaDAZ']       = '0.0' if stninfo is None else stninfo['AntennaDAZ']
         record['Comments']         = ''
 
         new_record = []
@@ -447,6 +448,7 @@ def get_fields(position):
     record2['AntennaCode']      = ''
     record2['RadomeCode']       = ''
     record2['AntennaSerial']    = ''
+    record2['AntennaDAZ']       = '0.0'
     record2['Comments']         = ''
 
     for key in record2.keys():

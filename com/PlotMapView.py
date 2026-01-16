@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Project: Parallel.GAMIT
+Project: Geodesy Database Engine (GeoDE)
 Date: 6/12/18 10:28 AM
 Author: Demian D. Gomez
 """
@@ -14,12 +14,12 @@ from io import BytesIO
 import base64
 
 # app
-from pgamit.pyETM import CO_SEISMIC_JUMP_DECAY, CO_SEISMIC_DECAY, LABEL
-from pgamit import Utils
-from pgamit.Utils import stationID, add_version_argument
+from geode.pyETM import CO_SEISMIC_JUMP_DECAY, CO_SEISMIC_DECAY, LABEL
+from geode import Utils
+from geode.Utils import stationID, add_version_argument
 from scipy.interpolate import griddata
-from pgamit import pyETM
-from pgamit import dbConnection
+from geode import pyETM
+from geode import dbConnection
 
 
 def generate_kmz(kmz, stations):

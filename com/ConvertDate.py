@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Project: Parallel.GAMIT
+Project: Geodesy Database Engine (GeoDE)
 Date: Jul 20 2023 11:40 AM
 Author: Demian D. Gomez
 Script to convert from one date type to others
@@ -8,7 +8,7 @@ Script to convert from one date type to others
 
 import argparse
 
-from pgamit.Utils import process_date, add_version_argument
+from geode.Utils import process_date, add_version_argument
 
 
 def main():

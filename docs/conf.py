@@ -6,7 +6,7 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = 'Parallel.GAMIT'
+project = 'GeoDE'
 copyright = '2024, Demián D. Gómez'
 author = 'Demián D. Gómez'
 release = '1.0.0'

@@ -1,6 +1,9 @@
 # Automated versioning files
 _version.py
 
+# JetBrains IDE files
+.idea/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -104,4 +107,5 @@ classes/error*
 parallel_gamit/gnss_data.cfg
 parallel_gamit/link_tables.sh
 
-reinstall_pgamit.sh
+reinstall_geode.sh
+reinstall_geode.sh

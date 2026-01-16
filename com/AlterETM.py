@@ -5,13 +5,13 @@ import argparse
 import copy
 
 # app
-from pgamit import dbConnection
-from pgamit import Utils
-from pgamit.Utils import required_length, process_date, station_list_help, add_version_argument
-from pgamit.pyBunch import Bunch
-from pgamit import pyETM
+from geode import dbConnection
+from geode import Utils
+from geode.Utils import required_length, process_date, station_list_help, add_version_argument
+from geode.pyBunch import Bunch
+from geode import pyETM
 
-from pgamit.pyETM import (DEFAULT_FREQUENCIES,
+from geode.pyETM import (DEFAULT_FREQUENCIES,
                           DEFAULT_POL_TERMS,
                           DEFAULT_RELAXATION)
 

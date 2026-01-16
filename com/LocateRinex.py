@@ -7,15 +7,15 @@ import re
 import shutil
 
 # app
-from pgamit import pyRinex
-from pgamit import pyPPP
-from pgamit import pyOptions
-from pgamit import pyOTL
-from pgamit import pyProducts
-from pgamit import pyStationInfo
-from pgamit import dbConnection
-from pgamit.pyPPP import PPPSpatialCheck
-from pgamit.Utils import file_readlines, add_version_argument
+from geode import pyRinex
+from geode import pyPPP
+from geode import pyOptions
+from geode import pyOTL
+from geode import pyProducts
+from geode.metadata.station_info import StationInfoException, StationInfo
+from geode import dbConnection
+from geode.pyPPP import PPPSpatialCheck
+from geode.Utils import file_readlines, add_version_argument
 
 
 def main():
@@ -235,7 +235,7 @@ def execute_ppp(rinexinfo, args, stnm, options, sp3types, sp3altrn, brdc_path, e
             from geopy.geocoders import Nominatim
             import country_converter as coco
             # find the country code for the station
-            geolocator = Nominatim(user_agent="Parallel.GAMIT")
+            geolocator = Nominatim(user_agent="GeoDE")
             location = geolocator.reverse("%f, %f" % (ppp.lat[0], ppp.lon[0]))
 
             if location and 'country_code' in location.raw['address'].keys():

@@ -1,4 +1,4 @@
-name: pgamit
+name: geode
 channels:
   - defaults
   - conda-forge
@@ -22,9 +22,11 @@ dependencies:
   - scikit-image
   - shapely
   - obspy
+  - geopandas
   - pip
   - pip:
     - country_converter
+    - charset-normalizer
     - dispy
     - hdf5storage
     - simplekml

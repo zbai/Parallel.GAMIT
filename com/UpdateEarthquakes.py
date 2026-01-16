@@ -21,8 +21,8 @@ import libcomcat.search
 import libcomcat.exceptions as libcome
 
 # app
-from pgamit import dbConnection
-from pgamit.Utils import add_version_argument
+from geode import dbConnection
+from geode.Utils import add_version_argument
 
 TIMEFMT2 = '%Y-%m-%d %H:%M:%S.%f'
 

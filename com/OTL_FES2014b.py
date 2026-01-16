@@ -26,10 +26,10 @@ from email.mime.text import MIMEText
 import argparse
 import re
 
-from pgamit import Utils
+from geode import Utils
 # app
-from pgamit import dbConnection
-from pgamit.Utils import file_write, file_readlines, process_stnlist, stationID, import_blq, add_version_argument
+from geode import dbConnection
+from geode.Utils import file_write, file_readlines, process_stnlist, stationID, import_blq, add_version_argument
 
 
 def main():

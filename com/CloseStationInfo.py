@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Project: Parallel.GAMIT
+Project: Geodesy Database Engine (GeoDE)
 Date: 08/30/22 12:44 PM
 Author: Demian D. Gomez
 
@@ -10,11 +10,11 @@ has not been collecting data for X time
 
 import argparse
 
-from pgamit import pyDate
-from pgamit import dbConnection
-from pgamit import pyStationInfo
-from pgamit import Utils
-from pgamit.Utils import stationID, add_version_argument
+from geode import pyDate
+from geode import dbConnection
+from geode.metadata.station_info import StationInfo, StationInfoRecord
+from geode import Utils
+from geode.Utils import stationID, add_version_argument
 
 CONFIG_FILE = 'gnss_data.cfg'
 
@@ -62,12 +62,8 @@ def main():
                   using %.3f from last RINEX file'''
                   % (stn['NetworkCode'], stn['StationCode'], dd))
 
-            stninfo = pyStationInfo.StationInfo(cnn,
-                                                stn['NetworkCode'],
-                                                stn['StationCode'])
-            record = pyStationInfo.StationInfoRecord(stn['NetworkCode'],
-                                                     stn['StationCode'],
-                                                     stninfo.records[-1])
+            stninfo = StationInfo(cnn, stn['NetworkCode'], stn['StationCode'])
+            record = StationInfoRecord(stn['NetworkCode'], stn['StationCode'], _record=stninfo.records[-1])
             # change the time to the end of the day
             # to avoid problems with GAMIT and other
             # RINEX files (with different end times)
@@ -76,7 +72,7 @@ def main():
             date.minute = 59
             date.second = 59
             record.DateEnd = date
-            stninfo.UpdateStationInfo(stninfo.records[-1], record)
+            stninfo.update_station_info(stninfo.records[-1], record)
 
 
 if __name__ == '__main__':

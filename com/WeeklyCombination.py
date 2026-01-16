@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Project: Parallel.GAMIT
+Project: Geodesy Database Engine (GeoDE)
 Date: 05/30/19 10:44 AM
 Author: Demian D. Gomez
 """
@@ -17,12 +17,12 @@ import string
 # deps
 
 # app
-from pgamit import dbConnection
-from pgamit import Utils
-from pgamit import pyDate
-from pgamit import snxParse
-from pgamit import pyGamitConfig
-from pgamit.Utils import split_string, file_open, file_readlines, stationID, chmod_exec, add_version_argument
+from geode import dbConnection
+from geode import Utils
+from geode import pyDate
+from geode import snxParse
+from geode import pyGamitConfig
+from geode.Utils import split_string, file_open, file_readlines, stationID, chmod_exec, add_version_argument
 
 
 def replace_in_sinex(sinex, observations, unknowns, new_val):
@@ -245,7 +245,7 @@ def main():
                         help="List of networks/stations to include in the solution.")
 
     parser.add_argument('-s', '--session_config', type=str, nargs=1, metavar='session.cfg',
-                        help="Filename with the session configuration to run Parallel.GAMIT")
+                        help="Filename with the session configuration to run GeoDE")
 
     parser.add_argument('-w', '--gpsweek', nargs=1,
                         help="GPS week to combine.")

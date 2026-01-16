@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Project: Parallel.GAMIT
+Project: Geodesy Database Engine (GeoDE)
 Date: 11/8/17 9:24 AM
 Author: Demian D. Gomez
 
@@ -19,10 +19,10 @@ import numpy as np
 from tqdm import tqdm
 
 # app
-from pgamit import pyDate
-from pgamit import pyOptions
-from pgamit.Utils import required_length, process_date, add_version_argument
-from pgamit import pyRunWithRetry
+from geode import pyDate
+from geode import pyOptions
+from geode.Utils import required_length, process_date, add_version_argument
+from geode import pyRunWithRetry
 
 # Old FTP server:
 # FTP_HOST = '198.118.242.40'

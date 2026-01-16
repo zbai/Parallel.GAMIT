@@ -17,13 +17,13 @@ import numpy as np
 from tqdm import tqdm
 
 # app
-from pgamit import dbConnection
-from pgamit import pyOptions
-from pgamit import pyETM
-from pgamit import pyJobServer
-from pgamit.pyDate import Date
-from pgamit import pyStack
-from pgamit.Utils import (process_date,
+from geode import dbConnection
+from geode import pyOptions
+from geode import pyETM
+from geode import pyJobServer
+from geode.pyDate import Date
+from geode import pyStack
+from geode.Utils import (process_date,
                           file_write,
                           file_readlines,
                           file_open,
@@ -110,7 +110,7 @@ def calculate_etms(cnn, stack, JobServer, iterations, create_target=True, exclud
     # so that the progress bar ends in the right number
     qbar = tqdm(total=len(stack.stations)-len(exclude_stn), desc=' >> Calculating ETMs', ncols=160, disable=None)
 
-    modules = ('pgamit.pyETM', 'pgamit.pyDate', 'pgamit.dbConnection', 'traceback')
+    modules = ('geode.pyETM', 'geode.pyDate', 'geode.dbConnection', 'traceback')
 
     JobServer.create_cluster(station_etm, progress_bar=qbar, callback=callback_handler, modules=modules)
 
@@ -247,7 +247,7 @@ def main():
     parser = argparse.ArgumentParser(description='GNSS time series stacker')
 
     parser.add_argument('project', type=str, nargs=1, metavar='{project name}',
-                        help="Specify the project name used to process the GAMIT solutions in Parallel.GAMIT.")
+                        help="Specify the project name used to process the GAMIT solutions in GeoDE.")
 
     parser.add_argument('stack_name', type=str, nargs=1, metavar='{stack name}',
                         help="Specify a name for the stack: eg. itrf2014 or posgar07b. This name should be unique "

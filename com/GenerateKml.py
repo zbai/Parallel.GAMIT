@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Project: Parallel.GAMIT
+Project: Geodesy Database Engine (GeoDE)
 Date: 7/18/18 10:28 AM
 Author: Demian D. Gomez
 
@@ -25,9 +25,10 @@ import simplekml
 from tqdm import tqdm
 
 # app
-from pgamit import dbConnection, pyDate, pyJobServer, pyOptions, pyStationInfo
-from pgamit.pyGamitConfig import GamitConfiguration
-from pgamit.Utils import process_stnlist, stationID, plot_rinex_completion, add_version_argument
+from geode import dbConnection, pyDate, pyJobServer, pyOptions
+from geode.metadata.station_info import StationInfoHeightCodeNotFound, StationInfo
+from geode.gamit.gamit_config import GamitConfiguration
+from geode.Utils import process_stnlist, stationID, plot_rinex_completion, add_version_argument
 
 global kml, folder_project, folder_allstns, stnlist
 
@@ -42,7 +43,7 @@ def main():
     parser.add_argument('project_file', type=str, nargs=1,
                         metavar='{project cfg file}',
                         help='''Project CFG file with all the stations
-                             being processed in Parallel.GAMIT''')
+                             being processed in GeoDE''')
 
     parser.add_argument('-stn', '--station_list', type=str, nargs='+',
                         metavar='[net.stnm]', default=[],
@@ -254,7 +255,7 @@ def generate_kml_stninfo(JobServer, cnn, project, data=False,
                              depfuncs,
                              callback_handle,
                              pbar,
-                             modules=('pgamit.pyDate', 'pgamit.dbConnection',
+                             modules=('geode.pyDate', 'geode.dbConnection',
                                       'datetime', 'numpy', 'io', 'base64'))
 
     for stn in rs:
@@ -278,12 +279,9 @@ def generate_kml_stninfo(JobServer, cnn, project, data=False,
         DateE = '%.3f' % stn['DateEnd'] if stn['DateStart'] else 'NA'
 
         try:
-            stninfo = pyStationInfo.StationInfo(cnn,
-                                                stn['NetworkCode'],
-                                                stn['StationCode'],
-                                                allow_empty=True)
+            stninfo = StationInfo(cnn, stn['NetworkCode'], stn['StationCode'], allow_empty=True)
             _ = stninfo.return_stninfo_short()
-        except pyStationInfo.pyStationInfoHeightCodeNotFound as e:
+        except StationInfoHeightCodeNotFound as e:
             tqdm.write('Error: %s. Station will be skipped.' % str(e))
             continue
 
@@ -443,12 +441,9 @@ def generate_kml(cnn, project, data=False):
                                 % (stn['NetworkCode'], stn['StationCode']))
 
         try:
-            stninfo = pyStationInfo.StationInfo(cnn,
-                                                stn['NetworkCode'],
-                                                stn['StationCode'],
-                                                allow_empty=True)
+            stninfo = StationInfo(cnn, stn['NetworkCode'], stn['StationCode'], allow_empty=True)
             _ = stninfo.return_stninfo_short()
-        except pyStationInfo.pyStationInfoHeightCodeNotFound as e:
+        except StationInfoHeightCodeNotFound as e:
             tqdm.write('Error: %s. Station will be skipped.' % str(e))
             continue
 

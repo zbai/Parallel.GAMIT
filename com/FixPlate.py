@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Project: Parallel.GAMIT
+Project: Geodesy Database Engine (GeoDE)
 Date: 6/15/24 10:29 AM
 Author: Demian D. Gomez
 
@@ -15,14 +15,14 @@ import json
 import numpy as np
 import simplekml
 
-from pgamit.pyOkada import cosd, sind
+from geode.pyOkada import cosd, sind
 from tqdm import tqdm
 
-from pgamit import dbConnection, pyETM
-from pgamit.pyDate import Date
-from pgamit.pyLeastSquares import adjust_lsq
-from pgamit.pyOkada import ScoreTable
-from pgamit.Utils import (cart2euler, get_stack_stations, process_stnlist, add_version_argument,
+from geode import dbConnection, pyETM
+from geode.pyDate import Date
+from geode.pyLeastSquares import adjust_lsq
+from geode.pyOkada import ScoreTable
+from geode.Utils import (cart2euler, get_stack_stations, process_stnlist, add_version_argument,
                           stationID, file_write, xyz2sphere_lla, required_length, print_columns)
 
 

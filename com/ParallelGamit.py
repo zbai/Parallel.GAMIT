@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Project: Parallel.GAMIT
+Project: Geodesy Database Engine (GeoDE)
 Date: 3/31/17 6:33 PM
 Author: Demian D. Gomez
 """
@@ -11,7 +11,6 @@ import math
 import shutil
 import argparse
 import glob
-import logging
 import time
 import threading
 from datetime import datetime
@@ -20,23 +19,24 @@ import string
 
 # deps
 from tqdm import tqdm
+from typing import List
 import simplekml
 
 # app
-from pgamit import pyGamitConfig
-from pgamit import pyDate
-from pgamit import Utils
-from pgamit import pyGamitTask
-from pgamit import pyGlobkTask
-from pgamit import pyGamitSession
-from pgamit import dbConnection
-from pgamit import pyJobServer
-from pgamit import pyParseZTD
-from pgamit import pyArchiveStruct
-from pgamit.pyETM import pyETMException
-from pgamit.network import Network
-from pgamit.pyStation import Station, StationCollection
-from pgamit.Utils import (process_date,
+from geode.gamit import gamit_config
+from geode import pyDate
+from geode import Utils
+from geode.gamit import gamit_task
+from geode.gamit import globk_task
+from geode.gamit import gamit_session
+from geode.gamit import parse_ztd
+from geode.gamit.station import Station, StationCollection
+from geode import dbConnection
+from geode import pyJobServer
+from geode import pyArchiveStruct
+from geode.etm.data.solution_data import SolutionDataException
+from geode.network import Network
+from geode.Utils import (process_date,
                           process_stnlist,
                           parseIntSet,
                           indent,
@@ -182,13 +182,13 @@ def purge_solution(pwd, project, date):
 
 def purge_solutions(JobServer, args, dates, GamitConfig):
 
-    if args.purge:
+    if args.purge or args.purge_exit:
 
         print(' >> Purging selected year-doys before run:')
 
         pbar = tqdm(total=len(dates), ncols=80, desc=' -- Purge progress', disable=None)
 
-        modules = ('pgamit.pyDate', 'pgamit.dbConnection', 'os', 'glob', 'shutil')
+        modules = ('geode.pyDate', 'geode.dbConnection', 'os', 'glob', 'shutil')
 
         JobServer.create_cluster(purge_solution, progress_bar=pbar, modules=modules)
 
@@ -228,7 +228,7 @@ def station_list(cnn, stations, dates):
             tqdm.write(prGreen(' -- %s -> adding...' % stationID(Stn)))
             try:
                 stn_obj.append(Station(cnn, NetworkCode, StationCode, dates))
-            except pyETMException:
+            except SolutionDataException:
                 tqdm.write(prRed('    %s -> station exists, but there was a problem initializing ETM.'
                                  % stationID(Stn)))
         else:
@@ -289,6 +289,9 @@ def config_summary(GamitConfig, args):
         print((' -- %s: ' + val) % (conf, GamitConfig.gamitopt[conf]))
 
     for conf in GamitConfig.NetworkConfig.keys():
+        if conf == 'stn_list':
+            continue
+
         if type(GamitConfig.NetworkConfig[conf]) is int:
             val = '%i'
         elif type(GamitConfig.NetworkConfig[conf]) is float:
@@ -301,10 +304,10 @@ def config_summary(GamitConfig, args):
 
 def main():
 
-    parser = argparse.ArgumentParser(description='Parallel.GAMIT main execution program')
+    parser = argparse.ArgumentParser(description='GeoDE main execution program')
 
     parser.add_argument('session_cfg', type=str, nargs=1, metavar='session.cfg',
-                        help="Filename with the session configuration to run Parallel.GAMIT")
+                        help="Filename with the session configuration to run GeoDE")
 
     parser.add_argument('-d', '--date', type=str, nargs=2, metavar='{date}',
                         help="Date range to process. Can be specified in yyyy/mm/dd yyyy_doy wwww-d format")
@@ -318,7 +321,7 @@ def main():
 
     parser.add_argument('-c', '--check_mode', type=str, nargs='+', metavar='{station}',
                         help="Check station(s) mode. If station(s) are not present in the GAMIT polyhedron, "
-                             "(i.e. the RINEX file(s) were missing at the time of the processing) Parallel.GAMIT will "
+                             "(i.e. the RINEX file(s) were missing at the time of the processing) GeoDE will "
                              "add the station to the closest subnetwork(s) and reprocess them. If station(s) were "
                              "present at the time of the processing but failed to process (i.e. they are in the "
                              "missing stations list), these subnetworks will be reprocessed to try to obtain a "
@@ -332,6 +335,10 @@ def main():
 
     parser.add_argument('-p', '--purge', action='store_true', default=False,
                         help="Purge year doys from the database and directory structure and re-run the solution.")
+
+    parser.add_argument('-pe', '--purge_exit', action='store_true', default=False,
+                        help="Purge year doys from the database and directory structure and "
+                             "exit without running GAMIT.")
 
     parser.add_argument('-dry', '--dry_run', action='store_true',
                         help="Generate the directory structures (locally) but do not run GAMIT. "
@@ -384,7 +391,7 @@ def main():
 
     print(' >> Reading configuration files and creating project network, please wait...')
 
-    GamitConfig = pyGamitConfig.GamitConfiguration(args.session_cfg[0])  # type: pyGamitConfig.GamitConfiguration
+    GamitConfig = gamit_config.GamitConfiguration(args.session_cfg[0])
 
     # print the configuration used for this session
     config_summary(GamitConfig, args)
@@ -421,21 +428,24 @@ def main():
         # ignore if calling a dry run
         # purge solutions if requested
         purge_solutions(JobServer, args, dates, GamitConfig)
+        if args.purge_exit:
+            tqdm.write(' >> %s Successful exit from ParallelGamit (no run)' % print_datetime())
+            exit(0)
     elif args.purge:
         tqdm.write(' >> Dry run or check mode activated. Cannot purge solutions in this mode.')
 
     # run the job server
-    sessions = ExecuteGamit(cnn, JobServer, GamitConfig, stations, check_stations, args.ignore_missing, dates,
-                            args.dry_run, args.create_kml)
+    sessions = execute_gamit(cnn, JobServer, GamitConfig, stations, check_stations, args.ignore_missing, dates,
+                             args.dry_run, args.create_kml)
 
     # execute globk on doys that had to be divided into subnets
     if not args.dry_run:
-        ExecuteGlobk(cnn, JobServer, GamitConfig, sessions, dates)
+        execute_globk(cnn, JobServer, GamitConfig, sessions, dates)
 
         # parse the zenith delay outputs
-        ParseZTD(GamitConfig.NetworkConfig.network_id.lower(), dates, sessions, GamitConfig, JobServer)
+        exec_parse_ztd(GamitConfig.NetworkConfig.network_id.lower(), dates, sessions, GamitConfig, JobServer)
 
-    tqdm.write(' >> %s Successful exit from Parallel.GAMIT' % print_datetime())
+    tqdm.write(' >> %s Successful exit from ParallelGamit' % print_datetime())
 
 
 def generate_kml(dates, sessions, GamitConfig):
@@ -502,22 +512,22 @@ def generate_kml(dates, sessions, GamitConfig):
     kml.savekmz('production/' + GamitConfig.NetworkConfig.network_id.lower() + '.kmz')
 
 
-def ParseZTD(project, dates, Sessions, GamitConfig, JobServer):
+def exec_parse_ztd(project, dates, Sessions, GamitConfig, JobServer):
 
     tqdm.write(' >> %s Parsing the tropospheric zenith delays...' % print_datetime())
 
-    modules = ('numpy', 'os', 're', 'datetime', 'traceback', 'pgamit.dbConnection', 'pgamit.pyZTD')
+    modules = ('numpy', 'os', 're', 'datetime', 'traceback', 'geode.dbConnection', 'geode.gamit.ztd')
 
     pbar = tqdm(total=len(dates), disable=None, desc=' >> Zenith total delay parsing', ncols=100)
 
-    JobServer.create_cluster(run_parse_ztd, (pyParseZTD.ParseZtdTask, pyGamitSession.GamitSession),
+    JobServer.create_cluster(run_parse_ztd, (parse_ztd.ParseZtdTask, gamit_session.GamitSession),
                              job_callback, pbar, modules=modules)
 
     # parse and insert one day at the time, otherwise, the process becomes too slow for long runs
     for date in dates:
         # get all the session of this day
         sessions = [s for s in Sessions if s.date == date]
-        task = pyParseZTD.ParseZtdTask(GamitConfig, project, sessions, date)
+        task = parse_ztd.ParseZtdTask(GamitConfig, project, sessions, date)
         JobServer.submit(task)
 
     JobServer.wait()
@@ -525,19 +535,19 @@ def ParseZTD(project, dates, Sessions, GamitConfig, JobServer):
     JobServer.close_cluster()
 
 
-def ExecuteGlobk(cnn, JobServer, GamitConfig, sessions, dates):
+def execute_globk(cnn, JobServer, GamitConfig, sessions, dates):
 
     project = GamitConfig.NetworkConfig.network_id.lower()
 
     tqdm.write(' >> %s Combining with GLOBK sessions with more than one subnetwork...'
                % print_datetime())
 
-    modules = ('os', 'shutil', 'pgamit.snxParse', 'subprocess', 'platform', 'traceback', 'glob',
-               'pgamit.dbConnection', 'math', 'datetime', 'pgamit.pyDate', 'pgamit.pyGlobkTask')
+    modules = ('os', 'shutil', 'geode.snxParse', 'subprocess', 'platform', 'traceback', 'glob',
+               'geode.dbConnection', 'math', 'datetime', 'geode.pyDate', 'geode.gamit.globk_task')
 
     pbar = tqdm(total=len(dates), disable=None, desc=' >> GLOBK combinations completion', ncols=100)
 
-    JobServer.create_cluster(run_globk, (pyGlobkTask.Globk, pyGamitSession.GamitSession),
+    JobServer.create_cluster(run_globk, (globk_task.Globk, gamit_session.GamitSession),
                              job_callback, progress_bar=pbar, modules=modules)
 
     net_type = GamitConfig.NetworkConfig.type
@@ -580,7 +590,7 @@ def ExecuteGlobk(cnn, JobServer, GamitConfig, sessions, dates):
             # folder where the combination (or final solution if single network) should be written to
             pwd_comb = os.path.join(pwd, project + '/glbf')
             # globk combination object
-            globk = pyGlobkTask.Globk(pwd_comb, date, GlobkComb, net_type)
+            globk = globk_task.Globk(pwd_comb, date, GlobkComb, net_type)
             JobServer.submit(globk, project, date)
 
     JobServer.wait()
@@ -714,11 +724,11 @@ def run_parse_ztd(parse_task):
     return parse_task.execute()
 
 
-def ExecuteGamit(cnn, JobServer, GamitConfig, stations, check_stations, ignore_missing, dates,
-                 dry_run=False, create_kml=False):
+def execute_gamit(cnn, JobServer, GamitConfig, stations, check_stations, ignore_missing,
+                  dates: List[pyDate.Date], dry_run=False, create_kml=False):
 
-    modules = ('pgamit.pyRinex', 'datetime', 'os', 'shutil', 'pgamit.pyProducts', 'subprocess', 're', 'pgamit.pyETM',
-               'glob', 'platform', 'traceback', 'pgamit.pyGamitTask', 'zipfile')
+    modules = ('geode.pyRinex', 'datetime', 'os', 'shutil', 'geode.pyProducts', 'subprocess', 're', 'geode.pyETM',
+               'glob', 'platform', 'traceback', 'geode.gamit.gamit_task', 'zipfile')
 
     tqdm.write(' >> %s Creating GAMIT session instances and executing GAMIT, please wait...' % print_datetime())
 
@@ -747,7 +757,7 @@ def ExecuteGamit(cnn, JobServer, GamitConfig, stations, check_stations, ignore_m
 
     pbar = tqdm(total=len(sessions), disable=None, desc=' >> GAMIT sessions completion', ncols=100)
     # create the cluster for the run
-    JobServer.create_cluster(run_gamit_session, (pyGamitTask.GamitTask,), gamit_callback, pbar, modules=modules)
+    JobServer.create_cluster(run_gamit_session, (gamit_task.GamitTask,), gamit_callback, pbar, modules=modules)
 
     for GamitSession in sessions:
         if not GamitSession.ready:
@@ -755,7 +765,7 @@ def ExecuteGamit(cnn, JobServer, GamitConfig, stations, check_stations, ignore_m
             # tqdm.write(' >> %s Init' % (datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
             GamitSession.initialize()
             # tqdm.write(' >> %s Done Init' % (datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
-            task = pyGamitTask.GamitTask(GamitSession.remote_pwd, GamitSession.params, GamitSession.solution_pwd)
+            task = gamit_task.GamitTask(GamitSession.remote_pwd, GamitSession.params, GamitSession.solution_pwd)
             # tqdm.write(' >> %s Done task' % (datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
             JobServer.submit(task, task.params['DirName'], task.date.year, task.date.doy, dry_run)
 

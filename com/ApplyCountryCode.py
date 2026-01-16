@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 """
-Project: Parallel.GAMIT
+Project: Geodesy Database Engine (GeoDE)
 Date: 11/20/2023
 Author: Demian D. Gomez
 
 This script assigns country codes to the stations table
 """
-from pgamit import dbConnection
+from geode import dbConnection
 import country_converter as coco
 
 from geopy.geocoders import Nominatim
@@ -14,7 +14,7 @@ from geopy.extra.rate_limiter import RateLimiter
 
 
 def main():
-    geolocator = Nominatim(user_agent="Parallel.GAMIT")
+    geolocator = Nominatim(user_agent="GeoDE")
 
     cnn = dbConnection.Cnn('gnss_data.cfg')
 
