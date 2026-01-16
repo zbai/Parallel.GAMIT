@@ -1,3 +1,6 @@
+
+![GeoDE log](logos/Highres-GeoDe-Logo-final-03-Black.png)
+
 # GeoDE (Geodesy Database Engine)
 
 A comprehensive Python framework for automated GNSS data processing, analysis, and management. GeoDE integrates multiple geodetic software packages (GAMIT/GLOBK, GPSPACE, and soon M-PAGES) with PostgreSQL database management and web-based visualization tools.
