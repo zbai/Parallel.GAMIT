@@ -1,5 +1,5 @@
 
-![GeoDE log](logos/Highres-GeoDe-Logo-final-03-Black.png)
+![GeoDE log](logos/Highres-GeoDe-Logo-final-05-Black.png)
 
 # GeoDE (Geodesy Database Engine)
 
@@ -131,7 +131,7 @@ See [WebInterface.md](WebInterface.md) for detailed interface documentation.
 
 ## Documentation
 
-- [Installation Guide](Installation.md) - Detailed setup instructions
+- [Installation Guide](INSTALL.md) - Detailed setup instructions
 - [Web Interface Guide](WebInterface.md) - Complete UI documentation
 - [CLI Reference](CLIinterface.md) - Command-line tool usage
 
