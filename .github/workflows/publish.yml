@@ -30,7 +30,7 @@ jobs:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags')
     name: Publish Python 🐍 distribution 📦 to PyPI
     needs:
-      - publish-to-testpypi
+      - build
     runs-on: ubuntu-latest
     
     environment:
