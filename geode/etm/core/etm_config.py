@@ -215,8 +215,10 @@ class EtmConfig:
         self.metadata.auto_x = np.array([float(stn[0]['auto_x'])])
         self.metadata.auto_y = np.array([float(stn[0]['auto_y'])])
         self.metadata.auto_z = np.array([float(stn[0]['auto_z'])])
-        self.metadata.first_obs = Date(fyear=stn[0]['DateStart'])
-        self.metadata.last_obs = Date(fyear=stn[0]['DateEnd'])
+        if stn[0]['DateStart'] is not None:
+            self.metadata.first_obs = Date(fyear=stn[0]['DateStart'])
+        if stn[0]['DateEnd'] is not None:
+            self.metadata.last_obs = Date(fyear=stn[0]['DateEnd'])
         self.metadata.max_dist = 20.0 if not stn[0]['max_dist'] else stn[0]['max_dist']
 
         # as part of the metadata, load the station info
@@ -312,12 +314,15 @@ class EtmConfig:
             else:
                 self.modeling.user_jumps = []
 
+            if isinstance(self.modeling.post_seismic_back_lim, Date):
+                sdate = self.modeling.post_seismic_back_lim
+            else:
+                sdate = self.metadata.first_obs - self.modeling.post_seismic_back_lim
             # now earthquakes
             # no information yet of data dates, load everything that is possible
             score = ScoreTable(cnn, self.network_code, self.station_code,
                                self.metadata.lat[0], self.metadata.lon[0],
-                               self.metadata.first_obs - self.modeling.post_seismic_back_lim,
-                               self.metadata.last_obs,
+                               sdate, self.metadata.last_obs,
                                magnitude_limit=self.modeling.earthquake_magnitude_limit,
                                force_events=self.modeling.earthquakes_cherry_picked)
 

@@ -16,6 +16,7 @@ from ..core.type_declarations import JumpType
 from ..etm_functions.jumps import JumpFunction
 from ..etm_functions.auto_jumps import AutoJumps
 from ..data.solution_data import SolutionData
+from ...pyDate import Date
 
 
 class JumpManager:
@@ -71,8 +72,12 @@ class JumpManager:
         """Load earthquake-based user_jumps from catalog"""
 
         for eq in self.config.modeling.earthquake_jumps:
-            if (self.date_min <= eq.date <= self.date_max or (
-                    self.date_min - self.config.modeling.post_seismic_back_lim  <= eq.date <= self.date_max
+            if isinstance(self.config.modeling.post_seismic_back_lim, Date):
+                sdate = self.config.modeling.post_seismic_back_lim
+            else:
+                sdate = self.date_min - self.config.modeling.post_seismic_back_lim
+
+            if (self.date_min <= eq.date <= self.date_max or (sdate <= eq.date <= self.date_max
                     and eq.magnitude >= 7)):
 
                 jump = JumpFunction(
@@ -167,18 +172,26 @@ class JumpManager:
         """Get list of user_jumps that are fitted"""
         return [jump for jump in self.jumps if jump.fit]
 
+    def get_active_mechanical_jumps(self) -> List[JumpFunction]:
+        """Get list of user_jumps that are fitted"""
+        return [jump for jump in self.jumps if jump.fit and jump.p.jump_type < JumpType.COSEISMIC_JUMP_DECAY]
+
     def get_jump_functions(self) -> List[JumpFunction]:
         return [jump for jump in self.jumps]
 
-    def get_geophysical_jump(self, id_or_jump: Union[JumpFunction, str]):
+    def get_geophysical_jump(
+            self, id_or_jump: Union[JumpFunction, str]) -> Union[JumpFunction, None]:
         if isinstance(id_or_jump, JumpFunction):
             event_id = id_or_jump.earthquake.id
         else:
             event_id = id_or_jump
 
-        return [jump for jump in self.jumps if jump.is_geophysical()
-                and jump.earthquake is not None
-                and jump.earthquake.id == event_id]
+        for jump in self.jumps:
+            if (jump.is_geophysical() and jump.earthquake is not None
+                    and jump.earthquake.id == event_id):
+                return jump
+
+        return None
 
     def get_parameter_count(self) -> int:
         """Get total parameter count for active user_jumps"""

@@ -67,6 +67,12 @@ class JumpFunction(EtmFunction):
 
         # Parameter counting and design matrix setup
         self._setup_parameter_count()
+        # fill the parameter and sigma vectors with nans. This helps the creation of
+        # empty objects for constraints
+        for j in range(3):
+            self.p.params[j] = np.array([np.nan] * self.param_count)
+            self.p.sigmas[j] = np.array([np.nan] * self.param_count)
+
         self.design = self._create_design_matrix(time_vector) if self.fit else np.array([])
 
         # Validation and final setup
@@ -215,7 +221,7 @@ class JumpFunction(EtmFunction):
         for relax in relaxation:
             idx = np.where(np.isin(self.p.relaxation, relax))[0].tolist()
 
-            if len(idx):
+            if len(idx) and self.fit:
                 if return_col_of_design_matrix:
                     if self.p.jump_type == JumpType.COSEISMIC_JUMP_DECAY:
                         out_cols.append(self.column_index[idx[0] + 1])
@@ -228,6 +234,22 @@ class JumpFunction(EtmFunction):
                         out_cols.append(idx[0])
 
         return out_cols
+
+    def get_jump_col(self, return_col_of_design_matrix: bool = True) -> List:
+        """
+        method to retrieve the column of the jump
+        if return_col_of_design_matrix then the returned index if that of the ETM design matrix
+        if not return_col_of_design_matrix then the index is 0 (first element always)
+        """
+        if self.p.jump_type < JumpType.POSTSEISMIC_ONLY and self.fit:
+            if return_col_of_design_matrix:
+                out_col = self.column_index[0]
+            else:
+                out_col = 0
+        else:
+            out_col = None
+
+        return out_col
 
     def get_design_ts(self, ts: np.ndarray) -> np.ndarray:
         """Generate design matrix for given time series"""
@@ -326,12 +348,14 @@ class JumpFunction(EtmFunction):
         issues = super().validate_parameters()
 
         if self.fit and len(self.p.params) > 0:
-            # Check for unrealistic relaxation amplitudes
-            if self.p.jump_type in (JumpType.COSEISMIC_JUMP_DECAY, JumpType.POSTSEISMIC_ONLY):
-                max_amplitude = np.max(np.abs(np.array(self.p.params)[:, -self.p.relaxation.size:]))
-                if max_amplitude > self.config.validation.max_relaxation_amplitude:
-                    issues.append((self, f"Unrealistic amplitude {max_amplitude:.3f} m: "
-                                         f"{self.p.jump_type.description} {self.date.yyyyddd()}"))
+            # Check for unrealistic relaxation amplitudes but only when check_jump_collisions = True
+            # otherwise leave ETM as is (this is needed when stacking ETMs)
+            if self.config.modeling.check_jump_collisions:
+                if self.p.jump_type in (JumpType.COSEISMIC_JUMP_DECAY, JumpType.POSTSEISMIC_ONLY):
+                    max_amplitude = np.max(np.abs(np.array(self.p.params)[:, -self.p.relaxation.size:]))
+                    if max_amplitude > self.config.validation.max_relaxation_amplitude:
+                        issues.append((self, f"Unrealistic amplitude {max_amplitude:.3f} m: "
+                                             f"{self.p.jump_type.description} {self.date.yyyyddd()}"))
 
         # Check relaxation values are positive
         if len(self.p.relaxation) > 0:
@@ -350,10 +374,9 @@ class JumpFunction(EtmFunction):
         # validate the design matrix
         if (cond_num >= self.config.validation.max_condition_number
                 and self.p.jump_type in (JumpType.COSEISMIC_JUMP_DECAY, JumpType.POSTSEISMIC_ONLY)
-                and self.p.relaxation.size > 1 and  self.fit):
+                and self.fit):
             issues.append((self, f"Condition number too large for jump "
-                                 f"{self.p.jump_type.description} {self.date.yyyyddd()} ({cond_num:.2f}), "
-                                 f"removing smallest relaxation time"))
+                                 f"{self.p.jump_type.description} {self.date.yyyyddd()} ({cond_num:.2f})"))
         return issues
 
     def eval(self, component: int,
@@ -362,8 +385,9 @@ class JumpFunction(EtmFunction):
              remove_postseismic = False):
         """Implementation only removed jumps, not decay"""
 
-        if ((self.p.jump_type == JumpType.POSTSEISMIC_ONLY and not remove_postseismic)
-                or np.all(self.p.params[component])):
+        if (self.p.jump_type == JumpType.POSTSEISMIC_ONLY and not remove_postseismic or
+                np.all(np.isnan(self.p.params[component])) or
+                (self.design.size == 0 and override_time_vector is None)):
             return 0
 
         if override_time_vector is not None:

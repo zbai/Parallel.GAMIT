@@ -13,9 +13,7 @@ import json
 from datetime import datetime
 from zlib import crc32 as zlib_crc32
 from pathlib import Path
-from typing import Union
-import geopandas as gpd
-from shapely.geometry import Point
+from typing import Union, List, Dict
 
 # deps
 import numpy
@@ -27,6 +25,7 @@ import country_converter as coco
 # app
 from . import pyRinexName
 from . import pyDate
+from .station_selector import StationSelector, StationFilter
 
 
 class UtilsException(Exception):
@@ -152,22 +151,109 @@ def required_length(nmin, nmax):
 
 
 def station_list_help():
+    """
+    Generate comprehensive help text for station list specification with geographic filters.
+    """
+    desc = (
+        "List of networks/stations to process with support for geographic and type-based filtering.\n\n"
 
-    desc = ("List of networks/stations to process given in [net].[stnm] format or just [stnm] "
-            "(separated by spaces; if [stnm] is not unique in the database, all stations with that "
-            "name will be processed). Use keyword 'all' to process all stations in the database. "
-            "If [net].all is given, all stations from network [net] will be processed. Three letter ISO 3166 "
-            "international standard codes can be provided (always in upper case) to select all stations within a "
-            "country. If a station name is given using a * in front (e.g. *igs.pwro or *pwro) then the station will be "
-            "removed from the list. If *net.all or ISO country code was used (e.g. *igs.all or *ARG), then remove the "
-            "stations within this group. Wildcards are accepted using the regex "
-            "postgres convention. Use [] to provide character ranges (e.g. ars.at1[3-5] or ars.[a-b]x01). Char %% "
-            "matches any string (e.g. ars.at%%). Char | represents "
-            "the OR operator that can be used to select one string or another (e.g. ars.at1[1|2] to choose at11 and "
-            "at12). To specify a wildcard using a single character, use _ (equivalent to ? in POSIX regular "
-            "expressions). Alternatively, a file with the station list can be provided (using all the same "
-            "conventions described above). When using a file, * can be replaced with - for clarity "
-            "in removing stations from .all lists")
+        "BASIC FORMATS:\n"
+        "  [net].[stnm]    - Specific station (e.g., arg.igm1, igs.pwro)\n"
+        "  [stnm]          - Station name only (all stations with this name)\n"
+        "  all             - All stations in the database\n"
+        "  [net].all       - All stations from network [net]\n"
+        "  [COUNTRY]       - All stations in country (ISO 3166 code, uppercase, e.g., ARG, CHL, USA)\n\n"
+
+        "WILDCARDS (PostgreSQL regex):\n"
+        "  [a-z]           - Character ranges: ars.at1[3-5] matches at13, at14, at15\n"
+        "  %%              - Any string: ars.at%% matches at01, at02, ..., at99, etc.\n"
+        "  _               - Single character: ar_.ig_1 matches ara.igm1, arb.ign1, etc.\n"
+        "  |               - OR operator: ars.at1[1|2] matches at11 and at12\n"
+        "  Examples: arg.igm%% (all ARG IGMx stations), igs.pw%% (all IGS PWxx stations)\n\n"
+
+        "STATION TYPE FILTERS:\n"
+        "  [COUNTRY]:TYPE  - Filter by station type (requires GeoDE Studio tables)\n"
+        "  Examples:\n"
+        "    ARG:CONTINUOUS       - Continuous stations in Argentina\n"
+        "    CHL:CAMPAIGN         - Campaign stations in Chile\n"
+        "    USA:CORS             - CORS stations in USA\n"
+        "    all:CONTINUOUS       - All CONTINUOUS stations\n\n"
+
+        "GEOGRAPHIC FILTERS:\n"
+        "  LAT[min,max]         - Latitude range (decimal degrees)\n"
+        "  LON[min,max]         - Longitude range (decimal degrees)\n"
+        "  BBOX[lat1,lat2,lon1,lon2] - Bounding box (shorthand for LAT+LON)\n"
+        "  RADIUS[lat,lon,km]   - Circular region (center + radius in km)\n"
+        "  PLATE[plate]         - Tectonic plate (two letter code)\n"
+        "  Examples:\n"
+        "    ARG:LAT[-35,-40]              - Argentina, latitudes -35° to -40°\n"
+        "    CHL:LON[-72,-70]              - Chile, longitudes -72° to -70°\n"
+        "    ARG:BBOX[-30,-40,-70,-60]     - Bounding box in Argentina\n"
+        "    ARG:PLATE[SC]                 - Argentina station in the Scotia plate\n"
+        "    ARG:RADIUS[-35.5,-65.2,500]   - 500 km radius around point\n\n"
+
+        "COMBINED FILTERS:\n"
+        "  Filters can be combined using colon separators:\n"
+        "    ARG:CONTINUOUS:LAT[-30,-40]            - Continuous stations in latitude range\n"
+        "    CHL:CONTINUOUS:BBOX[-32,-38,-72,-68]   - Continuous stations in bounding box\n"
+        "    CHL:CONTINUOUS:PLATE[SA]               - Continuous stations in South America\n"
+        "    ARG:CAMPAIGN:RADIUS[-35,-65,300]       - Campaign stations within 300 km\n\n"
+
+        "REMOVING STATIONS:\n"
+        "  -[spec] or *[spec]  - Remove stations matching specification (use * in command line)\n"
+        "  Examples:\n"
+        "    -igs.pwro         - Remove specific station\n"
+        "    *pwro             - Remove all stations named pwro\n"
+        "    -igs.all          - Remove all IGS network stations\n"
+        "    *ARG              - Remove all Argentine stations\n"
+        "    *CHL:LAT[-40,-45] - Remove Chilean stations in latitude range\n\n"
+
+        "PARAMETERS (only works for station files):\n"
+        "  [spec] [value]      - Add space-separated parameters (e.g., for weights)\n"
+        "  Examples:\n"
+        "    igm1.arg 1.00     - Station with parameter 1.00\n"
+        "    arg.lpgs 1.20     - Station with parameter 1.20\n\n"
+
+        "FILE INPUT:\n"
+        "  Alternatively, provide a file path containing station specifications (one per line).\n"
+        "  Files support all the same formats and conventions as command-line input.\n"
+        "  When using files, '-' can replace '*' for removal (e.g., -igs.pwro)\n\n"
+
+        "MORE USAGE EXAMPLES:\n"
+        "  Basic selection:\n"
+        "    arg.igm1                             # A specific station\n"
+        "    ARG                                  # All stations in Argentina\n"
+        "    igs.all                              # All IGS network stations\n\n"
+
+        "  With wildcards:\n"
+        "    arg.igm%%                             # All stations named IGMx\n"
+        "    ars.at1[3-7]                         # Stations at13 through at17\n\n"
+
+        "  With type filters:\n"
+        "    ARG:CONTINUOUS CHL:CONTINUOUS        # Continuous stations in two countries\n\n"
+
+        "  With geographic filters:\n"
+        "    ARG:LAT[-32,-38] CHL:LAT[-32,-38]    # Latitude band across countries\n"
+        "    ARG:RADIUS[-35,-65,500]              # Circular study area\n\n"
+
+        "  Complex combinations:\n"
+        "    ARG:CONTINUOUS:BBOX[-30,-40,-70,-60] CHL:CONTINUOUS:BBOX[-30,-40,-70,-60]\n"
+        "    # Continuous stations in bounding box spanning two countries\n\n"
+
+        "  With removals:\n"
+        "    ARG -arg.igm1                        # All Argentina except one station\n"
+        "    igs.all *igs.pw%%                     # All IGS except PW stations\n"
+        "    ARG:CONTINUOUS *ARG:LAT[-40,-55]     # Continuous except southern region\n\n"
+
+        "NOTES:\n"
+        "  - Country codes must be uppercase (ARG, not arg)\n"
+        "  - Station type filters require GeoDE Studio tables (api_stationtype, api_stationmeta)\n"
+        "  - Stations with no assigned type are not considered\n"
+        "  - Coordinates are in decimal degrees (latitude: -90 to 90, longitude: -180 to 180)\n"
+        "  - RADIUS uses great-circle distance (Haversine formula)\n"
+        "  - Filters are processed left to right; removals applied after additions\n"
+        "  - Duplicate stations are automatically removed from final list"
+    )
 
     return desc
 
@@ -596,133 +682,124 @@ def get_country_code(lat, lon):
     return  ISO3
 
 
+def remove_stations(station_list: List[Dict], removal_filters: List[StationFilter],
+                    selector: StationSelector) -> List[Dict]:
+    """Remove stations from the list based on removal filters."""
+    stations_to_remove = set()
+
+    for f in removal_filters:
+        if f.filter_str == 'all':
+            # Remove all (unusual but supported)
+            return []
+
+        # Get stations matching the removal filter
+        stations = selector.select_stations(f)
+        stations_to_remove.update(stationID(s) for s in stations)
+
+        # Also handle station-code-only removals (no network specified)
+        if f.station and not f.network and not f.country_code:
+            # Remove by station code across all networks
+            stations_to_remove.update(
+                stationID(s) for s in station_list
+                if s['StationCode'] == f.station
+            )
+
+    # Filter out removed stations
+    return [s for s in station_list if stationID(s) not in stations_to_remove]
+
+
 def process_stnlist(cnn, stnlist_in, print_summary=True, summary_title=None):
     """
-    Now the station list parser handles postgres regular expressions in the station list
-    everything behaves as before, but also now support * and - to remove a station from the list (rather than only -)
-    this is to support removal from the command line
-    DDG June 21 2024: Now the file read accepts additional parameters in the station lines that are passed back in the
-                      params key of the dictionary. This is to support, for example, passing velocities. Example:
-                      arg.igm1 1.00
-                      arg.lpgs 1.20
-                      ...
+    Process a station list with support for multiple filter types.
+
+    Station list parser handles postgres regular expressions and geographic filters.
+    Supports:
+    - Reading from file or command line
+    - Country codes with filters: ARG:CONTINUOUS:LAT(-30,-40):LON(-70,-60)
+    - Network.station notation with wildcards
+    - Station removals with - or * prefix
+    - Additional parameters (space-separated) for each station
+
+    Examples:
+        ARG                          # All stations in Argentina
+        ARG:CONTINUOUS               # Continuous stations in Argentina
+        ARG:LAT(-30,-40)             # Stations in Argentina between -30 and -40 lat
+        ARG:BBOX(-30,-40,-70,-60)    # Stations in bounding box
+        ARG:RADIUS(-35,-65,500)      # Stations within 500km of point
+        ARG:PLATE(SA)                # Stations a tectonic plate
+        igm1.arg                     # Specific station
+        igm1.arg 1.00                # Station with parameter (cannot be through command line)
+        -chl.sant                    # Remove station
+        *CHL                         # Remove all Chilean stations
+        ARG:CONTINUOUS:PLATE(SA)     # Combinations of filters
+
+    Args:
+        cnn: Database connection
+        stnlist_in: List of station filter strings or path to file
+        print_summary: Whether to print selected stations
+        summary_title: Optional custom title for summary
+
+    Returns:
+        List of station dictionaries with keys:
+            NetworkCode, StationCode, marker, country_code, parameters
     """
+    # Read from file if single argument is a file path
     if len(stnlist_in) == 1 and os.path.isfile(stnlist_in[0]):
-        print(' >> Station list read from file: ' + stnlist_in[0])
-        # DDG: if len(line.strip()) > 0 avoids any empty lines
-        stnlist_in = [line.strip() for line in file_readlines(stnlist_in[0]) if len(line.strip()) > 0]
+        print(f' >> Station list read from file: {stnlist_in[0]}')
+        with open(stnlist_in[0], 'r') as f:
+            stnlist_in = [line.strip() for line in f if line.strip()]
 
-    stnlist = []
-    # accepted wildcards for station names
-    wildc = '[]%_|'
+    # Initialize selector
+    selector = StationSelector(cnn)
 
-    for rstn in stnlist_in:
-        # to allow for more parameters in station list text files
-        sstn = rstn.split()
-        stn = sstn[0]
-        if len(sstn) > 1:
-            par = sstn[1:]
-        else:
-            par = []
+    # Parse all filters
+    filters = [StationFilter(s) for s in stnlist_in]
 
-        rs = None
-        if stn == 'all':
-            # keyword all for all stations in list
-            rs = cnn.query('SELECT * FROM stations WHERE "NetworkCode" NOT LIKE \'?%%\' '
-                           'ORDER BY "NetworkCode", "StationCode"')
+    # Separate additions and removals
+    addition_filters = [f for f in filters if not f.is_removal]
+    removal_filters = [f for f in filters if f.is_removal]
 
-        elif stn.isupper() and stn[0] not in ('-', '*'):
-            # country code
-            rs = cnn.query('SELECT * FROM stations WHERE "NetworkCode" NOT LIKE \'?%%\' AND country_code = \'%s\' '
-                           'ORDER BY "NetworkCode", "StationCode"' % stn)
+    # Collect all stations from addition filters
+    station_dict = {}  # Use dict to avoid duplicates: station_id -> station_info
 
-        elif '.' in stn and stn[0] not in ('-', '*'):
-            net, stnm = stn.split('.')
-            # a net.stnm given
-            if stnm == 'all':
-                # all stations from a network
-                rs = cnn.query('SELECT * FROM stations WHERE "NetworkCode" = \'%s\' AND '
-                               '"NetworkCode" NOT LIKE \'?%%\' ORDER BY "NetworkCode", "StationCode"' % net)
-            elif any(c in set(wildc) for c in stnm):
-                # DDG: wildcard
-                rs = cnn.query('SELECT * FROM stations WHERE "NetworkCode" = \'%s\' AND "StationCode" '
-                               ' SIMILAR TO \'%s\' AND '
-                               '"NetworkCode" NOT LIKE \'?%%\' ORDER BY "NetworkCode", "StationCode"'
-                               % (net, stnm))
-            else:
-                # just a net.stnm
-                rs = cnn.query(
-                    'SELECT * FROM stations WHERE "NetworkCode" NOT LIKE \'?%%\' AND "NetworkCode" = \'%s\' '
-                    'AND "StationCode" = \'%s\' ORDER BY "NetworkCode", "StationCode"' % (net, stnm))
+    for f in addition_filters:
+        stations = selector.select_stations(f)
+        for stn in stations:
+            stn_id = stationID(stn)
+            if stn_id not in station_dict:
+                station_dict[stn_id] = {
+                    'NetworkCode': stn['NetworkCode'],
+                    'StationCode': stn['StationCode'],
+                    'marker': stn.get('marker', 0) or 0,
+                    'country_code': stn.get('country_code', '') or '',
+                    'parameters': f.parameters  # Store parameters from this filter
+                }
 
-        elif '.' not in stn and stn[0] not in ('-', '*'):
-            # just a station name (check for wildcards)
-            if any(c in set(wildc) for c in stn):
-                # wildcard
-                rs = cnn.query(
-                    'SELECT * FROM stations WHERE "NetworkCode" NOT LIKE \'?%%\' AND '
-                    '"StationCode" SIMILAR TO \'%s\' ORDER BY "NetworkCode", "StationCode"' % stn)
-            else:
-                # just a station name
-                rs = cnn.query(
-                    'SELECT * FROM stations WHERE "NetworkCode" NOT LIKE \'?%%\' AND '
-                    '"StationCode" = \'%s\' ORDER BY "NetworkCode", "StationCode"' % stn)
+    # Convert to list
+    station_list = list(station_dict.values())
 
-        if rs is not None:
-            for rstn in rs.dictresult():
-                if {'NetworkCode': rstn['NetworkCode'], 'StationCode': rstn['StationCode']} not in stnlist:
-                    stnlist.append({'NetworkCode' : rstn['NetworkCode'],
-                                    'StationCode' : rstn['StationCode'],
-                                    'marker'      : rstn['marker'] if rstn['marker'] else 0,
-                                    'country_code': rstn['country_code'] if rstn['country_code'] else '',
-                                    'parameters'  : par})
+    # Apply removals
+    if removal_filters:
+        station_list = remove_stations(station_list, removal_filters, selector)
 
-    # deal with station removals (- or *)
-    for stn in [stn[1:] for stn in stnlist_in if stn[0] in ('-', '*')]:
-        # if netcode not given, remove everybody with that station code
-        if '.' in stn:
-            net, stnm = stn.split('.')
-            # a net.stnm given
-            if stnm == 'all':
-                # remove all stations in the provided network
-                rs = cnn.query('SELECT * FROM stations WHERE "NetworkCode" = \'%s\' AND '
-                               '"NetworkCode" NOT LIKE \'?%%\' ORDER BY "NetworkCode", "StationCode"' % net)
-                if rs is not None:
-                    for rstn in rs.dictresult():
-                        stnlist = [stnl for stnl in stnlist if stationID(stnl) != stationID(rstn)]
-            else:
-                stnlist = [stnl for stnl in stnlist if stationID(stnl) != stn]
+    # Sort by station code
+    station_list = sorted(station_list, key=lambda s: s['StationCode'])
 
-        elif stn.isupper():
-            # country code
-            rs = cnn.query('SELECT * FROM stations WHERE "NetworkCode" NOT LIKE \'?%%\' AND country_code = \'%s\' '
-                           'ORDER BY "NetworkCode", "StationCode"' % stn)
-            if rs is not None:
-                for rstn in rs.dictresult():
-                    stnlist = [stnl for stnl in stnlist if stationID(stnl) != stationID(rstn)]
-        else:
-            stnlist = [stnl for stnl in stnlist if stnl['StationCode'] != stn]
-
-    # sort the dictionary and remove duplicates
-    stnlist = sorted(stnlist, key=lambda i: i['StationCode'])
-
-    # create a unique set
-    stnlist_no_duplicates = []
-
-    for stn in stnlist:
-        if stationID(stn) not in [stationID(stn) for stn in stnlist_no_duplicates]:
-            stnlist_no_duplicates.append(stn)
-
-    stnlist = stnlist_no_duplicates
-
+    # Print summary if requested
     if print_summary:
         if summary_title is None:
             print(' >> Selected station list:')
         else:
-            print(' >> ' + summary_title)
-        print_columns([stationID(item) for item in stnlist])
+            print(f' >> {summary_title}')
 
-    return stnlist
+        # Assuming print_columns is defined elsewhere
+        try:
+            print_columns([stationID(s) for s in station_list])
+        except NameError:
+            # Fallback if print_columns not available
+            print(', '.join([stationID(s) for s in station_list]))
+
+    return station_list
 
 
 def get_norm_year_str(year):
@@ -1166,10 +1243,14 @@ def print_yellow(skk):
         return skk
 
 
-def azimuthal_equidistant(c_lon: np.ndarray, c_lat: np.ndarray, grid_lon: np.ndarray, grid_lat: np.ndarray):
+def azimuthal_equidistant(c_lon: np.ndarray, c_lat: np.ndarray,
+                          grid_lon: np.ndarray, grid_lat: np.ndarray):
     # azimuthal equidistant
     cosd = lambda x: np.cos(np.deg2rad(x))
     sind = lambda x: np.sin(np.deg2rad(x))
+
+    if c_lon.size > 1 or c_lat.size > 1:
+        raise IndexError('Invalid dimension for projection center point')
 
     c = np.arccos(sind(c_lat) * sind(grid_lat) +
                   cosd(c_lat) * cosd(grid_lat) * cosd(grid_lon - c_lon))
@@ -1181,13 +1262,13 @@ def azimuthal_equidistant(c_lon: np.ndarray, c_lat: np.ndarray, grid_lon: np.nda
                             c / np.sin(c))
     k = scale_factor * 6371.0
 
-    x = -k * cosd(grid_lat) * sind(grid_lon - c_lon)
-    y = -k * (cosd(c_lat) * sind(grid_lat) -
-              sind(c_lat) * cosd(grid_lat) * cosd(grid_lon - c_lon))
+    x = k * cosd(grid_lat) * sind(grid_lon - c_lon)
+    y = k * (cosd(c_lat) * sind(grid_lat) -
+             sind(c_lat) * cosd(grid_lat) * cosd(grid_lon - c_lon))
 
     return x, y
 
-def inverse_azimuthal(x, y, lon, lat):
+def inverse_azimuthal(c_lon, c_lat, x, y):
     # inverse azimuthal equidistant
     cosd = lambda x: np.cos(np.deg2rad(x))
     sind = lambda x: np.sin(np.deg2rad(x))
@@ -1197,38 +1278,9 @@ def inverse_azimuthal(x, y, lon, lat):
     r = np.sqrt(np.square(x) + np.square(y)).flatten()
     c = r / 6371.
 
-    i_lat = asind(np.cos(c) * sind(lat) + y.flatten() * np.sin(c) * cosd(lat) / r)
-    i_lon = lon + atand((x.flatten() * np.sin(c)) / (r * cosd(lat) * np.cos(c) - y.flatten() * sind(lat) * np.sin(c)))
+    i_lat = asind(np.cos(c) * sind(c_lat) + y.flatten() * np.sin(c) * cosd(c_lat) / r)
+    i_lon = c_lon + atand((x.flatten() * np.sin(c)) /
+                          (r * cosd(c_lat) * np.cos(c) - y.flatten() * sind(c_lat) * np.sin(c)))
 
     return i_lon, i_lat
 
-
-def get_tectonic_plate(longitude, latitude):
-    """
-    Determine which tectonic plate a point is on.
-
-    Parameters:
-    -----------
-    longitude : float
-        Longitude in decimal degrees
-    latitude : float
-        Latitude in decimal degrees
-    Returns:
-    --------
-    str or None : Name and code of the tectonic plate or None if not found
-    """
-    from importlib.resources import files
-    data_path = files('geode.elasticity.data').joinpath('PB2002_plates.json')
-
-    filename = str(data_path)
-
-    plates = gpd.read_file(filename)
-
-    point = Point(longitude, latitude)  # Note: Point takes (lon, lat)
-
-    # Check which plate contains the point
-    for idx, plate in plates.iterrows():
-        if plate.geometry.contains(point):
-            return plate['Code'], plate['PlateName']  # or use 'Code' for plate code
-
-    return None

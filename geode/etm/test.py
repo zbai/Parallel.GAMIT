@@ -69,13 +69,13 @@ def get_prefit_models(config, args):
 #stn = pyStationInfo.StationInfo(cnn=None, NetworkCode='arg', StationCode='igm1')
 #hh = stn.parse_station_info('/home/demian/pg_osu/steps.ngl')
 
-#config = EtmConfig(json_file='/home/demian/pg_osu/arg.igm1_igs14.json')
-#etm = EtmEngine(config)
-#etm.run_adjustment(try_loading_db=False, try_save_to_db=False)
-#config.plotting_config.filename = '/home/demian/pg_osu/'
-#etm.plot()
+config = EtmConfig(json_file='/home/demian/pg_osu/vel-ar_double/arg.3aro_ppp.json')
+etm = EtmEngine(config)
+etm.run_adjustment(try_loading_db=False, try_save_to_db=False)
+config.plotting_config.filename = '/home/demian/pg_osu/'
+etm.plot()
 
-config = EtmConfig('ars', 'cbca', cnn=cnn)
+config = EtmConfig('arg', '3aro', cnn=cnn)
 config.solution.solution_type = SolutionType.PPP
 # config.solution.stack_name = 'igs14'
 

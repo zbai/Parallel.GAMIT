@@ -103,3 +103,4 @@ class PlotOutputConfig(BaseDataClass):
 
     # Missing data
     missing_solutions: Optional[List] = None
+    interactive: bool = False

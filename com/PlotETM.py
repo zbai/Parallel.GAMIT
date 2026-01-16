@@ -11,7 +11,6 @@ Type python pyPlotETM.py -h for usage help
 import argparse
 import os
 import logging
-import json
 from dataclasses import asdict
 from datetime import datetime
 
@@ -20,6 +19,7 @@ import numpy as np
 import xml.etree.ElementTree as ET
 import zipfile
 from io import BytesIO
+import matplotlib
 
 # app
 from geode import dbConnection
@@ -384,10 +384,11 @@ def get_constraints(config, args):
 
 def main():
     parser = argparse.ArgumentParser(description='Plot extended trajectory models (ETMs) '
-                                                 'for station data stored in the database, json files, or text files')
+                                                 'for station data stored in the database, json files, or text files',
+                                     formatter_class=argparse.RawTextHelpFormatter)
 
     parser.add_argument('stnlist', type=str, nargs='+',
-                        help=station_list_help() + '. Alternatively, read station list from '
+                        help=station_list_help() + '\n\nAlternatively, read station list from '
                                                    'kmz/kml file to obtain network codes and stations names')
 
     parser.add_argument('-sol', '--solution', type=str, metavar='{stack|ppp}', default='ppp',
@@ -435,6 +436,10 @@ def main():
 
     parser.add_argument('-s_score', '--s_score_mag_limit', type=float, default=6.0, metavar='magnitude',
                         help="Limit the s-score search to earthquakes with magnitude >= {magnitude}. Default is 6.0")
+
+    parser.add_argument('-post_back', '--post_seismic_back', type=str, default=10, metavar='years|date',
+                        help="How many years (or date) since the start of the time series should the ETM fit postseismic "
+                             "transients. Default is 10 years")
 
     parser.add_argument('-force', '--force_earthquakes', nargs='+', default=[], metavar='event_id',
                         help="Add cherry-picked seismic earthquake (that fall outside of s_score_mag_limit) to the "
@@ -533,8 +538,8 @@ def main():
                         help="Fit unmodeled but automatically detected jumps. "
                              "Choose between two algorithms: angry (used and provided by JPL) and dbscan")
 
-    parser.add_argument('-q', '--query', nargs='+',
-                        metavar='{type} [vel] [per] {date} ... {date} ', default=[],
+    parser.add_argument('-q', '--query', nargs='*',
+                        metavar='{type}', default=[],
                         help='Specify "model" or "solution" to get the '
                              'ETM value or the value of the daily solution (if exists). '
                              'Specify the date/dates of the desired output. Append "vel" and "per" after model or '
@@ -614,7 +619,11 @@ def main():
                 config.plotting_config.plot_remove_periodic = 'per' in args.remove
                 config.plotting_config.plot_remove_stochastic = 'stoch' in args.remove
 
-            config.plotting_config.filename = args.directory
+            if args.interactive:
+                matplotlib.use('TkAgg')
+                config.plotting_config.interactive = True
+            else:
+                config.plotting_config.filename = args.directory
 
             config.plotting_config.plot_show_outliers = 'out' in args.plot_options
             config.plotting_config.plot_residuals_mode = 'residuals' in args.plot_options
@@ -641,7 +650,12 @@ def main():
                 os.mkdir(args.directory)
 
             config.validation.max_condition_number = args.max_condition_number
-            config.modeling.post_seismic_back_lim = 10 * 365
+            if (isinstance(args.post_seismic_back, str) and
+                    any(char in args.post_seismic_back for char in ('_', '.', '/'))):
+                time_back = process_date_str(args.post_seismic_back)
+            else:
+                time_back = args.post_seismic_back * 365
+            config.modeling.post_seismic_back_lim = time_back
             # do not estimate s-score for events < s_score_mag_limit
             config.modeling.earthquake_magnitude_limit = args.s_score_mag_limit
             config.modeling.earthquakes_cherry_picked = args.force_earthquakes

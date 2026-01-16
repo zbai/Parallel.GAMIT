@@ -177,4 +177,5 @@ def plot_geographic_cluster_graph(centroids, cluster_ids, tie_labels, stnm, poin
     plt.grid(True)
     plt.axis('equal')  # Ensure equal scaling for longitude and latitude
     plt.tight_layout()
-    plt.show()
+    plt.savefig('map.png', dpi=150, bbox_inches='tight')
+    # plt.show()

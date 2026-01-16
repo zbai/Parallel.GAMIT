@@ -153,7 +153,7 @@ class PlotDataPreparer:
             ))
 
             # Add model values
-            if etm_results.design_matrix is not None:
+            if etm_results.config.modeling.status == FitStatus.POSTFIT:
                 model_values = (etm_results.design_matrix.alternate_time_vector(solution_data.time_vector_cont)
                                 @ etm_results.results[i].parameters) + etm_results.results[i].stochastic_signal
                 data[i].model_time_vector = solution_data.time_vector_cont

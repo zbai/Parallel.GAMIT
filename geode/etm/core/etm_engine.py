@@ -11,7 +11,7 @@ import os
 
 from importlib.metadata import version, PackageNotFoundError
 
-from .type_declarations import PeriodicStatus
+from .type_declarations import PeriodicStatus, JumpType
 
 try:
     VERSION = str(version("geode"))
@@ -191,6 +191,7 @@ class EtmEngine:
 
         # check how many solutions we have available. If less than
         # 100 (most likely campaign) disable metadata jumps
+        logger.info(f'Observation count is {self.solution_data.solutions}')
         if self.solution_data.solutions < 100:
             logger.info('Disabling metadata jumps because solution count < 100')
             self.config.modeling.fit_metadata_jumps = False
@@ -225,10 +226,10 @@ class EtmEngine:
         self.fit = EtmFit(self.config, self.design_matrix, self.solution_data.hash)
 
     def run_adjustment(self, try_loading_db=True, try_save_to_db=True,
-                       cnn: Optional[Cnn] = None) -> None:
+                       cnn: Optional[Cnn] = None, force_computation=False) -> None:
         """Run the iterative least squares adjustment"""
         if self.config.json_file is None:
-            if try_loading_db and cnn:
+            if try_loading_db and cnn and not force_computation:
                 # get mask for time vector: only needed for stochastic signal in load_parameters_db!
                 mask = self.config.modeling.get_observation_mask(self.solution_data.time_vector)
 
@@ -238,8 +239,11 @@ class EtmEngine:
             else:
                 success = False
         else:
-            # information in the json, see if required data is present
-            success = self.load_from_json(self.config.json_file)
+            if not force_computation:
+                # information in the json, see if required data is present
+                success = self.load_from_json(self.config.json_file)
+            else:
+                success = False
 
         if not success:
             run_time = self.fit.run_fit(self.solution_data, self.design_matrix)
@@ -251,12 +255,28 @@ class EtmEngine:
         """
         load ETM solution from json file
         """
+        logger.info('Loading etm from json file')
         data = load_json(json_)
 
         if 'raw_results' in data.keys():
             self.fit.results = []
             for i in range(3):
                 self.fit.results.append(AdjustmentResults(**data['raw_results'][i]))
+
+            # need to check if the design matrix that the etm built is compatible with the design matrix
+            # in the json file. If the json has a deactivated function, it will be in the design matrix
+            # but not in the json file
+            for f in [ff for ff in self.design_matrix.functions if ff.p.object == 'jump']:
+                found = False
+                for func in [ff for ff in data['functions'] if ff['object'] == 'jump']:
+                    if Date(**func['jump_date']) == f.p.jump_date:
+                        found = True
+                # if we did not find the jump in the json, deactivate it because it
+                # was deactivated before saving the file
+                if not found:
+                    f.fit = False
+                    # reassign the column indices
+                    self.design_matrix._assign_column_indices()
 
             self.fit.load_results_to_functions()
 

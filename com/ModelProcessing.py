@@ -12,6 +12,8 @@ import argparse
 import simplekml
 import numpy as np
 from tqdm import tqdm
+import matplotlib
+matplotlib.use('Qt5Agg')
 import matplotlib.pyplot as plt
 import json
 
@@ -83,8 +85,10 @@ def generate_kmz(OC, lla, stations, central_points, filename):
 
 def main():
 
-    parser = argparse.ArgumentParser(description='Script to estimate run times from clustering. Two algorithms are '
-                                                 'available: qmeans and deterministic.')
+    parser = argparse.ArgumentParser(
+        description='Script to estimate run times from clustering. Two algorithms are '
+                    'available: qmeans and deterministic.'
+    )
 
     parser.add_argument('stnlist', type=str, nargs='+', metavar='all|net.stnm',
                         help=station_list_help())
@@ -335,7 +339,7 @@ def main():
         axs[0].set_ylabel('Frequency')
         axs[0].set_title('Cluster size histogram', fontsize=14, fontweight='bold')
         plt.tight_layout()
-        plt.show()
+        plt.savefig('output_figure.png', dpi=150, bbox_inches='tight')
         # plot_global_network(central_points_ids, OC, np.arange(0, OC.shape[0] - 1, 1), points, './map.png')
 
 

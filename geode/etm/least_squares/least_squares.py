@@ -18,13 +18,17 @@ import logging
 logger = logging.getLogger(__name__)
 
 # app
-from ..least_squares.design_matrix import DesignMatrix
+from ..least_squares.design_matrix import DesignMatrix, DesignMatrixException
 from ..core.etm_config import EtmConfig
 from ..etm_functions.jumps import JumpFunction
 from ..core.type_declarations import JumpType, AdjustmentModels, NoiseModels, FitStatus, CovarianceFunction
 from ..core.data_classes import AdjustmentResults
 from ..data.solution_data import SolutionData
 from ..least_squares.ls_collocation import gaussian_func
+
+
+class AdjustmentStrategyException(Exception):
+    pass
 
 
 class WeightBuilder(ABC):
@@ -340,7 +344,11 @@ class RobustLeastSquares(AdjustmentStrategy):
         limit = self.config.modeling.least_squares_strategy.sigma_filter_limit
         iterations = self.config.modeling.least_squares_strategy.iterations
 
-        self.dof = (a.shape[0] - a.shape[1])
+        self.dof = (a.shape[0] - a.shape[1]) + design_matrix.total_constraints
+
+        if self.dof == 0:
+            raise AdjustmentStrategyException('Degrees of freedom == 0. Cannot fit model.')
+
         self.x1 = chi2.ppf(0.05 / 2, self.dof)
         self.x2 = chi2.ppf(1 - 0.05 / 2, self.dof)
 
@@ -359,9 +367,9 @@ class RobustLeastSquares(AdjustmentStrategy):
             v = results.residuals
             p = weights.matrix
             # unit variance
-            self.so = np.sqrt((v @ p @ v) / self.dof)
+            self.so = float(np.sqrt((v @ p @ v) / self.dof))
             # save in results
-            results.variance_factor = np.square(self.so)
+            results.variance_factor = float(np.square(self.so))
 
             x = np.power(self.so, 2) * self.dof
 
@@ -372,7 +380,7 @@ class RobustLeastSquares(AdjustmentStrategy):
             # calculate the normalized sigmas
             s = np.abs(np.divide(v, wrms))
 
-            logger.debug(f'RobustLeastSquares so: {self.so:.4f} it: {j:2d} pass: {self.x1 <= x <= self.x2}')
+            logger.debug(f'RobustLeastSquares sqrt(so): {self.so:.4f} it: {j:2d} pass: {self.x1 <= x <= self.x2}')
 
             # DDG: took this condition out of the chi2 if so that weights get
             # updated using the latest so value
@@ -397,14 +405,19 @@ class RobustLeastSquares(AdjustmentStrategy):
             if not results.converged:
                 logger.info(f'RobustLeastSquares did not converge! final wrms {wrms/1000:.1f} mm')
 
-            results.covariance_matrix = np.linalg.solve(a.T @ weights.matrix @ a, np.eye(a.shape[1])) * self.so
+            results.covariance_matrix = np.linalg.inv(a.T @ weights.matrix @ a) * (self.so ** 2)
         except np.linalg.LinAlgError as e:
             logger.info('np.linalg.inv failed to obtain covariance matrix: %s' % str(e))
-            results.covariance_matrix = np.ones((design_matrix.matrix.shape[0],
-                                                 design_matrix.matrix.shape[0]))
+            results.covariance_matrix = np.ones((design_matrix.matrix.shape[1],
+                                                 design_matrix.matrix.shape[1]))
 
         # extract the parameter sigmas
-        results.parameter_sigmas =  np.sqrt(np.diag(results.covariance_matrix))
+        if np.any(np.diag(results.covariance_matrix) <= 0):
+            logger.warning(f'Invalid covariance matrix: '
+                           f'design matrix condition number {design_matrix.condition_number:.1f}')
+            results.parameter_sigmas = np.ones(design_matrix.matrix.shape[1])
+        else:
+            results.parameter_sigmas =  np.sqrt(np.diag(results.covariance_matrix))
         # mark observations with sigma <= LIMIT
         results.outlier_flags = s <= limit
         results.obs_sigmas = np.sqrt(1 / np.diag(weights.matrix))
@@ -449,7 +462,10 @@ class LeastSquaresCollocation(AdjustmentStrategy):
         wrms = results.wrms
         ###################################################################################################
         # now use residuals to run lsc
-        self.dof = (a.shape[0] - a.shape[1])
+        self.dof = (a.shape[0] - a.shape[1]) + design_matrix.total_constraints
+
+        if self.dof == 0:
+            raise AdjustmentStrategyException('Degrees of freedom == 0. Cannot fit model.')
 
         # find the parameters
         results = self._least_squares(a, observations, results,
@@ -606,7 +622,7 @@ class EtmFit:
         self.design_matrix = design_matrix
         self.covar = np.array([])
         # validate design matrix now to catch any changes in jumps (before loading from the db)
-        self._validate_function_design_matrix()
+        # self._validate_function_design_matrix()
         # store solution hash to compare hash value in database save process
         self.hash = solution_data_hash
 
@@ -619,6 +635,12 @@ class EtmFit:
         if design_matrix:
             self.design_matrix = design_matrix
 
+        # between the initialization of EtmFit and run_adjustment (which calls run_fit) there can
+        # be deactivated jumps or changes in the design matrix that require the recomputation of the
+        # internal constraints (meant to stabilize the system of equations). Call _validate_function_design_matrix
+        # again to make sure that we have the right dimensions in internal_constraints
+        self._validate_function_design_matrix()
+
         # get mask for least squares collocation and prefit models
         mask = self.config.modeling.get_observation_mask(solution_data.time_vector)
 
@@ -627,13 +649,16 @@ class EtmFit:
 
         lsq = AdjustmentStrategy.create_instance(self.config)
 
-        if solution_data.solutions > 4 and not design_matrix.rank_deficient:
+        try:
             while True:
                 for i in range(3):
                     # select the noise model
                     noise = WeightBuilder.create_instance(noise_model, neu[i].shape[0])
 
                     n_neq_left, c_neq_right = design_matrix.get_constraints_normal_eq(i)
+
+                    # DDG: validate design matrix here!
+                    design_matrix.validate_matrix(n_neq_left)
 
                     self.results[i] = lsq.adjust(design_matrix=design_matrix,
                                                  observations=neu[i],
@@ -660,8 +685,9 @@ class EtmFit:
                             f.remove_from_fit()
 
             self.config.modeling.status = FitStatus.POSTFIT
-        else:
 
+        except (DesignMatrixException, AdjustmentStrategyException):
+            # system was rank deficient! cannot fit model
             self.results = [AdjustmentResults()] * 3
             self.config.modeling.status = FitStatus.UNABLE_TO_FIT
             self.outlier_flags = np.ones(solution_data.solutions).astype(bool)
@@ -698,14 +724,40 @@ class EtmFit:
 
     def _validate_function_design_matrix(self):
 
-        validation = self.design_matrix.validate_design()
+        check_again = False
 
-        for f, message in validation:
-            logger.info(message)
-            if message.startswith('Condition number too large'):
-                min_index = np.argmin(f.p.relaxation)
-                rlx = np.delete(f.p.relaxation, min_index)
-                f.configure_behavior({'relaxation': rlx})
+        for i in range(3):
+            check_again = False
+            validation = self.design_matrix.validate_design()
+            # initialize, this function can be called more than once
+            self.design_matrix.internal_constraints = []
+
+            for f, message in validation:
+                logger.info(message)
+                if message.startswith('Condition number too large') and isinstance(f, JumpFunction):
+                    # try to set an inner constraint for this jump
+                    if not self.config.modeling.check_jump_collisions:
+                        # no jump collision check, DO NOT MODIFY ETM
+                        # @todo: if user set max_cond number = 0 constraint jump also?
+                        logger.info('Adding internal constraint = 0 for stabilizing system')
+                        k = np.zeros((1, self.design_matrix.matrix.shape[1]))
+                        k[:, f.get_relaxation_cols()] = 1
+                        self.design_matrix.internal_constraints.append(k)
+                        # no need to check again, if it didn't work the first time it won't work the next one
+                    else:
+                        # jump collisions enabled: modify the etm if needed
+                        logger.info('Removing smallest relaxation')
+                        min_index = np.argmin(f.p.relaxation)
+                        rlx = np.delete(f.p.relaxation, min_index)
+                        f.configure_behavior({'relaxation': rlx})
+                        # activate the check again flag
+                        check_again = True
+            if not check_again:
+                break
+        # if we reach the max iteration level and still check again, create warning
+        if check_again:
+            logger.info('While checking the etm functions design matrices the max iteration '
+                        'level was reached and check_again flag is still true!')
 
     def get_var_factor_db_fields(self):
         """method to return the var_factor object for storing solution in database"""
@@ -715,9 +767,9 @@ class EtmFit:
             'object': 'var_factor',
             'soln': self.config.solution.solution_type.code,
             'stack': self.config.solution.stack_name,
-            'params': [result.parameters for result in self.results],
-            'sigmas': [[result.variance_factor for result in self.results],
-                       [result.wrms for result in self.results]],
+            'params': [result.parameters.tolist() for result in self.results],
+            'sigmas': [[float(result.variance_factor) for result in self.results],
+                       [float(result.wrms) for result in self.results]],
             'hash': self.hash
         }
 

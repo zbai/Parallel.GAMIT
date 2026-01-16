@@ -1,3 +1,10 @@
+import warnings
+# Suppress the specific warning
+warnings.filterwarnings('ignore', message='Starting a Matplotlib GUI outside')
+
+import matplotlib
+matplotlib.use('Agg')  # Non-interactive backend
+
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Button
 import base64
@@ -216,7 +223,8 @@ class EtmPlotter:
                                           + '.' + output_config.format)
             else:
                 dirs = os.path.dirname(output_config.filename)
-                file = os.path.basename(output_config.filename).split('.')
+                # split at the format if provided
+                file = os.path.basename(output_config.filename).split('.' + output_config.format)
                 filename = (os.path.join(dirs, file[0]) + ('_hist' if histogram else '')
                                           + '.' + output_config.format)
         else:
@@ -225,7 +233,7 @@ class EtmPlotter:
         if not output_config.save_kwargs:
             output_config.save_kwargs = {}
 
-        if not output_config:
+        if output_config.interactive:
             # Interactive mode
             self._setup_interactive_mode(fig)
             plt.show()

@@ -16,15 +16,17 @@ class PolynomialFunction(EtmFunction):
     def __init__(self, config: EtmConfig, **kwargs):
         super().__init__(config, **kwargs)
 
-    def initialize(self, models: tuple = (), time_vector: np.ndarray = np.array([])) -> None:
+    def initialize(self, models: tuple = (),
+                   time_vector: np.ndarray = np.array([]),
+                   **kwargs) -> None:
         """Initialize polynomial-specific parameters"""
 
         self.p.object = 'polynomial'
 
         # Set reference time
         if self.config.modeling.reference_epoch == 0 and time_vector.size > 0:
-            self.config.modeling.reference_epoch = np.min(time_vector)
-        else:
+            self.config.modeling.reference_epoch = float(np.min(time_vector))
+        elif self.config.modeling.reference_epoch == 0:
             self.config.modeling.reference_epoch = 2015.0
 
         self.p.t_ref = self.config.modeling.reference_epoch
@@ -32,6 +34,12 @@ class PolynomialFunction(EtmFunction):
         # Initialize design matrix if time vector available
         self._time_vector = time_vector
         self.design = self.get_design_ts(time_vector)
+
+        # fill the parameter and sigma vectors with nans. This helps the creation of
+        # empty objects for constraints
+        for j in range(3):
+            self.p.params[j] = np.array([np.nan] * self.config.modeling.poly_terms)
+            self.p.sigmas[j] = np.array([np.nan] * self.config.modeling.poly_terms)
 
         logger.info(f'Polynomial -> Fitting {self.config.modeling.poly_terms} term(s), conventional '
                     f'epoch {self.p.t_ref:.3f}')

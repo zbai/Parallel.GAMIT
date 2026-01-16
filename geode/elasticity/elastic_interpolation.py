@@ -335,6 +335,89 @@ def compute_strain_rate(xi: np.ndarray, yi: np.ndarray,
     return exx, exy, eyy
 
 
+def spline2dgreen(x, c):
+    """
+    Green function for 2-D spline in tension
+
+    Parameters
+    ----------
+    x : array_like
+        Abscissa values (must be >= 0)
+    c : float
+        Tension parameter (c = sqrt(t/(1-t)))
+
+    Returns
+    -------
+    G : ndarray
+        Green function values
+
+    References
+    ----------
+    Wessel, P, D. Bercovici, 1998, Gridding with Splines in Tension: A Green
+    function Approach, Math. Geol., 30, 77-93.
+
+    Notes
+    -----
+    spline2d_green computes the Green function for a 2-d spline possibly
+    in tension, G(u) = G(u) - log(u), where u = c * x and c = sqrt(t/(1-t)).
+    The modified Bessel function K of order zero is based on Num. Rec.
+    All x must be >= 0. When c = 0 it degenerates to x^2 * log(x)
+    """
+
+    # Ensure x is a numpy array
+    x = np.atleast_1d(np.asarray(x, dtype=float))
+
+    if c == 0:  # Just regular spline
+        mask = (x == 0)
+        x_copy = x.copy()
+        if np.any(mask):
+            x_copy[mask] = np.e
+        G = (x_copy ** 2) * (np.log(x_copy) - 1.0)
+
+    else:  # In tension
+        ic = 1.0 / c
+        g0 = 0.115931515658412420677337  # log(2) - 0.5772156...
+
+        x_copy = x.copy()
+        mask = (x == 0)
+        if np.any(mask):
+            x_copy[mask] = 1.0
+
+        # Initialize G with the same shape as x
+        G = np.zeros_like(x_copy)
+
+        # Case 1: x <= 2*ic
+        id1 = (x_copy <= 2 * ic)
+        if np.any(id1):
+            cx = c * x_copy[id1]
+            t = cx * cx
+            y = 0.25 * t
+            z = t / 14.0625
+            G[id1] = (-np.log(0.5 * cx) *
+                      (z * (3.5156229 + z * (3.0899424 + z *
+                                             (1.2067492 + z * (0.2659732 + z *
+                                                               (0.360768e-1 + z * 0.45813e-2)))))) +
+                      (y * (0.42278420 + y * (0.23069756 + y *
+                                              (0.3488590e-1 + y * (0.262698e-2 + y *
+                                                                   (0.10750e-3 + y * 0.74e-5)))))))
+
+        # Case 2: x > 2*ic
+        id2 = (x_copy > 2 * ic)
+        if np.any(id2):
+            y = 2 * ic / x_copy[id2]
+            cx = c * x_copy[id2]
+            G[id2] = ((np.exp(-cx) / np.sqrt(cx)) *
+                      (1.25331414 + y * (-0.7832358e-1 + y *
+                                         (0.2189568e-1 + y * (-0.1062446e-1 + y *
+                                                              (0.587872e-2 + y * (-0.251540e-2 + y * 0.53208e-3)))))) +
+                      np.log(cx) - g0)
+
+        # Set zeros where x was originally zero
+        if np.any(mask):
+            G[mask] = 0.0
+
+    return G
+
 if __name__ == '__main__':
     # Simple test case
     logging.basicConfig(level=logging.INFO)

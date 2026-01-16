@@ -1,5 +1,5 @@
 import numpy as np
-from typing import Dict, Any, Tuple
+from typing import Dict, Any, Tuple, Union, List
 import logging
 
 logger = logging.getLogger(__name__)
@@ -92,6 +92,31 @@ class PeriodicFunction(EtmFunction):
         cos_components = np.cos(2 * np.pi * f_matrix * 365.25 * t_matrix)
 
         return np.column_stack((sin_components, cos_components))
+
+    def get_periodic_cols(self, frequency: Union[float, List, np.ndarray] = None,
+                          return_col_of_design_matrix: bool = True) -> List:
+        """
+        method to retrieve the column of a given frequency (or all if None)
+        if return_col_of_design_matrix then the returned index if that of the ETM design matrix
+        if not return_col_of_design_matrix then the index is that
+        returns list of sin cols (cos is sin + params / 2) in the order passed to the method
+        """
+        if frequency is None:
+            frequency = self.p.frequencies
+        elif isinstance(frequency, float):
+            frequency = [frequency]
+
+        sin_cols = []
+        for freq in frequency:
+            idx = np.where(np.isin(self.p.frequencies, freq))[0].tolist()
+
+            if len(idx) and self.fit:
+                if return_col_of_design_matrix:
+                    sin_cols.append(self.column_index[idx[0]])
+                else:
+                    sin_cols.append(idx[0])
+
+        return sin_cols
 
     def print_parameters(self) -> Tuple[list, list, list]:
 

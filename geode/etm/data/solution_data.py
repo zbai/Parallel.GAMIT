@@ -20,7 +20,7 @@ from ...pyDate import Date
 from ...Utils import crc32, load_json
 from ..core.etm_config import EtmConfig
 from ..core.type_declarations import SolutionType
-
+from ..etm_functions.jumps import JumpFunction, JumpType
 
 class SolutionDataException(Exception):
     pass
@@ -357,6 +357,20 @@ class SolutionData(ABC):
             z = data['observations']['xyz'][2]
             yr = [d['year'] for d in data['observations']['dates']]
             doy = [d['doy'] for d in data['observations']['dates']]
+
+            # deal with prefit functions
+            # @todo: finish the other functions
+            for i, model in enumerate(self.config.modeling.prefit_models):
+                if model['object'] == 'jump':
+                    self.config.modeling.prefit_models[i] = JumpFunction(
+                        self.config,
+                        np.array(data['observations']['time_vector']),
+                        Date(**model['jump_date']),
+                        JumpType(model['jump_type']),
+                        metadata=model['metadata']
+                    )
+                    self.config.modeling.prefit_models[i].p.params = [np.array(p) for p in model['params']]
+                    self.config.modeling.prefit_models[i].p.sigmas = [np.array(p) for p in model['sigmas']]
 
             self._process_coordinate_solutions([[x,y,z,yr,doy] for x,y,z,yr,doy in zip(x,y,z,yr,doy)])
 

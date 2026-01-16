@@ -10,6 +10,9 @@ from ..core.etm_config import  EtmConfig
 from ..etm_functions.etm_function import EtmFunction
 from ..core.type_declarations import FitStatus
 
+class DesignMatrixException(Exception):
+    pass
+
 # ============================================================================
 # Enhanced Design Matrix
 # ============================================================================
@@ -26,15 +29,18 @@ class DesignMatrix:
         self.functions = functions
         self.config = config
         self.rank_deficient = False
-        # Build matrix
-        # self.matrix: np.ndarray = self._build_matrix(self.time_vector)
-        self.condition_number = self._compute_condition_number()
-
+        # list to store potential inner constraints to fix bad cond number
+        self.internal_constraints = []
+        self.total_constraints = 0
+        self.condition_number = 0
         # Assign column indices to functions
         self._assign_column_indices()
 
         # Validate matrix
-        self._validate_matrix()
+        # DDG: do not validate the matrix upon creation
+        #      validate after individual function validations
+        #      and make sure to include constraints to stabilize
+        # self._validate_matrix()
 
     @property
     def matrix(self) -> np.ndarray:
@@ -91,6 +97,9 @@ class DesignMatrix:
         n = np.zeros((params, params))
         c = np.zeros((params,))
 
+        # keep track of number of constraints
+        self.total_constraints = 0
+
         for funct in const:
             # logger.info(f'Applying constraint {repr(funct)}')
             # find the function type in the design matrix
@@ -131,7 +140,13 @@ class DesignMatrix:
                         # create vector for A.T @ P @ L
                         n = n + nt.T  @ pt @ nt
                         c = c + nt.T  @ pt @ funct.p.params[comp][np.logical_not(np.isnan(funct.p.params[comp]))]
+                        self.total_constraints += 1
                         break
+
+        for ic in self.internal_constraints:
+            n += ic.T @ ic
+            self.total_constraints += 1
+
         return n, c
 
     def _build_matrix(self, time_vector: np.ndarray) -> np.ndarray:
@@ -183,32 +198,42 @@ class DesignMatrix:
             else:
                 func.column_index = np.array([])
 
-    def _compute_condition_number(self) -> float:
+    @staticmethod
+    def _compute_condition_number(matrix) -> float:
         """Compute condition number of design matrix"""
-        if self.matrix.size == 0:
+        if matrix.size == 0:
             return 0.0
 
         try:
-            return np.linalg.cond(self.matrix)
+            return np.log10(np.linalg.cond(matrix))
         except np.linalg.LinAlgError:
             return np.inf
 
-    def _validate_matrix(self) -> None:
+    def validate_matrix(self, constraints: np.ndarray = 0) -> None:
         """Validate design matrix for common issues"""
-        matrix = self.matrix
+        matrix = self.matrix.T @ self.matrix + constraints * 100
         if matrix.size == 0:
             logger.warning("Empty design matrix")
             return
 
         # Check for rank deficiency
+        # take the tolerance to the limit!
+        # @todo: maybe I should change from solve() to lstsq()
+        # removed tol because it was making a rank 2 matrix appear as rank 3!!
+        # rank = np.linalg.matrix_rank(matrix, tol=np.finfo(float).eps)
         rank = np.linalg.matrix_rank(matrix)
+
         if rank < matrix.shape[1]:
             self.rank_deficient = True
-            logger.warning(f"Design matrix is rank deficient: rank={rank}, cols={self.matrix.shape[1]}")
+            logger.warning(f"Design matrix is rank deficient: rank={rank}, cols={matrix.shape[1]}")
+            # create an exception that can be caught and treated
+            raise DesignMatrixException(f"Design matrix is rank deficient: rank={rank}, cols={self.matrix.shape[1]}")
 
         # Check condition number
-        if np.log10(self.condition_number) > self.config.validation.max_condition_number:
-            logger.warning(f"High condition number: {self.condition_number:.2e}")
+        self.condition_number = self._compute_condition_number(matrix)
+        logger.debug(f"Design matrix log10 condition number: {self.condition_number:.1f}")
+        if self.condition_number > self.config.validation.max_condition_number:
+            logger.warning(f"High condition number: {self.condition_number:.1f}")
 
         # Check for NaN or infinite values
         if np.any(np.isnan(matrix)):

@@ -142,6 +142,25 @@ class Earthquake(BaseDataClass):
                 % (self.id, self.id))
         return f'{link}: M{self.magnitude:.1f} {self.location} -> {self.distance:.0f} km'
 
+    def __eq__(self, other):
+        """Compare earthquakes based on event_date"""
+        if isinstance(other, Earthquake):
+            return self.id == other.id
+        return False
+
+    def __lt__(self, other):
+        """Less than comparison based on event_date"""
+        if isinstance(other, Earthquake):
+            return self.date < other.date
+        return NotImplemented
+
+    def __hash__(self):
+        """Make the object hashable based on event_date"""
+        return hash(self.date)
+
+    def __str__(self):
+        """return a human-readable string"""
+        return f'{self.id} {self.date.yyyyddd()} Mw {self.magnitude}'
 
 @dataclass
 class JumpParameters(BaseDataClass):
@@ -223,7 +242,7 @@ class ModelingParameters(BaseDataClass):
     # minimum number of days between jumps
     jump_min_days: int = 3
     # years to add postseismic decays from jumps back in time
-    post_seismic_back_lim: int = 365 * 5
+    post_seismic_back_lim: Union[int, Date] = 365 * 5
 
     # General status of the fit process
     status: FitStatus = FitStatus.PREFIT
@@ -247,6 +266,9 @@ class ModelingParameters(BaseDataClass):
 
         if isinstance(self.least_squares_strategy, dict):
             self.least_squares_strategy = LeastSquares(**self.least_squares_strategy)
+
+        if isinstance(self.post_seismic_back_lim, dict):
+            self.post_seismic_back_lim = Date(**self.post_seismic_back_lim)
 
         # Convert lists to numpy arrays if needed
         array_fields = ['relaxation', 'frequencies']

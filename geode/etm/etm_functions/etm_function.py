@@ -85,9 +85,12 @@ class EtmFunction(ABC):
         self.p.covar = [np.array([])] * 3
 
         for i in range(3):
-            self.p.params[i] =  etm_results[i].parameters[self.column_index]
+            self.p.params[i] = etm_results[i].parameters[self.column_index]
             self.p.sigmas[i] = etm_results[i].parameter_sigmas[self.column_index]
-            self.p.covar[i] = etm_results[i].covariance_matrix[self.column_index][:, self.column_index]
+            if len(etm_results[i].covariance_matrix) > 0:
+                # when an ETM is saved and loaded (from the db) the covariance is not transferred
+                # avoid errors because of this
+                self.p.covar[i] = etm_results[i].covariance_matrix[self.column_index][:, self.column_index]
 
     @abstractmethod
     def print_parameters(self, **kwargs) -> Tuple[list, list, list]:

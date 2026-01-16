@@ -5,6 +5,12 @@ Author: Demian D. Gomez
 """
 
 import numpy as np
+import warnings
+# Suppress the specific warning
+warnings.filterwarnings('ignore', message='Starting a Matplotlib GUI outside')
+
+import matplotlib
+matplotlib.use('Agg')  # Non-interactive backend
 import matplotlib.pyplot as plt
 from typing import List, Tuple, Dict, Any
 from matplotlib.axes import Axes
