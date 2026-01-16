@@ -11,7 +11,7 @@
 from setuptools import setup
 
 if __name__ == "__main__":
-    setup(name="geode",
+    setup(name="geode-gnss",
     package_data={
         "geode.elasticity": ["data/*.txt"],
     },

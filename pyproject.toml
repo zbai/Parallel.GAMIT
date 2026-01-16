@@ -3,7 +3,7 @@ requires = ["setuptools>=64", "setuptools-scm>=8"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "geode"
+name = "geode-gnss"
 dynamic = ["version"]
 description = "A Python wrapper to parallelize GAMIT executions"
 authors = [
@@ -60,8 +60,8 @@ dependencies = [
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/demiangomez/Parallel.GAMIT"
-"Bug Tracker" = "https://github.com/demiangomez/Parallel.GAMIT/issues"
+"Homepage" = "https://github.com/demiangomez/geode"
+"Bug Tracker" = "https://github.com/demiangomez/geode/issues"
 
 [tool.setuptools]
 packages = ["geode"]
