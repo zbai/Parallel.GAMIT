@@ -73,23 +73,38 @@ All CLI tools support flexible station selection:
 
 ```bash
 # Single station
-./PlotETM.py igs.pwro
+PlotETM.py igs.pwro
 
 # Multiple stations
-./PlotETM.py igs.pwro igs.onsa
+PlotETM.py igs.pwro igs.onsa
 
 # All stations in a network
-./PlotETM.py igs.all
+PlotETM.py igs.all
 
 # Country code (ISO 3166)
-./PlotETM.py ARG
+PlotETM.py ARG
 
 # Wildcards (regex style)
-./PlotETM.py ars.at1[3-5]  # at13, at14, at15
-./PlotETM.py ars.at%       # all stations starting with 'at'
+PlotETM.py ars.at1[3-5]  # at13, at14, at15
+PlotETM.py ars.at%       # all stations starting with 'at'
 
 # Exclusions
-./PlotETM.py igs.all *igs.pwro  # all IGS stations except pwro
+PlotETM.py igs.all *igs.pwro  # all IGS stations except pwro
+
+# Selection by type (requires GeoDE Studio tables api_stationtype and api_stationmeta)
+PlotETM.py ARG:CONTINUOUS  # Continuous stations in Argentina
+PlotETM.py CHL:CAMPAIGN    # Campaign stations in Chile
+PlotETM.py USA:CORS        # CORS stations in USA
+PlotETM.py all:CONTINUOUS  # All CONTINUOUS stations
+
+# Geographic region selection
+PlotETM.py ARG:LAT[-35,-40]            # All stations in ARG within LAT range
+PlotETM.py ARG:BBOX[-30,-40,-70,-60]   # Bounding box in Argentina
+PlotETM.py ARG:PLATE[SC]               # Argentina stations in the Scotia plate
+PlotETM.py ARG:RADIUS[-35.5,-65.2,500] # 500 km radius around point
+
+# Combined filters
+PlotETM.py ARG:CAMPAIGN:RADIUS[-35.5,-65.2,500] # 500 km radius around point, only campaign sites
 ```
 
 ## Web Interface
@@ -139,11 +154,11 @@ See [WebInterface.md](WebInterface.md) for detailed interface documentation.
 
 If you use GeoDE in your research, please cite:
 
-> Gomez, D.D., et al. (2024). GeoDE: Geodesy Database Engine for automated GNSS processing and analysis. *GitHub repository*. https://github.com/demiangomez/Parallel.GAMIT
+> Gomez, D.D., et al. (2024). GeoDE: Geodesy Database Engine for automated GNSS processing and analysis. *GitHub repository*. https://github.com/demiangomez/geode
 
 ## License
 
-[Include your license information here]
+BSD 3-Clause License
 
 ## Support
 

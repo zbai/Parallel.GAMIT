@@ -37,7 +37,7 @@ class UtilsException(Exception):
 
 
 def add_version_argument(parser):
-    __version__ = version('geode')
+    __version__ = version('geode-gnss')
     parser.add_argument('-v', '--version', action='version', version=f'%(prog)s {__version__}')
     return parser
 
