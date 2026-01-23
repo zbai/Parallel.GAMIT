@@ -10,10 +10,12 @@ import shutil
 import io
 import base64
 import json
+import geopandas as gpd
 from datetime import datetime
 from zlib import crc32 as zlib_crc32
 from pathlib import Path
 from typing import Union, List, Dict
+from shapely.geometry import Point
 
 # deps
 import numpy
@@ -26,6 +28,8 @@ import country_converter as coco
 from . import pyRinexName
 from . import pyDate
 from .station_selector import StationSelector, StationFilter
+
+COUNTRIES = None
 
 
 class UtilsException(Exception):
@@ -668,18 +672,28 @@ def get_resource_delimiter():
 
 def get_country_code(lat, lon):
     """Obtain the country code based on lat lon of station"""
-    # DDG: added code to insert new station including the country_code
-    # find the country code for the station
-    geolocator = Nominatim(user_agent="GeoDE")
-    location = geolocator.reverse("%f, %f" % (lat, lon))
 
-    if location and 'country_code' in location.raw['address'].keys():
-        ISO3 = coco.convert(
-            names=location.raw['address']['country_code'], to='ISO3')
-    else:
-        ISO3 = None
+    from importlib.resources import files
+    data_path = files('geode.elasticity.data').joinpath(
+        'ne_10m_admin_0_countries_arg.shp'
+    )
+    shapefile_path = str(data_path)
 
-    return  ISO3
+    global COUNTRIES
+
+    # Load shapefile only once
+    if COUNTRIES is None:
+        COUNTRIES = gpd.read_file(shapefile_path)
+
+    point = Point(lon, lat)
+
+    # Find country containing this point
+    country = COUNTRIES[COUNTRIES.contains(point)]
+
+    if not country.empty:
+        return country.iloc[0]['ISO_A3']
+
+    return None
 
 
 def remove_stations(station_list: List[Dict], removal_filters: List[StationFilter],

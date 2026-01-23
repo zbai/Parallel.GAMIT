@@ -1246,9 +1246,9 @@ def get_rinex_file(cnn, stnlist, date, Archive_path):
 
             with pyRinex.ReadRinex(NetworkCode, StationCode, rinex, False) as Rinex:  # type: pyRinex.ReadRinex
 
-                StationInfo = StationInfo(cnn, NetworkCode, StationCode, Rinex.date)
+                stninfo = StationInfo(cnn, NetworkCode, StationCode, Rinex.date)
 
-                Rinex.normalize_header(StationInfo)
+                Rinex.normalize_header(stninfo)
                 Rinex.compress_local_copyto('./')
         else:
             tqdm.write(" -- %s not found for %s.%s" % (date.yyyyddd(), NetworkCode, StationCode))

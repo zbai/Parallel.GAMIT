@@ -744,7 +744,7 @@ class EtmFit:
                         k[:, f.get_relaxation_cols()] = 1
                         self.design_matrix.internal_constraints.append(k)
                         # no need to check again, if it didn't work the first time it won't work the next one
-                    else:
+                    elif f.p.relaxation.size > 1:
                         # jump collisions enabled: modify the etm if needed
                         logger.info('Removing smallest relaxation')
                         min_index = np.argmin(f.p.relaxation)
@@ -752,6 +752,8 @@ class EtmFit:
                         f.configure_behavior({'relaxation': rlx})
                         # activate the check again flag
                         check_again = True
+                    else:
+                        logger.info('Function has a single relaxation, cannot remove it.')
             if not check_again:
                 break
         # if we reach the max iteration level and still check again, create warning

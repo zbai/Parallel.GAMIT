@@ -130,18 +130,18 @@ See [WebInterface.md](WebInterface.md) for detailed interface documentation.
 ### Process new RINEX data
 ```bash
 # Download and scan for new files
-./DownloadSources.py igs.all -win 7
+DownloadSources.py igs.all -win 7
 
 # Run PPP solutions
-./ScanArchive.py igs.all -ppp
+ScanArchive.py igs.all -ppp
 
 # Plot time series
-./PlotETM.py igs.pwro -gui
+PlotETM.py igs.pwro -gui
 ```
 
 ### Add earthquake jump to trajectory model
 ```bash
-./AlterETM.py igs.pwro -fun j + 1 2024/02/15 30,60
+AlterETM.py igs.pwro -fun j + 1 2024/02/15 30,60
 ```
 
 ## Documentation
