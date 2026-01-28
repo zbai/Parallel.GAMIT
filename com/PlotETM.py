@@ -65,7 +65,9 @@ COVARIANCE_MAP = {
     'gaussian': CovarianceFunction.GAUSSIAN
 }
 
-def read_kml_or_kmz(cnn: dbConnection.Cnn, file_path: str, metadata: str, s_score_mag_limit: float):
+def read_kml_or_kmz(cnn: dbConnection.Cnn, file_path: str,
+                    metadata: str, s_score_mag_limit: float,
+                    filenames: str, str_format: str):
     # Check if the file is a KMZ (by its extension)
     if file_path.endswith('.kmz'):
         # Open the KMZ file and read it in memory
@@ -104,10 +106,25 @@ def read_kml_or_kmz(cnn: dbConnection.Cnn, file_path: str, metadata: str, s_scor
 
         # if a connection to the database is available, get s-scores
         if cnn:
+            # to accelerate the process of retrieving the s-score, we load the dates of the time series
+            filename = filenames.replace('{net}', network_code).replace('{stn}', station_code)
+            ts = np.genfromtxt(filename)
+
+            dd = []
+            for k in ts:
+                d = {}
+                for i, f in enumerate(str_format):
+                    if f in ('gpsWeek', 'gpsWeekDay', 'year', 'doy', 'fyear', 'month', 'day', 'mjd'):
+                        d[f] = k[i]
+                dd.append(d)
+
+            dd = [Date(**d) for d in dd]
+
+            # now compute the s-score
             score = ScoreTable(cnn, network_code, station_code,
                                lat=coord[0][0], lon=coord[1][0],
-                               sdate=Date(year=1990, doy=1),
-                               edate=Date(datetime=datetime.now()),
+                               sdate=min(dd),
+                               edate=max(dd),
                                magnitude_limit=s_score_mag_limit)
             score_table = score.table
         else:
@@ -608,7 +625,8 @@ def main():
     from_kmz = False
     if args.stnlist[0].endswith(('kmz', 'kml')):
         # user selected database override
-        stnlist = read_kml_or_kmz(cnn, args.stnlist[0], args.metadata_filename, args.s_score_mag_limit)
+        stnlist = read_kml_or_kmz(cnn, args.stnlist[0], args.metadata_filename,
+                                  args.s_score_mag_limit, args.filename, args.format)
 
         print(' >> Station from kml/kmz file %s' % args.stnlist[0])
         print_columns([stationID(item) for item in stnlist])
