@@ -210,7 +210,7 @@ class ModelingParameters(BaseDataClass):
     """Configuration for modeling parameters"""
     # default configuration for running the EtmEngine
     relaxation: np.ndarray = field(
-        default_factory=lambda: np.array([0.05, 1])
+        default_factory=lambda: np.array([0.5])
     )
     poly_terms: int = 2
     reference_epoch: float = 0
@@ -232,7 +232,7 @@ class ModelingParameters(BaseDataClass):
     sigma_floor_h: float = 0.10
     sigma_floor_v: float = 0.15
     # minimum number of days between earthquakes
-    earthquake_min_days: int = 3
+    earthquake_min_days: int = 6
     # minimum magnitude to consider adding jumps
     earthquake_magnitude_limit: int = 6.0
     # earthquakes to add to the fit even if they fall outside of earthquake_magnitude_limit
@@ -304,7 +304,9 @@ class ModelingParameters(BaseDataClass):
         for jump_params in self.user_jumps:
             if jump_params.date == date:
                 # dates match, check types
-                if jump_params.jump_type == jump_type:
+                if (jump_params.jump_type == jump_type or
+                        (jump_type == JumpType.REFERENCE_FRAME and
+                         jump_params.jump_type == JumpType.MECHANICAL_MANUAL)):
                     # types match exactly, so it is the jump being looked for
                     return jump_params
                 elif (jump_params.jump_type >= JumpType.COSEISMIC_JUMP_DECAY
@@ -374,6 +376,6 @@ class ValidationRules(BaseDataClass):
     max_relaxation_amplitude: float = 100.0  # meters (inflated after tests from 4 to 100)
     min_solutions_for_etm: int = 4
     min_data_for_jump: int = 50  # data points
-    max_condition_number: float = 3.5 # log10 of the condition number
+    max_condition_number: float = 8 # log10 of the condition number
 
 

@@ -3,6 +3,8 @@ _version.py
 
 # JetBrains IDE files
 .idea/
+.claude/
+.claude/settings.local.json
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

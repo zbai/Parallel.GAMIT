@@ -205,6 +205,9 @@ class JumpManager:
         """
         # Check for conflicts with existing user_jumps
         if check_jump_collisions:
+            # debug info
+            logger.debug(f'Adding jump: {jump.date} {jump.p.jump_type}')
+
             for existing_jump in self.jumps:
                 if existing_jump.fit:
                     is_equivalent, preferred = existing_jump.__eq__(jump)

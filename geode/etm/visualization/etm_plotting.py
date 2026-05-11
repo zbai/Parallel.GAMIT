@@ -143,6 +143,9 @@ class EtmPlotter:
             main_axes_indices = [0, 1, 2]
             outlier_axes_indices = None
 
+            if output_config.plot_missing_solutions:
+                logger.info('Missing solutions requested but the the outlier panel was not requested')
+
         return {
             'fig_size': fig_size,
             'subplot_config': subplot_config,
@@ -204,8 +207,8 @@ class EtmPlotter:
         template.plot_confidence_bounds(ax, data)
 
         # Plot missing solutions if available
-        if output_config.missing_solutions:
-            template.plot_missing_solutions(ax, output_config.missing_solutions)
+        if output_config.plot_missing_solutions:
+            template.plot_missing_solutions(ax, plot_data.missing_solutions)
 
         # Apply time window
         if output_config.plot_time_window:

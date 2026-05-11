@@ -26,13 +26,14 @@ from geode import dbConnection
 from geode.pyDate import Date
 from geode.metadata.station_info import StationInfo
 from geode.etm.core.logging_config import setup_etm_logging
-from geode.etm.core.etm_engine import EtmEngine, EtmSolutionType, EtmEncoder
+from geode.etm.core.etm_engine import EtmEngine, EtmSolutionType
 from geode.etm.core.etm_config import EtmConfig
 from geode.etm.core.s_score import ScoreTable
 from geode.etm.core.type_declarations import JumpType
 from geode.etm.data.solution_data import SolutionDataException
 from geode.etm.core.data_classes import (AdjustmentModels, SolutionType, CovarianceFunction,
-                                          ModelingParameters, SolutionOptions, StationMetadata, JumpParameters)
+                                          ModelingParameters, SolutionOptions, StationMetadata,
+                                         JumpParameters, ValidationRules)
 from geode.etm.etm_functions.polynomial import PolynomialFunction
 from geode.etm.etm_functions.periodic import PeriodicFunction
 from geode.etm.etm_functions.jumps import JumpFunction
@@ -500,7 +501,8 @@ def main():
                              "list of jump functions to fit (using the USGS event id). Event needs to have an "
                              "s-score > 0 to be considered, even if it has been cherry-picked")
 
-    parser.add_argument('-cond', '--max_condition_number', type=float, default=3.5, metavar='log10(cond)',
+    parser.add_argument('-cond', '--max_condition_number', type=float,
+                        default=ValidationRules().max_condition_number, metavar='log10(cond)',
                         help="Maximum acceptable log10 condition number for a jump function. Jump parameters with "
                              "log10(cond) > max_condition_number will get their smallest relaxation value removed. If "
                              "high condition number persists, then the jump will be reduced to POSTSEISMIC-ONLY if "
@@ -646,7 +648,7 @@ def main():
         solution_options = SolutionOptions()
 
         if not args.filename:
-            solution_options.solution_type = SolutionType.PPP if args.solution == 'ppp' else SolutionType.GAMIT
+            solution_options.solution_type = SolutionType.from_code(args.solution)
             solution_options.stack_name = args.solution
         else:
             filename = args.filename.replace('{net}', stn['NetworkCode']).replace('{stn}', stn['StationCode'])
@@ -690,6 +692,7 @@ def main():
 
             config.plotting_config.plot_show_outliers = 'out' in args.plot_options
             config.plotting_config.plot_residuals_mode = 'residuals' in args.plot_options
+            config.plotting_config.plot_missing_solutions = 'missing' in args.plot_options
 
             config.modeling.relaxation = np.array(args.default_relax)
             config.modeling.data_model_window = process_fit_dates(args)

@@ -521,6 +521,26 @@ class EtmStackerShell(cmd.Cmd):
         else:
             print('usage: test <net.stnm> <net.stnm> ...')
 
+    def do_export(self, arg):
+        """export interpolated field to text file
+        available fields: interseismic"""
+
+        if arg == 'interseismic':
+            for field in self.etm_stacker.fields:
+                if field.base_type == ConstraintType.INTERSEISMIC:
+                    lon, lat = field.get_interpolation_grid_geographic()
+                    np.savetxt('export_interseismic.txt',
+                               np.array([lon, lat,
+                                         field.enu_field[0, :] * 1000,
+                                         field.enu_field[1, :] * 1000,
+                                         field.enu_field[2, :] * 1000]).transpose(),
+                               fmt=['%11.6f', '%10.6f', '%7.3f', '%7.3f', '%7.3f'],
+                               header="interseismic velocities in mm/yr"
+                                      "\ncreated on %s using %s"
+                                      "\nlon lat e n u"
+                                      % (datetime.now().strftime('%Y-%m-%d %H:%M:%S'), self.etm_stacker.filename))
+                    break
+
     def do_overlay(self, arg):
         """overlay model and data from a station"""
         if arg:

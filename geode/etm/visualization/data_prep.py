@@ -102,7 +102,8 @@ class PlotDataPreparer:
             covariance_matrix=etm_fit.covar,
             has_etm_results=self.config.modeling.status == FitStatus.POSTFIT,
             jump_tables=(jump_tables[0], jump_tables[1], jump_tables[2]),
-            jumps=jump_tables[3]
+            jumps=jump_tables[3],
+            missing_solutions=solution_data.time_vector_ns
         )
 
         # Add ETM-specific information

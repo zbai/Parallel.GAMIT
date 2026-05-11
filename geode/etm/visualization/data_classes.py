@@ -43,6 +43,8 @@ class TimeSeriesPlotData:
     east_data: ComponentData
     up_data: ComponentData
 
+    missing_solutions: np.ndarray = np.array([])
+
     # ETM results
     has_etm_results: bool = False
     parameter_summary: Optional[str] = None
@@ -102,5 +104,5 @@ class PlotOutputConfig(BaseDataClass):
     plot_remove_stochastic: bool = False
 
     # Missing data
-    missing_solutions: Optional[List] = None
+    plot_missing_solutions: bool = False
     interactive: bool = False

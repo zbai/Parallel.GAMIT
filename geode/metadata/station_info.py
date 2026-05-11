@@ -574,12 +574,16 @@ class StationInfo:
 
         records = []
         for line in stninfo:
-            record = StationInfoRecord.from_string(
-                line, self.NetworkCode, self.StationCode
-            )
-            if record and record.DateStart:
-                records.append(record)
-
+            try:
+                record = StationInfoRecord.from_string(
+                    line, self.NetworkCode, self.StationCode
+                )
+                if record and record.DateStart:
+                    records.append(record)
+            except IndexError:
+                print(f'Invalid station info format at line {line}')
+            except Exception as e:
+                print(f'Unexpected error at line {line}: {type(e).__name__}: {e}')
         return records
 
     @ staticmethod

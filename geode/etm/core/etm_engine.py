@@ -11,8 +11,6 @@ import os
 
 from importlib.metadata import version, PackageNotFoundError
 
-from .type_declarations import PeriodicStatus, JumpType
-
 try:
     VERSION = str(version("geode"))
 except PackageNotFoundError:
@@ -30,12 +28,14 @@ from ...pyDate import Date
 from ...metadata.station_info import StationInfoRecord
 from ..data.solution_data import SolutionData
 from ..data.etm_database import load_parameters_db, save_parameters_db
+from ..data.etm_params import EtmParams
 from ..core.etm_config import EtmConfig, SolutionOptions
-from ..core.type_declarations import EtmSolutionType, FitStatus, SolutionType
+from ..core.type_declarations import EtmSolutionType, FitStatus, SolutionType, JumpType
 from ..core.data_classes import LeastSquares, AdjustmentResults
 from ..least_squares.design_matrix import DesignMatrix
 from ..least_squares.least_squares import EtmFit, AdjustmentModels
 from ..etm_functions.polynomial import PolynomialFunction
+from ..etm_functions.jumps import JumpFunction
 from ..etm_functions.periodic import PeriodicFunction
 from ..etm_functions.stochastic_signal import StochasticSignal
 from ..core.jump_manager import JumpManager
@@ -204,6 +204,11 @@ class EtmEngine:
         periodic = PeriodicFunction(config, time_vector=self.solution_data.time_vector)
 
         self.jump_manager = JumpManager(self.solution_data, config)
+        # handle reference frame changes in PPP solutions
+        if config.solution.solution_type == SolutionType.PPP:
+            # check for reference frame changes
+            self._check_reference_frame_jumps()
+
         self.jump_manager.build_jump_table(self.solution_data.time_vector[mask],
                                            self.solution_data.transform_to_local())
 
@@ -224,6 +229,25 @@ class EtmEngine:
                 StochasticSignal(self.config, self.solution_data.time_vector_cont_mjd))
 
         self.fit = EtmFit(self.config, self.design_matrix, self.solution_data.hash)
+
+    def _check_reference_frame_jumps(self):
+        # check for reference frame jumps
+        if len(self.solution_data.frames) > 1:
+            # more than one frame, add a jump
+            prev_frame = self.solution_data.frames[0]['ReferenceFrame']
+
+            for frame in self.solution_data.frames[1:]:
+                jump = JumpFunction(
+                    config=self.config,
+                    time_vector=self.solution_data.time_vector,
+                    date=Date(Year=int(frame['Year']), doy=int(frame['DOY'])),
+                    jump_type=JumpType.REFERENCE_FRAME,
+                    user_action='A',
+                    metadata=f'{prev_frame}->{frame["ReferenceFrame"]}',
+                    fit=self.config.modeling.fit_generic_jumps,
+                )
+                prev_frame = frame["ReferenceFrame"]
+                self.jump_manager.add_jump(jump)
 
     def run_adjustment(self, try_loading_db=True, try_save_to_db=True,
                        cnn: Optional[Cnn] = None, force_computation=False) -> None:
@@ -317,6 +341,7 @@ class EtmEngine:
                             asdict(self.fit.results[2])] if dump_raw_results else None,
             "functions": functions if dump_functions else None,
             "observations": asdict(self.solution_data.coordinates) if dump_observations else None,
+            "frames": self.solution_data.frames,
             "model": {'model_cont': model_values,
                       'time_vector_fyear': self.solution_data.time_vector_cont,
                       'time_vector_mjd': self.solution_data.time_vector_cont_mjd
@@ -463,149 +488,57 @@ class EtmEngine:
 
         return None
 
-    def pull_params(self):
+    def pull_params(self) -> Dict:
         """
-        method to obtain the current parameters of the station (in json format)
-        periodic returns a dictionary with the periods as keys and a str following the description
-        in periodic_status_dict
+        Obtain the current parameters of the station (in json format).
+
+        Returns a dictionary with 'polynomial', 'periodic', and 'jumps' keys.
+        Periodic returns a dictionary with the periods as keys and a str following
+        the description in periodic_status_dict.
+
+        Returns:
+            Dictionary with polynomial, periodic, and jumps parameters
         """
-        date = Date(fyear=self.config.modeling.reference_epoch)
+        return EtmParams.from_etm(self).pull_params()
 
-        poly_dict = {'terms': self.config.modeling.poly_terms,
-                     'Year': date.year,
-                     'DOY' : date.doy}
-
-        jumps = [{'Year': jump.p.jump_date.year,
-                  'DOY': Date(datetime=jump.p.jump_date).doy,
-                  'action': jump.user_action,
-                  'fit': jump.fit,
-                  'type': jump.p.jump_type,
-                  'relaxation': jump.p.relaxation.tolist(),
-                  'metadata': jump.p.metadata} for jump in self.jump_manager.jumps]
-
-        periodic = {}
-        # create a dictionary with keys that equal the 1/f (period) requested or automatically added
-        for f in self.config.modeling.frequencies:
-            funct = self.design_matrix.get_periodic()
-
-            if f is not None and f in funct.p.frequencies:
-                # if in the list it is either automatic or requested by user, so pass
-                # the status from the modeling configuration
-                status = self.config.modeling.periodic_status
-            else:
-                # if not present maybe it was not possible to fit
-                status = PeriodicStatus.UNABLE_TO_FIT
-
-            periodic[1 / f] = status
-
-        return {'polynomial': poly_dict, 'periodic': periodic, 'jumps': jumps}
-
-    def push_params(self, cnn, params=None, reset_polynomial=False, reset_periodic=False, reset_jumps=False):
+    def push_params(self, cnn: Cnn,
+                    params=None,
+                    reset_polynomial=False,
+                    reset_periodic=False,
+                    reset_jumps=False,
+                    copy_params: bool = None):
         """
-        cnn             : database connection object
-        params          :
-            a dictionary containing the following keys, for each of the corresponding objects
+        Push parameters to the etm_params table.
+
+        Args:
+            cnn: Database connection object
+            params: Dictionary containing parameter objects. Supported formats:
                 {'object': 'polynomial', 'terms': int, 'Year': int, 'DOY': int}
-            terms: sets the number of terms to use in the polynomial (eg. 2, 3, 4, etc)
-            Year: sets the reference year part of the date for the site (if passed, then DOY is needed).
-                It can be = None or not passed
-            DOY: sets the reference day of year part of the date for the site (if passed,
-                then year is needed). It can be = None or not passed
-            {'object': 'periodic', 'frequencies': list[float]}
-                frequencies: a list of integers of the frequencies to fit. This value must be
-                passed as days. If no periodic terms are requested, then pass [].
-            {'object': 'jump', 'Year': int, 'DOY': int, 'action': str, 'jump_type': int, 'relaxation': list}
-                Year: sets the year part of the discontinuity date. Mandatory.
-                DOY: sets the day of year part of the discontinuity date. Mandatory
-                action: two possible values, '-' or '+' to add or remove a jump. Mandatory.
-                jump_type: jump type, can be 0 for mechanical, 1 for co+postseismic and 2 for postseismic
-                only, see type_dict_user
-            relaxation: mandatory when type is > 0, list of floats with the relaxation times in years
-        reset_polynomial: rest
-        reset_periodic  : rest
-        reset_jumps     : rest
+                    - terms: number of polynomial terms (e.g., 2, 3, 4)
+                    - Year/DOY: reference date (both required if either is set)
+                {'object': 'periodic', 'frequencies': list[float]}
+                    - frequencies: list of periods in days to fit (empty list = none)
+                {'object': 'jump', 'Year': int, 'DOY': int, 'action': str,
+                 'jump_type': int, 'relaxation': list}
+                    - Year/DOY: discontinuity date (mandatory)
+                    - action: '+' to add, '-' to remove
+                    - jump_type: 0=mechanical, 1=co+postseismic, 2=postseismic only
+                    - relaxation: required when jump_type > 0
+            reset_polynomial: If True, delete existing polynomial params
+            reset_periodic: If True, delete existing periodic params
+            reset_jumps: If True, delete existing jump params
+            copy_params: If True, copy parameters to all solution types.
+                        If False, remove the copy_params flag.
+                        If None, don't modify the copy_params setting.
 
         Raises:
-            EtmEngineException
+            EtmParamsException: If validation fails
         """
-
-        # for polynomial and periodic, trigger reset anyway since we need to get rid of the old records
-        if params:
-            if params['object'] == 'polynomial':
-                reset_polynomial = True
-                # sanity checks
-                if 'Year' in params.keys() and 'DOY' in params.keys():
-                    if params['Year'] is not None and type(params['Year']) is not int:
-                        raise EtmEngineException('Parameter Year must be of type int')
-                    if params['Year'] is not None and type(params['DOY']) is not int:
-                        raise EtmEngineException('Parameter DOY must be of type int')
-                elif ('Year' in params.keys() and 'DOY' not in params.keys()) or \
-                        ('Year' not in params.keys() and 'DOY' in params.keys()):
-                    raise EtmEngineException('Both parameters Year and DOY must be specified if either one is set')
-
-                # check that terms is an integer > 0
-                if type(params['terms']) is not int or params['terms'] <= 0:
-                    raise EtmEngineException('Parameter terms must be of type int > 0')
-
-                # check that the date is valid
-                if 'Year' in params.keys() and 'DOY' in params.keys():
-                    _ = Date(year=params['Year'], doy=params['DOY'])
-
-            elif params['object'] == 'periodic':
-                reset_periodic = True
-
-                # check that frequencies are not negative
-                for i, f in enumerate(params['frequencies']):
-                    if f <= 0:
-                        raise EtmEngineException('Cannot insert negative frequencies for periodic components')
-                    else:
-                        params['frequencies'][i] = 1/f
-
-            # add the fields for station and network
-            params['NetworkCode'] = self.config.network_code
-            params['StationCode'] = self.config.station_code
-            params['soln'] = self.solution_data.config.solution.solution_type.code
-
-        if reset_polynomial:
-            # reset to default
-            cnn.delete('etm_params', NetworkCode=self.config.network_code, StationCode=self.config.station_code,
-                       soln=self.solution_data.config.solution.solution_type.code, object='polynomial')
-
-        if reset_periodic:
-            # reset to default
-            cnn.delete('etm_params', NetworkCode=self.config.network_code, StationCode=self.config.station_code,
-                       soln=self.solution_data.config.solution.solution_type.code, object='periodic')
-
-        if reset_jumps:
-            # reset to default
-            cnn.delete('etm_params', NetworkCode=self.config.network_code, StationCode=self.config.station_code,
-                       soln=self.solution_data.config.solution.solution_type.code, object='jump')
-
-        if params:
-            if params['object'] == 'jump':
-
-                if params['jump_type'] < 0:
-                    raise EtmEngineException('jump_type must be >= 0')
-
-                if params['action'] == '+' and params['jump_type'] > 0 and 'relaxation' not in params.keys():
-                    raise EtmEngineException('Relaxation parameters needed when jump_type > 0 and action = +')
-
-                if 'relaxation' in params.keys():
-                    if len(params['relaxation']):
-                        for r in params['relaxation']:
-                            if type(r) not in (float, int):
-                                raise EtmEngineException('Relaxation parameters must be float type')
-                            if r <= 0:
-                                raise EtmEngineException('Relaxation parameters must be > 0')
-                    elif not len(params['relaxation']) and params['jump_type'] > 0:
-                        raise EtmEngineException('At least one relaxation needed for jump_type > 0')
-
-                # query params to find the jump
-                qpar = copy.deepcopy(params)
-                qpar = {k: v for k, v in qpar.items() if k not in ('action', 'relaxation', 'jump_type')}
-
-                # remove existing parameters
-                cnn.delete('etm_params', **qpar)
-
-            # insert the parameters passed to the database
-            cnn.insert('etm_params', **params)
+        etm_params = EtmParams.from_etm(self, cnn)
+        etm_params.push_params(
+            params=params,
+            reset_polynomial=reset_polynomial,
+            reset_periodic=reset_periodic,
+            reset_jumps=reset_jumps,
+            copy_params=copy_params
+        )

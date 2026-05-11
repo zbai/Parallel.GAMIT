@@ -457,33 +457,53 @@ class JumpFunction(EtmFunction):
             # otherwise, decide based on the magnitude of events
             if lt_earthquake_min_days or lt_design_eq_min_days:
                 # Insufficient data separation, by date or data points - choose by magnitude if jump happened after
-                # start of the data. Otherwise, (before the start of data) leave most recent
-                if other.date.fyear < self._time_vector.min() and self.date.fyear < self._time_vector.min():
-                    logger.debug('Decision made based on date')
-                    return True, self if self.date > other.date else other
+                # start of the data. Otherwise, (before the start of data) leave most recent,
+                # as long as magnitude of recent is >= than previous
+                if (other.date.fyear < self._time_vector.min() and
+                        self.date.fyear < self._time_vector.min() and
+                        self.magnitude <= other.magnitude):
+                    
+                    ret = self if self.date > other.date else other
+                    logger.debug(f'Conflict: {ret.date} {ret.p.jump_type} prevails, '
+                                 f'decision made based on date')
+                    return True, ret
                 else:
-                    logger.debug('Decision made based on magnitude')
-                    return True, self if self.magnitude > other.magnitude else other
+                    ret = self if self.magnitude > other.magnitude else other
+                    logger.debug(f'Conflict: {ret.date} {ret.p.jump_type} prevails, '
+                                 f'decision made based on magnitude')
+                    return True, ret
             else:
+                logger.debug('No conflict')
                 return False, None  # Can coexist
         elif self.is_geophysical() and not other.is_geophysical():
             if lt_design_jump_min_days:
+                logger.debug(f'Conflict: {self.date} {self.p.jump_type} prevails, '
+                             f'decision made on basis of geophysical jump')
                 return True, self  # geophysical prevails
             else:
+                logger.debug('No conflict')
                 return False, None # Can coexist
         elif not self.is_geophysical() and other.is_geophysical():
             if lt_design_jump_min_days:
+                logger.debug(f'Conflict: {other.date} {other.p.jump_type} prevails, '
+                             f'decision made on basis of geophysical jump')
                 return True, other  # geophysical prevails
             else:
+                logger.debug('No conflict')
                 return False, None  # Can coexist
         else:
             # Two mechanical/generic user_jumps
             if lt_jump_min_days or lt_design_jump_min_days:
                 if other.p.jump_type != JumpType.AUTO_DETECTED:
+                    logger.debug(f'Conflict: {other.date} {other.p.jump_type} prevails, '
+                                 f'decision made on basis jump date')
                     return True, other  # Prefer the latest jump (if latest is not an auto jump)
                 else:
+                    logger.debug(f'Conflict: {self.date} {self.p.jump_type} prevails, '
+                                 f'decision made on basis jump date')
                     return True, self
             else:
+                logger.debug('No conflict')
                 return False, None  # Can coexist
 
     def is_geophysical(self) -> bool:

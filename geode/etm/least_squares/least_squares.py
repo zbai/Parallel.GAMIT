@@ -746,6 +746,8 @@ class EtmFit:
                         # no need to check again, if it didn't work the first time it won't work the next one
                     elif f.p.relaxation.size > 1:
                         # jump collisions enabled: modify the etm if needed
+                        # @todo: evaluate the possibility of modifying the downstream jumps to remove smallest relax
+                        # as long as the magnitude of the downstream jump is < to the one being evaluated here
                         logger.info('Removing smallest relaxation')
                         min_index = np.argmin(f.p.relaxation)
                         rlx = np.delete(f.p.relaxation, min_index)

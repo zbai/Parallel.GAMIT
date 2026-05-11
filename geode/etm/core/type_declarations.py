@@ -38,11 +38,20 @@ class PeriodicStatus(IntEnum):
     @property
     def description(self) -> str:
         descriptions = {
-            PeriodicStatus.AUTOMATICALLY_ADDED: 'Automatically added by ETM',
-            PeriodicStatus.ADDED_BY_USER: 'Periodic terms added by user',
-            PeriodicStatus.UNABLE_TO_FIT: 'Unable to fit periodic terms'
+            PeriodicStatus.AUTOMATICALLY_ADDED: 'Automatic component',
+            PeriodicStatus.ADDED_BY_USER: 'User component',
+            PeriodicStatus.UNABLE_TO_FIT: 'Unable to fit component'
         }
         return descriptions.get(self, 'UNKNOWN')
+
+    @property
+    def code(self) -> str:
+        code = {
+            PeriodicStatus.AUTOMATICALLY_ADDED: 'A',
+            PeriodicStatus.ADDED_BY_USER: 'R',
+            PeriodicStatus.UNABLE_TO_FIT: 'D'
+        }
+        return code.get(self, 'A')
 
 class EtmSolutionType(IntEnum):
     """Enum for jump types to replace scattered constants"""
@@ -148,6 +157,13 @@ class SolutionType(IntEnum):
     PPP = auto()
     NGL = auto()
     DRA = auto()
+
+    @classmethod
+    def from_code(cls, code: str) -> 'SolutionType':
+        for member in cls:
+            if member.code == code:
+                return member
+        raise ValueError(f"No SolutionType with code '{code}'")
 
     @property
     def description(self) -> str:
