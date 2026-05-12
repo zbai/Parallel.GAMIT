@@ -18,7 +18,7 @@ from matplotlib.figure import Figure
 
 
 # app
-from ..visualization.data_prep import PlotTemplate
+from ..visualization.plot_template import PlotTemplate
 from ..visualization.data_classes import TimeSeriesPlotData, PlotOutputConfig, ComponentData
 from ..core.type_declarations import AdjustmentModels, JumpType
 from ..etm_functions.jumps import JumpFunction
@@ -26,6 +26,36 @@ from ..etm_functions.jumps import JumpFunction
 
 class TimeSeriesTemplate(PlotTemplate):
     """Template for time series plots"""
+
+    def determine_layout(self, plot_data: TimeSeriesPlotData,
+                         output_config: PlotOutputConfig) -> Dict[str, Any]:
+        """Determine plot layout based on data and configuration"""
+        show_outliers = (output_config and output_config.plot_show_outliers and
+                         plot_data.has_etm_results)
+
+        if show_outliers:
+            fig_size = (16, 10)
+            subplot_config = {'nrows': 3, 'ncols': 2, 'sharex': True}
+            main_axes_indices = [0, 2, 4]
+            outlier_axes_indices = [1, 3, 5]
+        else:
+            fig_size = (16, 10)
+            subplot_config = {'nrows': 3, 'ncols': 1, 'sharex': True}
+            main_axes_indices = [0, 1, 2]
+            outlier_axes_indices = None
+
+            if output_config.plot_missing_solutions:
+                import logging
+                logging.getLogger(__name__).info(
+                    'Missing solutions requested but the outlier panel was not requested')
+
+        return {
+            'fig_size': fig_size,
+            'subplot_config': subplot_config,
+            'main_axes_indices': main_axes_indices,
+            'outlier_axes_indices': outlier_axes_indices,
+            'show_outliers': show_outliers
+        }
 
     def create_figure_layout(self, layout: Dict[str, Any]) -> Tuple[plt.Figure, List]:
         """Create time series figure layout"""

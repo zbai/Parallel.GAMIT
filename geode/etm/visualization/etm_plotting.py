@@ -6,26 +6,25 @@ import matplotlib
 matplotlib.use('Agg')  # Non-interactive backend
 
 import matplotlib.pyplot as plt
+import matplotlib.image as mpimg
 from matplotlib.widgets import Button
+from matplotlib.offsetbox import OffsetImage, AnnotationBbox
 import base64
-from typing import Optional, Dict, Any
-from dataclasses import dataclass
+from typing import Optional
 import logging
 import os
+from pathlib import Path
 
 # app
 from ..core.etm_config import EtmConfig
+
+# Logo path in the visualization folder
+LOGO_PATH = Path(__file__).parent / 'geode_logo.png'
 from ..visualization.time_series_template import TimeSeriesTemplate
 from ..visualization.histogram_template import HistogramTemplate
-from ..visualization.data_classes import  TimeSeriesPlotData, PlotOutputConfig, HistogramPlotData
+from ..visualization.data_classes import TimeSeriesPlotData, PlotOutputConfig
 
 logger = logging.getLogger(__name__)
-
-
-@dataclass
-class Templates:
-    time_series: TimeSeriesTemplate
-    histogram: HistogramTemplate
 
 
 class EtmPlotter:
@@ -33,10 +32,8 @@ class EtmPlotter:
 
     def __init__(self, config: EtmConfig):
         self.config = config
-        self.templates = Templates(
-            TimeSeriesTemplate(config),
-            HistogramTemplate(config)
-        )
+        self.time_series_template = TimeSeriesTemplate(config)
+        self.histogram_template = HistogramTemplate(config)
 
         # Interactive plotting state
         self.figure = None
@@ -59,10 +56,10 @@ class EtmPlotter:
         if output_config is None:
             output_config = self.config.plotting_config
 
-        template = self.templates.time_series
+        template = self.time_series_template
 
         # Prepare plot layout
-        layout = self._determine_plot_layout(plot_data, output_config)
+        layout = template.determine_layout(plot_data, output_config)
 
         # Create figure and axes
         fig, axes = template.create_figure_layout(layout)
@@ -79,18 +76,15 @@ class EtmPlotter:
 
         # Plot data for each component
         for i, (ax, component) in enumerate(zip(main_axes, ['North', 'East', 'Up'])):
-            self._plot_component_data(ax, plot_data, component, i, template, output_config)
+            self._plot_component_data(ax, plot_data, component, i, output_config)
 
         fig.subplots_adjust(left=0.21)
-
-        # Add component-specific annotations
-        # template.add_component_annotations(ax, plot_data, component, i)
 
         # Add outlier plots if requested
         if layout['show_outliers']:
             outlier_axes = axes[layout['outlier_axes_indices']]
             for i, ax in enumerate(outlier_axes):
-                self._plot_outlier_data(ax, plot_data, i, template, output_config)
+                self._plot_outlier_data(ax, plot_data, i, output_config)
 
         # Handle output
         return self._handle_plot_output(fig, output_config)
@@ -102,7 +96,7 @@ class EtmPlotter:
         if output_config is None:
             output_config = self.config.plotting_config
 
-        template = self.templates.histogram
+        template = self.histogram_template
 
         # Create figure layout
         fig, axes = template.create_figure_layout()
@@ -122,47 +116,11 @@ class EtmPlotter:
 
         return self._handle_plot_output(fig, output_config, histogram=True)
 
-    def _determine_plot_layout(self, plot_data: TimeSeriesPlotData,
-                               output_config: Optional[PlotOutputConfig]) -> Dict[str, Any]:
-        """Determine plot layout based on data and configuration"""
-        # if no specific output_config passed, replaced with default
-        if output_config is None:
-            output_config = self.config.plotting_config
-
-        show_outliers = (output_config and output_config.plot_show_outliers and
-                         plot_data.has_etm_results)
-
-        if show_outliers:
-            fig_size = (16, 10)
-            subplot_config = {'nrows': 3, 'ncols': 2, 'sharex': True}
-            main_axes_indices = [0, 2, 4] #[(0, 0), (1, 0), (2, 0)]
-            outlier_axes_indices = [1, 3, 5] #[(0, 1), (1, 1), (2, 1)]
-        else:
-            fig_size = (16, 10)
-            subplot_config = {'nrows': 3, 'ncols': 1, 'sharex': True}
-            main_axes_indices = [0, 1, 2]
-            outlier_axes_indices = None
-
-            if output_config.plot_missing_solutions:
-                logger.info('Missing solutions requested but the the outlier panel was not requested')
-
-        return {
-            'fig_size': fig_size,
-            'subplot_config': subplot_config,
-            'main_axes_indices': main_axes_indices,
-            'outlier_axes_indices': outlier_axes_indices,
-            'show_outliers': show_outliers
-        }
-
     def _plot_component_data(self, ax, plot_data: TimeSeriesPlotData,
                              component: str, component_idx: int,
-                             template: TimeSeriesTemplate,
                              output_config: PlotOutputConfig) -> None:
         """Plot data for one coordinate component"""
-        # if no specific output_config passed, replaced with default
-        if output_config is None:
-            output_config = self.config.plotting_config
-
+        template = self.time_series_template
         data = plot_data.get_component_data(component_idx)
 
         # Plot observations
@@ -189,13 +147,9 @@ class EtmPlotter:
 
     def _plot_outlier_data(self, ax, plot_data: TimeSeriesPlotData,
                            component_idx: int,
-                           template: TimeSeriesTemplate,
                            output_config: PlotOutputConfig) -> None:
         """Plot outlier comparison data"""
-        # if no specific output_config passed, replaced with default
-        if output_config is None:
-            output_config = self.config.plotting_config
-
+        template = self.time_series_template
         data = plot_data.get_component_data(component_idx)
 
         # activate grid
@@ -214,10 +168,38 @@ class EtmPlotter:
         if output_config.plot_time_window:
             template.apply_time_window(ax, output_config.plot_time_window)
 
+    def _add_logo(self, fig, width: float = 0.12) -> None:
+        """Add GeoDE logo to bottom right corner of figure
+
+        Args:
+            fig: Matplotlib figure
+            width: Logo width as fraction of figure width (default 0.12 = 12%)
+        """
+        if not LOGO_PATH.exists():
+            logger.warning(f'Logo file not found: {LOGO_PATH}')
+            return
+
+        try:
+            logo_img = mpimg.imread(LOGO_PATH)
+            # Calculate height to preserve aspect ratio
+            aspect_ratio = logo_img.shape[1] / logo_img.shape[0]  # width / height
+            height = width / aspect_ratio
+            # Position in bottom right corner: [left, bottom, width, height]
+            left = 1.0 - width - 0.01  # 1% margin from right edge
+            bottom = 0.01  # 1% margin from bottom
+            logo_ax = fig.add_axes((left, bottom, width, height))
+            # Use high-quality interpolation for better rendering when scaled down
+            logo_ax.imshow(logo_img, interpolation='lanczos', resample=True)
+            logo_ax.axis('off')
+        except Exception as e:
+            logger.warning(f'Failed to add logo: {e}')
+
     def _handle_plot_output(self, fig,
                             output_config: Optional[PlotOutputConfig],
                             histogram: bool = False) -> Optional[str]:
         """Handle plot output based on configuration"""
+        # Add logo to figure
+        self._add_logo(fig)
 
         if output_config.filename:
             if not os.path.basename(output_config.filename):

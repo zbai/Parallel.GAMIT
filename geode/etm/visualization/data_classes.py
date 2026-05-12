@@ -11,6 +11,7 @@ from io import BytesIO
 
 from ..core.data_classes import BaseDataClass
 
+
 @dataclass
 class ComponentData:
     """Data for one coordinate component"""
@@ -62,28 +63,6 @@ class TimeSeriesPlotData:
     def get_component_data(self, index: int) -> ComponentData:
         """Get data for component by index (0=N, 1=E, 2=U)"""
         return [self.north_data, self.east_data, self.up_data][index]
-
-
-@dataclass
-class HistogramPlotData:
-    """Container for histogram plot data"""
-    station_id: str
-    solution_type: str
-    completion: float
-    latitude: float
-    longitude: float
-
-    # Residual data (in mm)
-    north_residuals: np.ndarray
-    east_residuals: np.ndarray
-    up_residuals: np.ndarray
-
-    # Covariance information
-    covariance_matrix: Optional[np.ndarray] = None
-    variance_diagonal: Optional[np.ndarray] = None
-
-    # Filter flags
-    outlier_flags: Optional[np.ndarray] = None
 
 
 @dataclass

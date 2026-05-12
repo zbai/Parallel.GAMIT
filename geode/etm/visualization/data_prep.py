@@ -1,91 +1,53 @@
-from abc import ABC, abstractmethod
+"""
+Project: Geodesy Database Engine (GeoDE)
+Date: 9/22/25 8:53 AM
+Author: Demian D. Gomez
 
-from typing import Dict, List, Optional, Tuple, Any
-import matplotlib.pyplot as plt
+Data preparation utilities for ETM plotting.
+"""
+
+from typing import List, Tuple, NamedTuple
 import numpy as np
 import logging
 
 logger = logging.getLogger(__name__)
 
 from ..core.etm_config import EtmConfig
-from ..core.type_declarations import JumpType, FitStatus
+from ..core.type_declarations import FitStatus
 from ..data.solution_data import SolutionData
 from ..least_squares.least_squares import EtmFit
 from ..visualization.data_classes import TimeSeriesPlotData, ComponentData, PlotOutputConfig
 
-class PlotTemplate(ABC):
-    """Abstract base class for plot templates"""
+# Re-export PlotTemplate for backward compatibility
+from ..visualization.plot_template import PlotTemplate
 
-    def __init__(self, config: EtmConfig):
-        self.config = config
-        self.colors = self.setup_colors()
-        self.styles = self.setup_styles()
+# Conversion factor from meters to millimeters
+M_TO_MM = 1000.
 
-        logger.debug(f'PlotTemplate: {str(self.config.plotting_config)}')
 
-    @staticmethod
-    def setup_colors() -> Dict[str, str]:
-        """Setup color scheme"""
-        return {
-            'observations': (0, 150 / 255, 235 / 255),
-            'model': 'red',
-            'confidence': 'lightblue',
-            'outliers': 'cyan',
-            'observations_not_fit': 'darkgray',
-            'mechanical_jump': JumpType.MECHANICAL_MANUAL.color,
-            'antenna_jump': JumpType.MECHANICAL_ANTENNA.color,
-            'frame_jump': JumpType.REFERENCE_FRAME.color,
-            'coseismic_jump': JumpType.COSEISMIC_ONLY.color,
-            'coseismic_decay': JumpType.COSEISMIC_JUMP_DECAY.color,
-            'postseismic': JumpType.POSTSEISMIC_ONLY.color,
-            'auto_jump': JumpType.AUTO_DETECTED.color,
-            'missing_solution': 'magenta'
-        }
+class JumpTableData(NamedTuple):
+    """Container for jump table data used in plotting"""
+    north: list
+    east: list
+    up: list
+    functions: list  # Jump function references for each table entry
 
-    @staticmethod
-    def setup_styles() -> Dict[str, Dict[str, Any]]:
-        """Setup plot styles"""
-        return {
-            'observations': {'marker': 'o', 'markersize': 2, 'linestyle': 'none'},
-            'model': {'linewidth': 1.5},
-            'confidence': {'alpha': 0.2},
-            'jumps': {'linestyle': ':', 'linewidth': 1.75},
-            'auto_jumps': {'linestyle': '-.', 'linewidth': 1}
-        }
-
-    @abstractmethod
-    def create_figure_layout(self, *args, **kwargs) -> Tuple[plt.Figure, Any]:
-        """Create figure and axis layout"""
-        pass
-
-    def generate_title(self, plot_data: TimeSeriesPlotData, output_config: PlotOutputConfig) -> str:
-        """Generate plot title"""
-        base_title = (f"{plot_data.station_id} ({plot_data.stack_name.upper()} {plot_data.completion:.2f}% - "
-                      f"{self.config.modeling.least_squares_strategy.adjustment_model.description}) "
-                      f"lat: {plot_data.latitude:.5f} lon: {plot_data.longitude:.5f}")
-        return base_title
-
-# ============================================================================
-# Data preparation utilities
-# ============================================================================
 
 class PlotDataPreparer:
-    """Utility class for preparing plot data from ETM results"""
+    """Prepares ETM results for plotting by transforming coordinates and organizing data"""
 
     def __init__(self, config: EtmConfig):
-
         self.config = config
         self.output_config = config.plotting_config
 
     def prepare_time_series_data(self, solution_data: SolutionData,
-                                 etm_fit: EtmFit = None) -> TimeSeriesPlotData:
+                                 etm_fit: EtmFit) -> TimeSeriesPlotData:
         """Prepare data for time series plotting"""
-
         # Transform coordinates to local frame
         local_coords = solution_data.transform_to_local(ignore_data_window=True)
 
-        # Prepare component data
-        n_data, e_data, u_data = self._prepare_component_data(local_coords, solution_data, etm_fit)
+        # Prepare component data for N, E, U
+        component_data = self._prepare_all_components(local_coords, solution_data, etm_fit)
         jump_tables = self._prepare_jump_tables(etm_fit)
 
         # Create plot data container
@@ -96,123 +58,168 @@ class PlotDataPreparer:
             completion=solution_data.completion,
             latitude=solution_data.lat[0],
             longitude=solution_data.lon[0],
-            north_data=n_data,
-            east_data=e_data,
-            up_data=u_data,
+            north_data=component_data[0],
+            east_data=component_data[1],
+            up_data=component_data[2],
             covariance_matrix=etm_fit.covar,
             has_etm_results=self.config.modeling.status == FitStatus.POSTFIT,
-            jump_tables=(jump_tables[0], jump_tables[1], jump_tables[2]),
-            jumps=jump_tables[3],
+            jump_tables=(jump_tables.north, jump_tables.east, jump_tables.up),
+            jumps=jump_tables.functions,
             missing_solutions=solution_data.time_vector_ns
         )
 
-        # Add ETM-specific information
+        # Add ETM-specific summaries
         if etm_fit:
             plot_data.parameter_summary = self._generate_parameter_summary(etm_fit, solution_data)
             plot_data.periodic_summary = self._generate_periodic_summary(etm_fit)
-            plot_data.wrms_values = (etm_fit.results[0].wrms * 1000.,
-                                     etm_fit.results[1].wrms * 1000.,
-                                     etm_fit.results[2].wrms * 1000.)
+            plot_data.wrms_values = (
+                etm_fit.results[0].wrms * M_TO_MM,
+                etm_fit.results[1].wrms * M_TO_MM,
+                etm_fit.results[2].wrms * M_TO_MM
+            )
 
         return plot_data
 
     @staticmethod
-    def _prepare_jump_tables(etm_results: EtmFit) -> Tuple[list, list, list, list]:
-
-        jump_tables = ([], [], [], [])
+    def _prepare_jump_tables(etm_results: EtmFit) -> JumpTableData:
+        """Extract jump parameter tables from ETM results for plot annotations"""
+        tables = JumpTableData(north=[], east=[], up=[], functions=[])
 
         for funct in etm_results.design_matrix.functions:
             if funct.p.object == 'jump':
-                tables = funct.print_parameters()
-                # loop and add the jump twice to account for multiple lines in co+postseismic
-                # this is because in time series template we loop using jump_tables
-                #@todo: make the loop in time series template use the jumps to call and build tables right there
-                for _ in range(len(tables[0])):
-                    jump_tables[3].append(funct)
-                for i in range(3):
-                    jump_tables[i].extend(tables[i])
+                param_tables = funct.print_parameters()
+                # Add function reference for each table row (handles multi-line jumps like co+postseismic)
+                for _ in range(len(param_tables[0])):
+                    tables.functions.append(funct)
+                # Extend component tables
+                tables.north.extend(param_tables[0])
+                tables.east.extend(param_tables[1])
+                tables.up.extend(param_tables[2])
 
-        return jump_tables
+        return tables
 
-    def _prepare_component_data(self, observations: List, solution_data: SolutionData,
+    def _prepare_all_components(self, observations: List, solution_data: SolutionData,
                                 etm_results: EtmFit) -> List[ComponentData]:
-        """Prepare data for one coordinate component"""
-        data = []
-
-        # apply observation mask if any
+        """Prepare plot data for all three coordinate components (N, E, U)"""
         mask = etm_results.config.modeling.get_observation_mask(solution_data.time_vector)
+        is_postfit = etm_results.config.modeling.status == FitStatus.POSTFIT
 
+        component_data = []
         for i in range(3):
-            data.append(ComponentData(
-                observations=observations[i] * 1000, # convert to mm
-                observations_fit=observations[i][mask] * 1000,  # convert to mm
-                observations_not_fit=observations[i][~mask] * 1000, # convert to mm
-                time_vector=solution_data.time_vector,
-                time_vector_fit=solution_data.time_vector[mask],
-                time_vector_not_fit=solution_data.time_vector[~mask],
-                time_range=(solution_data.time_vector.min(), solution_data.time_vector.max())
-            ))
+            data = self._create_base_component_data(observations[i], solution_data, mask)
 
-            # Add model values
-            if etm_results.config.modeling.status == FitStatus.POSTFIT:
-                model_values = (etm_results.design_matrix.alternate_time_vector(solution_data.time_vector_cont)
-                                @ etm_results.results[i].parameters) + etm_results.results[i].stochastic_signal
-                data[i].model_time_vector = solution_data.time_vector_cont
-                data[i].model_values = model_values * 1000  # Convert to mm
+            if is_postfit:
+                self._add_model_and_residuals(data, i, solution_data, etm_results)
+                self._apply_signal_removals(data, i, solution_data, etm_results, mask)
+                self._add_confidence_bounds(data, i, etm_results)
+                data.outlier_flags = etm_results.outlier_flags
 
-                # Add residuals
-                data[i].residuals = etm_results.results[i].residuals * 1000.
+            component_data.append(data)
 
-                for funct in etm_results.design_matrix.functions:
-                    if ((funct.p.object == 'periodic' and self.output_config.plot_remove_periodic)
-                            or (funct.p.object == 'polynomial' and self.output_config.plot_remove_polynomial)
-                            or (funct.p.object == 'jump' and self.output_config.plot_remove_jumps)) and funct.fit:
-                        data[i].observations -= funct.eval(i) * 1000.
-                        data[i].observations_fit -= funct.eval(i, data[i].time_vector_fit) * 1000.
-                        if np.any(~mask):
-                            data[i].observations_not_fit -= funct.eval(i, data[i].time_vector_not_fit) * 1000.
-                        data[i].model_values -= funct.eval(i, solution_data.time_vector_cont) * 1000.
+        return component_data
 
-                    if self.output_config.plot_remove_stochastic:
-                        if funct.p.object == 'stochastic':
-                            # user requested to remove stochastic signal
-                            data[i].observations -= funct.eval(i, solution_data.time_vector_mjd) * 1000.
-                            data[i].observations_fit -= funct.eval(i, solution_data.time_vector_mjd[mask]) * 1000.
-                            if np.any(~mask):
-                                data[i].observations_not_fit -= (
-                                        funct.eval(i, solution_data.time_vector_mjd[~mask]) * 1000.)
-                            data[i].model_values -= etm_results.results[i].stochastic_signal * 1000.
-                            # residuals don't have stochastic signal included, so no need to remove
-                    else:
-                        # because the residuals already have the stochastic signal removed, add back
-                        # if user requests to NOT REMOVE
-                        if funct.p.object == 'stochastic':
-                            data[i].residuals += funct.eval(i, solution_data.time_vector_mjd[mask]) * 1000.
+    @staticmethod
+    def _create_base_component_data(obs: np.ndarray, solution_data: SolutionData,
+                                    mask: np.ndarray) -> ComponentData:
+        """Create ComponentData with basic observation data"""
+        return ComponentData(
+            observations=obs * M_TO_MM,
+            observations_fit=obs[mask] * M_TO_MM,
+            observations_not_fit=obs[~mask] * M_TO_MM,
+            time_vector=solution_data.time_vector,
+            time_vector_fit=solution_data.time_vector[mask],
+            time_vector_not_fit=solution_data.time_vector[~mask],
+            time_range=(solution_data.time_vector.min(), solution_data.time_vector.max())
+        )
 
-                # Add confidence bounds
-                limit = self.config.modeling.least_squares_strategy.sigma_filter_limit
-                sigma = etm_results.results[i].wrms * 1000  # Convert to mm
-                data[i].confidence_bounds = (
-                    data[i].model_values - limit * sigma,
-                    data[i].model_values + limit * sigma
-                )
+    @staticmethod
+    def _add_model_and_residuals(data: ComponentData, component_idx: int,
+                                 solution_data: SolutionData, etm_results: EtmFit) -> None:
+        """Add model values and residuals to component data"""
+        result = etm_results.results[component_idx]
+        design = etm_results.design_matrix
 
-                # Add outlier flags
-                data[i].outlier_flags = etm_results.outlier_flags
+        model_values = (design.alternate_time_vector(solution_data.time_vector_cont)
+                        @ result.parameters) + result.stochastic_signal
 
-        return data
+        data.model_time_vector = solution_data.time_vector_cont
+        data.model_values = model_values * M_TO_MM
+        data.residuals = result.residuals * M_TO_MM
+
+    def _apply_signal_removals(self, data: ComponentData, component_idx: int,
+                               solution_data: SolutionData, etm_results: EtmFit,
+                               mask: np.ndarray) -> None:
+        """Remove requested signal components from observations and model"""
+        cfg = self.output_config
+
+        for funct in etm_results.design_matrix.functions:
+            obj_type = funct.p.object
+
+            # Remove periodic, polynomial, or jump signals if requested
+            if self._should_remove_signal(obj_type, cfg) and funct.fit:
+                self._subtract_signal_from_data(data, component_idx, funct,
+                                                solution_data.time_vector_cont, mask)
+
+            # Handle stochastic signal specially
+            if obj_type == 'stochastic':
+                self._handle_stochastic_signal(data, component_idx, funct,
+                                               solution_data, etm_results, mask)
+
+    @staticmethod
+    def _should_remove_signal(obj_type: str, cfg: PlotOutputConfig) -> bool:
+        """Check if a signal type should be removed based on config"""
+        return ((obj_type == 'periodic' and cfg.plot_remove_periodic) or
+                (obj_type == 'polynomial' and cfg.plot_remove_polynomial) or
+                (obj_type == 'jump' and cfg.plot_remove_jumps))
+
+    @staticmethod
+    def _subtract_signal_from_data(data: ComponentData, component_idx: int,
+                                   funct, time_vector_cont: np.ndarray,
+                                   mask: np.ndarray) -> None:
+        """Subtract a signal component from all relevant data arrays"""
+        data.observations -= funct.eval(component_idx) * M_TO_MM
+        data.observations_fit -= funct.eval(component_idx, data.time_vector_fit) * M_TO_MM
+        if np.any(~mask):
+            data.observations_not_fit -= funct.eval(component_idx, data.time_vector_not_fit) * M_TO_MM
+        data.model_values -= funct.eval(component_idx, time_vector_cont) * M_TO_MM
+
+    def _handle_stochastic_signal(self, data: ComponentData, component_idx: int,
+                                  funct, solution_data: SolutionData,
+                                  etm_results: EtmFit, mask: np.ndarray) -> None:
+        """Handle stochastic signal removal or restoration in residuals"""
+        time_mjd = solution_data.time_vector_mjd
+
+        if self.output_config.plot_remove_stochastic:
+            # Remove stochastic signal from observations and model
+            data.observations -= funct.eval(component_idx, time_mjd) * M_TO_MM
+            data.observations_fit -= funct.eval(component_idx, time_mjd[mask]) * M_TO_MM
+            if np.any(~mask):
+                data.observations_not_fit -= funct.eval(component_idx, time_mjd[~mask]) * M_TO_MM
+            data.model_values -= etm_results.results[component_idx].stochastic_signal * M_TO_MM
+            # Note: residuals don't include stochastic signal, so no removal needed
+        else:
+            # Residuals have stochastic removed by default; add it back if user wants to see it
+            data.residuals += funct.eval(component_idx, time_mjd[mask]) * M_TO_MM
+
+    def _add_confidence_bounds(self, data: ComponentData, component_idx: int,
+                               etm_results: EtmFit) -> None:
+        """Add confidence bounds based on WRMS and sigma filter limit"""
+        limit = self.config.modeling.least_squares_strategy.sigma_filter_limit
+        sigma = etm_results.results[component_idx].wrms * M_TO_MM
+        data.confidence_bounds = (
+            data.model_values - limit * sigma,
+            data.model_values + limit * sigma
+        )
 
     @staticmethod
     def _generate_parameter_summary(etm_results: EtmFit, solution_data: SolutionData) -> str:
-        """Generate parameter summary string"""
-        # This would integrate with the function objects to generate
-        # formatted parameter summaries
+        """Generate polynomial parameter summary string for plot title"""
         output = ['']
 
         for funct in etm_results.design_matrix.functions:
             if funct.p.object == 'polynomial' and funct.fit:
-                # retrieve conventional epoch position
-                ce_position =  solution_data.transform_to_ecef(
+                # Retrieve conventional epoch position
+                ce_position = solution_data.transform_to_ecef(
                     etm_results.get_time_continuous_model(np.array([funct.p.t_ref])))
                 output, _, _ = funct.print_parameters(ce_position=ce_position)
 
@@ -220,8 +227,7 @@ class PlotDataPreparer:
 
     @staticmethod
     def _generate_periodic_summary(etm_results: EtmFit) -> str:
-        """Generate periodic parameter summary"""
-        # This would integrate with periodic function to generate summary
+        """Generate periodic parameter summary string for plot title"""
         output = ['']
 
         for funct in etm_results.design_matrix.functions:

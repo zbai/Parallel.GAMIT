@@ -163,7 +163,7 @@ class SolutionType(IntEnum):
         for member in cls:
             if member.code == code:
                 return member
-        raise ValueError(f"No SolutionType with code '{code}'")
+        return SolutionType.GAMIT
 
     @property
     def description(self) -> str:

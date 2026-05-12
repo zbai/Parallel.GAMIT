@@ -9,7 +9,7 @@ import numpy as np
 from typing import Dict, Tuple
 from matplotlib.patches import Ellipse
 
-from ..visualization.data_prep import PlotTemplate
+from ..visualization.plot_template import PlotTemplate
 from ..visualization.data_classes import TimeSeriesPlotData, PlotOutputConfig
 
 
