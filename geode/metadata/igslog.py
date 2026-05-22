@@ -1,478 +1,1033 @@
-"""IGS log files parser
-Adapted from:
-Geoscience Australia
-GNSS Analysis Toolbox (GNSSAnalysis) - IGS log file parser
-under Apache License 2.0
+"""IGS Site Log File Parser
+
+Parses IGS site log files (v1.0 and v2.0 formats) to extract station information
+including receiver, antenna, and NEU eccentricity data.
+
+Adapted from Geoscience Australia GNSS Analysis Toolbox under Apache License 2.0
 https://github.com/GeoscienceAustralia/gnssanalysis/blob/main/gnssanalysis/gn_io/igslog.py
-Revisions by Patrick D Smith, Jan 2025
-"""
 
-r"""
-notes from PDS Jan 2025
-
-_REGEX_ID_V1 appears to be missing the parenthesis between OR aka | operator:
-    change from (?:Four\sCharacter\sID|Site\sID)
-    to: ((?:Nine\sCharacter\sID)|(?:Four\sCharacter\sID)|(?:Site\sID))
-    (ps. probably same issue in the regex for igs format v2)
-    It also needs to allow 'Nine Character ID' in v1
-    
-extract_id_block() inside:
-    id_block = [id_block[1].decode().upper(), id_block[2].decode().upper()] = 
-    station code is second entry aka flip the id_block indices
-    change to:
-    id_block = [id_block[2].decode().upper(), id_block[1].decode().upper()] = 
-    
-    also add in force upper on the provided code when comparing id_block[1]
-        if code != file_code:
-        becomes if code != file_code.upper():
-
-old _REGEX_LOC_V1
-    2.+\W+City\sor\sTown\s+\:\s*(\w[^\(\n\,/\?]+|).*\W+
-    State.+\W+Country\s+\:\s*([^\(\n\,\d]+|).*\W+(?:\s{25}.+\W+|)
-                     __
-new _REGEX_LOC_V1
-    2.+\W+City\sor\sTown\s+\:\s*(\w[^\(\n\,/\?]+|).*\W+
-    State.+\W+Country.+\:\s*([^\(\n\,\d]+|).*\W+(?:\s{25}.+\W+|)
-                     __
-    (appears to be the same issue in v2)
-
-update parse_igs_log_data() to return a single array with 
-    receiver and antenna entries for each time block
-    new time block for each equipment changeout
-    
-example output info expected:
-*SITE  Station Name      Session Start      Session Stop        Ant Ht  HtCod   Ant N    Ant E   Receiver Type         Vers                  SwVer  Receiver SN           Antenna Type     Dome   Antenna SN         
- OFLA  OFLA              2015 298  0  0  0  2015 298 23 59 59   0.0490  DHARP   0.0000   0.0000  LEICA GR25            3.11/6.403            0.00   1831129               LEIAS10          UNKN   13291092            mstinf: ../rinex/ofla298u.15o?
-
-DDG: corrected some logic issues
-
+Revisions:
+- Patrick D Smith, Jan 2025: Initial adaptation
+- Demian Gomez, May 2026: Refactored for clarity, proper NEU handling
 """
 
 import logging
-import re as _re
-from typing import Union, List, Tuple
+import re
+from dataclasses import dataclass
 from datetime import datetime
-import numpy as _np
+from typing import List, Optional, Tuple, TYPE_CHECKING
+
+# geode dependecies
+from ..pyDate import Date
+
+if TYPE_CHECKING:
+    from .station_info import StationInfoRecord
+
 
 logger = logging.getLogger(__name__)
 
-# Defines what IGS Site Log format versions we currently support.
-# Example logs for the first two versions can be found at:
-# Version 1: https://files.igs.org/pub/station/general/blank.log
-# Version 2: https://files.igs.org/pub/station/general/blank_v2.0.log
-
-_REGEX_LOG_VERSION_1 = _re.compile(rb"""(site log\))""")
-_REGEX_LOG_VERSION_2 = _re.compile(rb"""(site log v2.0)""")
-
-_REGEX_ID_V1 = _re.compile(
-    rb"""
-    (?:Nine\sCharacter\sID|Four\sCharacter\sID|Site\sID)\s+\:\s*(\w{4}).*\W+
-    .*\W+
-    (?:\s{25}.+\W+|)
-    IERS.+\:\s*(\w{9}|)
-    """,
-    _re.IGNORECASE | _re.VERBOSE,
-)
-
-_REGEX_ID_V2 = _re.compile(
-    rb"""
-    (?:Nine\sCharacter\sID|Site\sID)\s+\:\s*(\w{4}).*\W+
-    .*\W+
-    (?:\s{25}.+\W+|)
-    IERS.+\:\s*(\w{9}|)
-    """,
-    _re.IGNORECASE | _re.VERBOSE,
-)
-
-_REGEX_LOC_V1 = _re.compile(
-    rb"""
-    2.+\W+City\sor\sTown\s+\:\s*(\w[^\(\n\,/\?]+|).*\W+
-    State.+\W+Country.+\:\s*([^\(\n\,\d]+|).*\W+(?:\s{25}.+\W+|)
-    Tectonic.+\W+(?:\s{25}.+\W+|).+\W+
-    X.+\:\s*([\d\-\+\.\,]+|).*\W+
-    Y.+\:\s*([\d\-\+\.\,]+|).*\W+
-    Z.+\:\s*([\d\-\+\.\,]+|).*\W+
-    Latitude.+\:\s*([\d\.\,\-\+]+|).*\W+
-    Longitud.+\:\s*([\d\.\,\-\+]+|).*\W+
-    Elevatio.+\:\s*([\d\.\,\-\+]+|).*
-    """,
-    _re.IGNORECASE | _re.VERBOSE,
-)
-
-_REGEX_LOC_V2 = _re.compile(
-    rb"""
-    2.+\W+City\sor\sTown\s+\:\s*(\w[^\(\n\,/\?]+|).*\W+
-    State.+\W+Country\sor\sRegion\s+\:\s*([^\(\n\,\d]+|).*\W+(?:\s{25}.+\W+|)
-    Tectonic.+\W+(?:\s{25}.+\W+|).+\W+
-    X.{22}\:?\s*([\d\-\+\.\,]+|).*\W+
-    Y.{22}\:?\s*([\d\-\+\.\,]+|).*\W+
-    Z.{22}\:?\s*([\d\-\+\.\,]+|).*\W+
-    Latitude.+\:\s*([\d\.\,\-\+]+|).*\W+
-    Longitud.+\:\s*([\d\.\,\-\+]+|).*\W+
-    Elevatio.+\:\s*([\d\.\,\-\+]+|).*
-    """,
-    _re.IGNORECASE | _re.VERBOSE,
-)
-
-_REGEX_REC = _re.compile(
-    rb"""
-    3\.\d+[ ]+Receiver[ ]Type\W+\:[ ]*([\+\-\w\ ]+|)\W+                           # Receiver Type line
-    (?:Satellite[ ]System[ ]+\:[ ]*(?:(.+|)[ ]*[\r\n ]+[ ]+)|)      # Satellite System (normally present)
-    Serial[ ]Number[ ]+\:[ ]*(\w+|).*\W+                                              # Receiver S/N line
-    Firmware[ ]Version[ ]+\:[ ]*([\w\.\/ ]+|).*\W+                     # Receiver Firmware Version line
-    ()()()                                             # 3 empty groups to align with antenna block
-    (?:Elevation[ ]Cutoff\sSetting[ ]*\:[ ]*(?:.+|)|)\W+ # Elevation Cutoff Setting (normally present)
-    Date[ ]Installed\W+\:[ ]*(\d{4}.+|).*\W+                                    # Date Installed line
-    (?:Date[ ]Removed\W+\:(?:[ ]*(\d{4}.+|))|)                 # Date Removed line (normally present)
-    """,
-    _re.IGNORECASE | _re.VERBOSE,
-)
-
-_REGEX_ANT = _re.compile(
-    rb"""
-    4\.\d+[ ]+Antenna[ ]Type\W+:[\t ]*([\/\_\S]+|)[ \t]*(\w+|)[\,?.]*\W+            # Antenna Type line
-    Serial[ ]Number[ ]+:[ ]*(\S+|\S+[ ]\S+|\S+[ ]\S+[ ]\S+|).*\W+                      # Antenna S/N line
-    (?:Antenna[ ]Height.+\W+|)                                        # Antenna H (normally present)
-    (?:Antenna[ ]Ref.+\W+|)                                  # Antenna Ref. Point (normally present)
-    (?:Degree.+\W+|)                                             # Degree offset line (rarely used)
-    (?:Marker->ARP[ ]Up.+\:[ ]*([\-\d\.]+|).*\W+
-    Marker->ARP[ ]North.+\:[ ]*([\-\d\.]+|).*\W+
-    Marker->ARP[ ]East.+\:[ ]*([\-\d\.]+|).*\W+|)               # Marker Ecc block (normally present)
-    (?:Alignment.+[\n\r](?:[ ]{25}.+[\r\n]+|)\W+|)   # Alignment from True N line (normally present)
-    Antenna[ ]Rad.+\:[ ]?(.+|)(?:\(.+\)|)\W+                               # Antenna Radome Type line
-    (?:(?:(?:Rad|Antenna[ ]Rad).+\W+|)         # Radome S/N or Antenna Radome S/N (normally present)
-    Ant.+[\n\r]+(?:[ ]{25}.+[\r\n]+|)\W+                                   # Antenna Cable Type line
-    Ant.+[\n\r]+(?:[ ]{25}.+[\r\n]+|)\W+|)                               # Antenna Cable Length line
-    Date[ ]Installed[ ]+\:[ ]*(\d{4}.+|).*\W+                                    # Date Installed line
-    (?:Date[ ]Removed[ ]+\:(?:[ ]*(\d{4}.+|))|)                 # Date Removed line (normally present)
-    """,
-    _re.IGNORECASE | _re.VERBOSE,
-)
-
 
 class LogVersionError(Exception):
-    """
-    Log file does not conform to known IGS version standard
-    """
-
+    """Log file does not conform to known IGS version standard"""
     pass
 
 
+class LogParseError(Exception):
+    """Error parsing log file content"""
+    pass
+
+
+# =============================================================================
+# Data Classes
+# =============================================================================
+
+@dataclass
+class ReceiverEntry:
+    """Receiver information from an IGS log file"""
+    receiver_type: str
+    serial_number: str
+    firmware_version: str
+    date_installed: Date
+    date_removed: Date
+
+
+@dataclass
+class AntennaEntry:
+    """Antenna information from an IGS log file"""
+    antenna_type: str
+    radome_type: str
+    serial_number: str
+    ecc_up: float      # Marker->ARP Up eccentricity in meters
+    ecc_north: float   # Marker->ARP North eccentricity in meters
+    ecc_east: float    # Marker->ARP East eccentricity in meters
+    alignment: float   # Alignment from True N in degrees (antenna DAZ)
+    date_installed: Date
+    date_removed: Date
+
+
+# =============================================================================
+# Regex Patterns
+# =============================================================================
+
+# Version detection patterns
+_RE_VERSION_1 = re.compile(rb'site log\)', re.IGNORECASE)
+_RE_VERSION_2 = re.compile(rb'site log v2\.0', re.IGNORECASE)
+
+# Site identification pattern (works for both v1 and v2)
+_RE_SITE_ID = re.compile(
+    rb'(?:Nine\sCharacter\sID|Four\sCharacter\sID|Site\sID)\s+:\s*(\w{4,9})'
+    rb'.*?IERS[^\n:]+:\s*(\w{9})?',
+    re.IGNORECASE | re.DOTALL
+)
+
+# Location pattern - extract city/town
+_RE_LOCATION = re.compile(
+    rb'City\s+or\s+Town\s+:\s*([^\n(,/?]+)',
+    re.IGNORECASE
+)
+
+# Receiver block pattern
+# Note: Firmware version can contain various characters (e.g., "1.3-1", "CQ00", "AA-004.43")
+# so we match any non-newline characters
+_RE_RECEIVER = re.compile(
+    rb'3\.(\d+)\s+Receiver\s+Type\s+:\s*([\w\s\-\+]+?)\s*[\r\n]'
+    rb'.*?Serial\s+Number\s+:\s*(\w*)'
+    rb'.*?Firmware\s+Version\s+:\s*([^\r\n]*?)\s*[\r\n]'
+    rb'.*?Date\s+Installed\s+:\s*(\d{4}[^\r\n]+)'
+    rb'.*?Date\s+Removed\s+:\s*(\d{4}[^\r\n]+|\(CCYY[^\)]+\))?',
+    re.IGNORECASE | re.DOTALL
+)
+
+# Antenna block pattern
+_RE_ANTENNA = re.compile(
+    rb'4\.(\d+)\s+Antenna\s+Type\s+:\s*(\S+)\s*(\w*)\s*[\r\n]'
+    rb'.*?Serial\s+Number\s+:\s*(\S*)'
+    rb'.*?Marker->ARP\s+Up\s+Ecc[^:]*:\s*([\d.\-]+)?'
+    rb'.*?Marker->ARP\s+North\s+Ecc[^:]*:\s*([\d.\-]+)?'
+    rb'.*?Marker->ARP\s+East\s+Ecc[^:]*:\s*([\d.\-]+)?'
+    rb'(?:[^\n]*\n\s*Alignment\s+from\s+True\s+N[^:]*:\s*([\d.\-]+)?)?'  # Optional alignment field
+    rb'.*?Antenna\s+Radome\s+Type\s+:\s*(\w*)'
+    rb'.*?Date\s+Installed\s+:\s*(\d{4}[^\r\n]+)'
+    rb'.*?Date\s+Removed\s+:\s*(\d{4}[^\r\n]+|\(CCYY[^\)]+\))?',
+    re.IGNORECASE | re.DOTALL
+)
+
+# Far future date for open-ended sessions
+_FAR_FUTURE = Date(stninfo='9999 999 00 00 00')
+
+
+# =============================================================================
+# Parsing Functions
+# =============================================================================
+
 def determine_log_version(data: bytes) -> str:
-    """Given the byes object that results from reading an IGS log file, determine the version ("v1.0" or "v2.0")
+    """Determine the IGS log file version from file content.
 
-    :param bytes data: IGS log file bytes object to determine the version of
-    :return str: Return the version number: "v1.0" or "v2.0" (or "Unknown" if file does not conform to standard)
+    Args:
+        data: Raw bytes from reading the log file
+
+    Returns:
+        Version string: "v1.0" or "v2.0"
+
+    Raises:
+        LogVersionError: If version cannot be determined
     """
+    first_line = data.lstrip(b'\n').split(b'\n')[0]
 
-    # Remove leading newline if present, to be safe, then truncate to first line
-    first_line_bytes = data.lstrip(b"\n").split(b"\n")[0]
+    if _RE_VERSION_2.search(first_line):
+        return 'v2.0'
+    if _RE_VERSION_1.search(first_line):
+        return 'v1.0'
 
-    result_v1 = _REGEX_LOG_VERSION_1.search(first_line_bytes)
-    if result_v1:
-        return "v1.0"
-
-    result_v2 = _REGEX_LOG_VERSION_2.search(first_line_bytes)
-    if result_v2:
-        return "v2.0"
-
-    raise LogVersionError(f"File does not conform to any known IGS Site Log version. First line is: {first_line_bytes}")
+    raise LogVersionError(
+        f'File does not conform to any known IGS Site Log version. '
+        f'First line: {first_line.decode(errors="ignore")}'
+    )
 
 
-def extract_id_block(
-    data: bytes, file_path: str, version: Union[str, None] = None
-) -> Union[List[str], _np.ndarray]:
-    """Extract the site ID block given the bytes object read from an IGS site log file
+def _parse_date(date_str: bytes) -> Date:
+    """Parse date string from IGS log format.
 
-    :param bytes data: The bytes object returned from an open() call on a IGS site log in "rb" mode
-    :param str file_path: The path to the file from which the "data" bytes object was obtained
-    :param str version: Version number of log file (e.g. "v2.0") - determined if version=None, defaults to None
-    :raises LogVersionError: Raises an error if an unknown version string is passed in
-    :return bytes: The site ID block of tshe IGS site log
-    
-    PDS Jan 2025
-    remove code&date input; only input file name (don't check log matches code later)
+    Args:
+        date_str: Date bytes in format YYYY-MM-DDThh:mmZ or similar
+
+    Returns:
+        Parsed datetime object, or far future date if parsing fails
     """
-    if version == None:
-        version = determine_log_version(data)
+    if not date_str or date_str.startswith(b'('):
+        return _FAR_FUTURE
 
-    if version == "v1.0":
-        _REGEX_ID = _REGEX_ID_V1
-    elif version == "v2.0":
-        _REGEX_ID = _REGEX_ID_V2
+    date_text = date_str.decode('utf-8', errors='ignore').strip()
+
+    # Try common formats
+    formats = [
+        '%Y-%m-%dT%H:%MZ',
+        '%Y-%m-%dT%H:%M:%SZ',
+        '%Y-%m-%d',
+    ]
+
+    for fmt in formats:
+        try:
+            return Date(datetime=datetime.strptime(date_text, fmt))
+        except ValueError:
+            continue
+
+    logger.warning(f'Could not parse date: {date_text}')
+    return _FAR_FUTURE
+
+
+def _parse_float(value: Optional[bytes], default: float = 0.0) -> float:
+    """Safely parse a float value from bytes.
+
+    Args:
+        value: Bytes containing a float value
+        default: Default value if parsing fails
+
+    Returns:
+        Parsed float or default value
+    """
+    if not value:
+        return default
+    try:
+        return float(value.decode('utf-8', errors='ignore').strip())
+    except (ValueError, AttributeError):
+        return default
+
+
+def _extract_site_info(data: bytes, file_path: str) -> Tuple[str, str]:
+    """Extract site code and name from log file.
+
+    Args:
+        data: Raw log file bytes
+        file_path: Path to file (for error messages)
+
+    Returns:
+        Tuple of (site_code, site_name)
+    """
+    # Extract site code
+    id_match = _RE_SITE_ID.search(data)
+    if id_match:
+        site_code = id_match.group(1).decode('utf-8', errors='ignore').upper()[:4]
     else:
-        raise LogVersionError(f"Incorrect version string '{version}' passed to the extract_id_block() function")
+        logger.warning(f'Could not extract site ID from {file_path}')
+        site_code = 'UNKN'
 
-    id_block = _REGEX_ID.search(data)
-
-    if id_block is None:
-        logger.warning(f"ID rejected from {file_path}")
-        return _np.array([]).reshape(0, 12)
-
-    id_block = [id_block[1].decode().upper(), id_block[2].decode().upper()]  # no .groups() thus 1 and 2
-    code = id_block[0]
-    return id_block
-
-
-def extract_location_block(data: bytes, file_path: str, version: Union[str, None] = None) -> _np.ndarray:
-    """Extract the location block given the bytes object read from an IGS site log file
-
-    :param bytes data: The bytes object returned from an open() call on a IGS site log in "rb" mode
-    :param str file_path: The path to the file from which the "data" bytes object was obtained
-    :param str version: Version number of log file (e.g. "v2.0") - will be determined from input data unless
-        provided here.
-    :raises LogVersionError: Raises an error if an unknown version string is passed in
-    :return _np.ndarray: The location block of the IGS site log, as a numpy NDArray of strings
-    """
-    if version == None:
-        version = determine_log_version(data)
-
-    if version == "v1.0":
-        _REGEX_LOC = _REGEX_LOC_V1
-    elif version == "v2.0":
-        _REGEX_LOC = _REGEX_LOC_V2
+    # Extract site name (city/town)
+    loc_match = _RE_LOCATION.search(data)
+    if loc_match:
+        site_name = loc_match.group(1).decode('utf-8', errors='ignore').strip()
     else:
-        raise LogVersionError(f"Incorrect version string '{version}' passed to extract_location_block() function")
+        site_name = ''
 
-    location_block = _REGEX_LOC.search(data)
-    if location_block is None:
-        logger.warning(f"LOC rejected from {file_path}")
-        return _np.array([]).reshape(0, 12)
-    return location_block
+    return site_code, site_name
 
 
-def extract_receiver_block(data: bytes, file_path: str) -> Union[List[Tuple[bytes]], _np.ndarray]:
-    """Extract the location block given the bytes object read from an IGS site log file
+def _extract_receivers(data: bytes, file_path: str) -> List[ReceiverEntry]:
+    """Extract all receiver entries from log file.
 
-    :param bytes data: The bytes object returned from an open() call on a IGS site log in "rb" mode
-    :param str file_path: The path to the file from which the "data" bytes object was obtained
-    :return List[Tuple[bytes]] or _np.ndarray: The receiver block of the data. Each list element specifies an receiver.
-        If regex doesn't match, an empty numpy NDArray is returned instead.
+    Args:
+        data: Raw log file bytes
+        file_path: Path to file (for error messages)
+
+    Returns:
+        List of ReceiverEntry objects
     """
-    receiver_block = _REGEX_REC.findall(data)
-    if receiver_block == []:
-        logger.warning(f"REC rejected from {file_path}")
-        return _np.array([]).reshape(0, 12)
+    receivers = []
 
-    for i, r in enumerate(receiver_block):
-        receiver_block[i] = list(receiver_block[i])
-        if not r[8]:
-            receiver_block[i][8] = b'2100-12-31T23:59Z'
-        
-        receiver_block[i][7] = datetime.strptime(receiver_block[i][7].decode("utf-8"), '%Y-%m-%dT%H:%MZ')
-        receiver_block[i][8] = datetime.strptime(receiver_block[i][8].decode("utf-8"), '%Y-%m-%dT%H:%MZ')
-        
-    return receiver_block
+    for match in _RE_RECEIVER.finditer(data):
+        try:
+            entry = ReceiverEntry(
+                receiver_type=match.group(2).decode('utf-8', errors='ignore').strip(),
+                serial_number=match.group(3).decode('utf-8', errors='ignore').strip() if match.group(3) else '',
+                firmware_version=match.group(4).decode('utf-8', errors='ignore').strip() if match.group(4) else '',
+                date_installed=_parse_date(match.group(5)),
+                date_removed=_parse_date(match.group(6)) if match.group(6) else _FAR_FUTURE
+            )
+            receivers.append(entry)
+        except Exception as e:
+            logger.warning(f'Error parsing receiver block in {file_path}: {e}')
+
+    if not receivers:
+        logger.warning(f'No receiver blocks found in {file_path}')
+
+    return receivers
 
 
-def extract_antenna_block(data: bytes, file_path: str) -> Union[List[Tuple[bytes]], _np.ndarray]:
-    """Extract the antenna block given the bytes object read from an IGS site log file
+def _extract_antennas(data: bytes, file_path: str) -> List[AntennaEntry]:
+    """Extract all antenna entries from log file.
 
-    :param bytes data: The bytes object returned from an open() call on a IGS site log in "rb" mode
-    :param str file_path: The path to the file from which the "data" bytes object was obtained
-    :return List[Tuple[bytes]] or _np.ndarray: The antenna block of the data. Each list element specifies an antenna.
-        If regex doesn't match, an empty numpy NDArray is returned instead.
+    Args:
+        data: Raw log file bytes
+        file_path: Path to file (for error messages)
+
+    Returns:
+        List of AntennaEntry objects
     """
-    antenna_block = _REGEX_ANT.findall(data)
-    if antenna_block == []:
-        logger.warning(f"ANT rejected from {file_path}")
-        return _np.array([]).reshape(0, 12)
-    
-    for i, a in enumerate(antenna_block):
-        antenna_block[i] = list(antenna_block[i])
-        if not a[8]:
-            antenna_block[i][8] = b'2100-12-31T23:59Z'
-        
-        antenna_block[i][7] = datetime.strptime(antenna_block[i][7].decode("utf-8"), '%Y-%m-%dT%H:%MZ')
-        antenna_block[i][8] = datetime.strptime(antenna_block[i][8].decode("utf-8"), '%Y-%m-%dT%H:%MZ')
-        
-    return antenna_block
+    antennas = []
+
+    for match in _RE_ANTENNA.finditer(data):
+        try:
+            # Get radome - could be on antenna type line or separate radome line
+            radome_inline = match.group(3).decode('utf-8', errors='ignore').strip() if match.group(3) else ''
+            radome_line = match.group(9).decode('utf-8', errors='ignore').strip() if match.group(9) else ''
+            radome = radome_line if radome_line and radome_line != 'NONE' else radome_inline
+            if not radome:
+                radome = 'NONE'
+
+            entry = AntennaEntry(
+                antenna_type=match.group(2).decode('utf-8', errors='ignore').strip(),
+                radome_type=radome,
+                serial_number=match.group(4).decode('utf-8', errors='ignore').strip() if match.group(4) else '',
+                ecc_up=_parse_float(match.group(5)),
+                ecc_north=_parse_float(match.group(6)),
+                ecc_east=_parse_float(match.group(7)),
+                alignment=_parse_float(match.group(8)),  # Alignment from True N
+                date_installed=_parse_date(match.group(10)),
+                date_removed=_parse_date(match.group(11)) if match.group(11) else _FAR_FUTURE
+            )
+            antennas.append(entry)
+        except Exception as e:
+            logger.warning(f'Error parsing antenna block in {file_path}: {e}')
+
+    if not antennas:
+        logger.warning(f'No antenna blocks found in {file_path}')
+
+    return antennas
 
 
-def parse_igs_log_data(data: bytes, file_path: str) -> Union[_np.ndarray, None]:
-    """Given the bytes object returned opening a IGS log file, parse to produce an ndarray with relevant data
+def _merge_sessions(site_code: str, site_name: str,
+                    receivers: List[ReceiverEntry],
+                    antennas: List[AntennaEntry],
+                    file_path: str) -> List['StationInfoRecord']:
+    """Merge receiver and antenna entries into unified sessions.
 
-    :param bytes data: The bytes object returned from an open() call on a IGS site log in "rb" mode
-    :param str file_path: The path to the file from which the "data" bytes object was obtained
-    :param str file_code: Code from the file_path_array passed to the parse_igs_log() function
-    :return Union[_np.ndarray, None]: Returns array with relevant data from the IGS log file bytes object,
-        or `None` for unsupported version of the IGS Site log format.
-    
-    PDS Jan 2025
-    remove code&date input; only input file name (don't check log matches code later)
-    unified output has receiver and antenna entries for each time block
-    simplified output with data geode needs
+    Creates session breaks at every receiver or antenna change.
+    When entries have overlapping periods, prefers the most recently installed.
+
+    Args:
+        site_code: Station code
+        site_name: Station name
+        receivers: List of receiver entries
+        antennas: List of antenna entries
+        file_path: Path to file (for comments)
+
+    Returns:
+        List of StationInfoRecord objects covering all time periods
     """
-       
-    # PDS Jan 2025 edit
-    # split antenna entries at receiver entry dates & vice versa
-    #
-    # receiver and antenna change-out is not always concurrent =>
-    #   have different time blocks
-    #   read both time blocks and make new entries for each sub blocks
-    #
-    #   eg figure:
-    #   -------------------- >  time scale
-    #   |       |       | receiver blocks
-    #   |   |           | antenna blocks
-    #   |   |   |       | output blocks
-    
-    # Determine the version of the IGS log based on the data, Warn if unrecognised
+    # Import here to avoid circular imports
+    from .station_info import StationInfoRecord
+
+    if not receivers or not antennas:
+        return []
+
+    # Collect all break times
+    break_times = set()
+    for r in receivers:
+        break_times.add(r.date_installed)
+        break_times.add(r.date_removed)
+    for a in antennas:
+        break_times.add(a.date_installed)
+        break_times.add(a.date_removed)
+
+    break_times = sorted(break_times)
+    sessions = []
+
+    for i, start_time in enumerate(break_times[:-1]):
+        end_time = break_times[i + 1]
+
+        # Find active receiver at this time (prefer most recently installed if overlapping)
+        active_receiver = None
+        for r in receivers:
+            if r.date_installed <= start_time < r.date_removed:
+                if active_receiver is None or r.date_installed > active_receiver.date_installed:
+                    active_receiver = r
+
+        # Find active antenna at this time (prefer most recently installed if overlapping)
+        active_antenna = None
+        for a in antennas:
+            if a.date_installed <= start_time < a.date_removed:
+                if active_antenna is None or a.date_installed > active_antenna.date_installed:
+                    active_antenna = a
+
+        if not active_receiver or not active_antenna:
+            continue
+
+        # Determine actual session end (minimum of receiver/antenna end times)
+        session_end = min(active_receiver.date_removed, active_antenna.date_removed, end_time)
+
+        session = StationInfoRecord(
+            StationCode=site_code.lower(),
+            StationName=site_name,
+            ReceiverCode=active_receiver.receiver_type,
+            ReceiverSerial=active_receiver.serial_number,
+            ReceiverVers='',  # Hardware version not available in IGS logs
+            ReceiverFirmware=active_receiver.firmware_version,
+            AntennaCode=active_antenna.antenna_type,
+            RadomeCode=active_antenna.radome_type or 'NONE',
+            AntennaSerial=active_antenna.serial_number,
+            AntennaHeight=active_antenna.ecc_up,
+            AntennaNorth=active_antenna.ecc_north,
+            AntennaEast=active_antenna.ecc_east,
+            HeightCode='DHARP',
+            DateStart=start_time,
+            DateEnd=session_end,
+            AntennaDAZ=active_antenna.alignment,
+            Comments=f'from IGS logfile: {file_path}',
+            source='logfile'
+        )
+        sessions.append(session)
+
+    return sessions
+
+
+# =============================================================================
+# Public API
+# =============================================================================
+
+def parse_igs_log_data(data: bytes, file_path: str) -> Optional[List['StationInfoRecord']]:
+    """Parse IGS log file data into station sessions.
+
+    Args:
+        data: Raw bytes from reading the log file
+        file_path: Path to the file (for error messages and comments)
+
+    Returns:
+        List of StationInfoRecord objects, or None if parsing fails
+    """
     try:
         version = determine_log_version(data)
+        logger.debug(f'Parsing {file_path} as IGS log {version}')
     except LogVersionError as e:
-        logger.warning(f"Error: {e}, skipping parsing the log file")
+        logger.warning(f'{e}, skipping file')
         return None
 
-    # Extract information from ID block
-    blk_id = extract_id_block(data=data, file_path=file_path, version=version)
-    code = [blk_id[0]]  # Site code
-    
-    # Extract information from Location block
-    blk_loc = extract_location_block(
-        data=data,
-        file_path=file_path,
-        version=version,
-    )
-    blk_loc = [group.decode(encoding="utf8", errors="ignore") for group in blk_loc.groups()]
-    # Combine ID and Location information:
-    # PDS Jan 2025
-    #blk_id_loc = _np.asarray([0] + blk_id + blk_loc, dtype=object)[_np.newaxis]
-    blk_id_loc=_np.asarray([blk_id[0], blk_loc[0]], dtype=object)[_np.newaxis]
-    
-    # Extract and re-format information from receiver block:
-    blk_rec = extract_receiver_block(data=data, file_path=file_path)
-    blk_rec = _np.asarray(blk_rec)
-    len_recs = blk_rec.shape[0]
-    blk_rec = _np.concatenate(
-        [
-            _np.asarray([1] * len_recs, dtype=object)[:, _np.newaxis],
-            _np.asarray(code * len_recs, dtype=object)[:, _np.newaxis],
-            blk_rec,
-        ],
-        axis=1,
-    )
-    # Extract and re-format information from antenna block:
-    blk_ant = extract_antenna_block(data=data, file_path=file_path)
-    blk_ant = _np.asarray(blk_ant)
-    len_ants = blk_ant.shape[0]
-    blk_ant = _np.concatenate(
-        [
-            _np.asarray([2] * len_ants, dtype=object)[:, _np.newaxis],
-            _np.asarray(code * len_ants, dtype=object)[:, _np.newaxis],
-            blk_ant,
-        ],
-        axis=1,
-    )
-    
-    # combine values for all install times of receiver block and antenna block
-    break_ant=blk_ant[:,9]
-    break_rec=blk_rec[:,9]
-    break_times=_np.sort(_np.unique(_np.concatenate([break_ant,break_rec],axis=0)))
-    
-    # Split data by break_times & formatted with values we need in sql database
-    blk_full=_np.zeros((len(break_times), 16), dtype=object)
+    site_code, site_name = _extract_site_info(data, file_path)
+    receivers = _extract_receivers(data, file_path)
+    antennas = _extract_antennas(data, file_path)
 
-    for i in range(len(break_times)):
+    sessions = _merge_sessions(site_code, site_name, receivers, antennas, file_path)
 
-        _start_time = break_times[i]
-        
-        # Find active antenna block
-        _et_a = _np.where((blk_ant[:,9] <= _start_time) & (blk_ant[:,10] > _start_time))[0]
-        _et_a = _et_a[0] if _et_a.size > 0 else -1  # -1 means no valid antenna found
+    if not sessions:
+        logger.warning(f'No valid sessions extracted from {file_path}')
+        return None
 
-        # Find active receiver block
-        _et_r = _np.where((blk_rec[:,9] <= _start_time) & (blk_rec[:,10] > _start_time))[0]
-        _et_r = _et_r[0] if _et_r.size > 0 else -1  # -1 means no valid receiver found
-
-        if _et_a == -1 or _et_r == -1:
-            logger.warning(f"Missing antenna or receiver data for time {_start_time}")
-            continue  # Skip this interval or handle as needed
-    
-        session_end = min(blk_rec[_et_r,10], blk_ant[_et_a,10])
-        
-        blk_full[i,:]=_np.concatenate(
-        [
-            # station code
-            blk_rec[_et_r,(1)],
-            # station name
-             _np.asarray(blk_loc[0]),
-            # session start
-             _np.asarray([_start_time],dtype=object),
-            #session end
-            _np.asarray(session_end,dtype=object),
-            #Ant Ht,
-            blk_ant[_et_a,(5)],
-            #HtCod, 
-            _np.asarray(['DHARP'],dtype=object),
-            #Ant N, Ant E
-            blk_ant[_et_a,(6,7)],
-            # receiver type
-            blk_rec[_et_r,(2)].decode("utf-8"),
-            # rec firmware vers
-            blk_rec[_et_r,(5)].decode("utf-8"),
-            # rec SW vers
-            _np.asarray([''],dtype=object),
-            # rec S/N
-            blk_rec[_et_r,(4)].decode("utf-8"),
-            # antenna_type dome sn
-            blk_ant[_et_a,2].decode("utf-8"),
-            blk_ant[_et_a,3].decode("utf-8"),
-            blk_ant[_et_a,4].decode("utf-8"),
-            # comment            
-            _np.asarray(["from IGS logfile: "+file_path],dtype=object)
-        ], axis=None)
-        
-    return blk_full
-
-    # Create unified information block:
-    #blk_uni = _np.concatenate([blk_id_loc, blk_rec, blk_ant], axis=0)
-    #file_path_arr = _np.asarray([file_path] * (1 + len_ants + len_recs))[:, _np.newaxis]
-    #return _np.concatenate([blk_uni, file_path_arr], axis=1)
+    return sessions
 
 
-def parse_igs_log_file(file_path: str) -> Union[_np.ndarray, None]:
-    """Reads igs log file and outputs ndarray with parsed data
+def parse_igs_log_file(file_path: str) -> Optional[List['StationInfoRecord']]:
+    """Read and parse an IGS log file.
 
-    :param _np.ndarray file_path: Metadata on input log file.
-    :return Union[_np.ndarray, None]: Returns array with data from the parsed IGS log file, or `None` for unsupported
-        version of the IGS Site log format.
-        
-    PDS Jan 2025
-    remove code&date input; only input file name (don't check log matches code later)
+    Args:
+        file_path: Path to the IGS log file
+
+    Returns:
+        List of StationInfoRecord objects, or None if parsing fails
     """
-    with open(file_path, "rb") as file:
-        data = file.read()
+    try:
+        with open(file_path, 'rb') as f:
+            data = f.read()
+    except IOError as e:
+        logger.error(f'Could not read file {file_path}: {e}')
+        return None
 
-    return parse_igs_log_data(data=data, file_path=file_path)
+    return parse_igs_log_data(data, file_path)
 
 
-if __name__ == "__main__":
-    test_input = ('CHOY.log')
-    result = parse_igs_log_file(test_input)
-    fs = ' {:4.4}  {:16.16}  {:19.19}{:19.19}{:7.4f}  {:5.5}  {:7.4f}  {:7.4f}  {:20.20}  ' \
-                     '{:20.20}  {:>5.5}  {:20.20}  {:15.15}  {:5.5}  {:20.20}'
+# =============================================================================
+# IGS Log File Writing
+# =============================================================================
 
-    stninfo = []
-    for row in result:
-        stninfo.append(fs.format(
-        row[0],  # station code
-        row[1],  # station name
-        row[2],  # session start
-        row[3],  # session end
-        float(row[4]),  # antenna height
-        row[5],  # height code
-        float(row[6]),  # antenna north offset
-        float(row[7]),  # antenna east offset
-        row[8],  # receiver type
-        row[9],  # receiver firmware version
-        row[10],  # software version
-        row[11],  # receiver serial number
-        row[12],  # antenna type
-        row[13],  # radome
-        row[14],  # antenna serial number
-        row[15],  # comment
-        ))
-    
-    for row in stninfo:
-        print(row)
+@dataclass
+class SiteMetadata:
+    """Optional site metadata for IGS log file generation.
+
+    Contains information not available in station info records.
+    All fields are optional - defaults will be used if not provided.
+    """
+    # Site identification
+    nine_char_id: str = ''          # e.g., 'SRLP00ARG'
+    domes_number: str = ''          # e.g., '41532M001'
+    monument_description: str = ''
+    date_installed: Optional[datetime] = None
+
+    # Location
+    city: str = ''
+    state_province: str = ''
+    country: str = ''
+    tectonic_plate: str = ''
+    x_coord: Optional[float] = None
+    y_coord: Optional[float] = None
+    z_coord: Optional[float] = None
+    latitude: Optional[float] = None   # decimal degrees
+    longitude: Optional[float] = None  # decimal degrees
+    elevation: Optional[float] = None  # meters
+
+    # Form metadata
+    prepared_by: str = ''
+    agency: str = ''
+
+    # Equipment defaults
+    satellite_system: str = 'GPS'
+    elevation_cutoff: float = 0.0
+    antenna_ref_point: str = 'BAM'
+
+
+def _format_date_igs(dt: datetime) -> str:
+    """Format datetime for IGS log file.
+
+    Args:
+        dt: Datetime object
+
+    Returns:
+        Formatted string like '2024-07-24T00:00Z' or '(CCYY-MM-DDThh:mmZ)' for open dates
+    """
+    if dt.year >= 2100:
+        return '(CCYY-MM-DDThh:mmZ)'
+    return dt.strftime('%Y-%m-%dT%H:%MZ')
+
+
+def _format_lat_dms(lat: float) -> str:
+    """Format latitude in degrees-minutes-seconds for IGS log."""
+    sign = '-' if lat < 0 else '+'
+    lat = abs(lat)
+    deg = int(lat)
+    minutes = int((lat - deg) * 60)
+    seconds = ((lat - deg) * 60 - minutes) * 60
+    return f'{sign}{deg:02d}{minutes:02d}{seconds:05.2f}'
+
+
+def _format_lon_dms(lon: float) -> str:
+    """Format longitude in degrees-minutes-seconds for IGS log."""
+    sign = '-' if lon < 0 else '+'
+    lon = abs(lon)
+    deg = int(lon)
+    minutes = int((lon - deg) * 60)
+    seconds = ((lon - deg) * 60 - minutes) * 60
+    return f'{sign}{deg:03d}{minutes:02d}{seconds:05.2f}'
+
+
+def _generate_header(station_code: str, metadata: SiteMetadata) -> str:
+    """Generate IGS log file header."""
+    nine_char = metadata.nine_char_id or f'{station_code.upper()}00XXX'
+    return f"""     {nine_char} Site Information Form (site log)
+     International GNSS Service
+     See Instructions at:
+       https://ftp.igs.org/pub/station/general/sitelog_instr.txt
+"""
+
+
+def _generate_form_section(metadata: SiteMetadata) -> str:
+    """Generate section 0: Form."""
+    prepared_by = metadata.prepared_by or '(full name)'
+    date_prepared = datetime.now().strftime('%Y-%m-%d')
+
+    return f"""0.   Form
+
+     Prepared by (full name)  : {prepared_by}
+     Date Prepared            : {date_prepared}
+     Report Type              : NEW
+     If Update:
+      Previous Site Log       :
+      Modified/Added Sections :
+"""
+
+
+def _generate_site_id_section(station_code: str, station_name: str,
+                               metadata: SiteMetadata) -> str:
+    """Generate section 1: Site Identification."""
+    nine_char = metadata.nine_char_id or f'{station_code.upper()}00XXX'
+    domes = metadata.domes_number or '(A9)'
+    monument = metadata.monument_description or '(PILLAR/BRASS PLATE/STEEL MAST/etc)'
+    date_installed = _format_date_igs(metadata.date_installed) if metadata.date_installed else '(CCYY-MM-DDThh:mmZ)'
+
+    return f"""1.   Site Identification of the GNSS Monument
+
+     Site Name                : {station_name or station_code}
+     Nine Character ID        : {nine_char}
+     Monument Inscription     :
+     IERS DOMES Number        : {domes}
+     CDP Number               : (A4)
+     Monument Description     : {monument}
+       Height of the Monument : (m)
+       Monument Foundation    : (STEEL RODS, CONCRETE BLOCK, ROOF, etc)
+       Foundation Depth       : (m)
+     Marker Description       : (CHISELLED CROSS/DIVOT/BRASS NAIL/etc)
+     Date Installed           : {date_installed}
+     Geologic Characteristic  : (BEDROCK/CLAY/CONGLOMERATE/GRAVEL/SAND/etc)
+       Bedrock Type           : (IGNEOUS/METAMORPHIC/SEDIMENTARY)
+       Bedrock Condition      : (FRESH/JOINTED/WEATHERED)
+       Fracture Spacing       : (1-10 cm/11-50 cm/51-200 cm/over 200 cm)
+       Fault zones nearby     : (YES/NO/Name of the zone)
+         Distance/activity    : (multiple lines)
+     Additional Information   :
+"""
+
+
+def _generate_location_section(metadata: SiteMetadata) -> str:
+    """Generate section 2: Site Location Information."""
+    city = metadata.city or '(A30)'
+    state = metadata.state_province or '(A30)'
+    country = metadata.country or '(A30)'
+    plate = metadata.tectonic_plate or '(AFRICAN/ANTARCTIC/AUSTRALIAN/etc)'
+
+    x_coord = f'{metadata.x_coord:.1f} m' if metadata.x_coord is not None else '(m)'
+    y_coord = f'{metadata.y_coord:.1f} m' if metadata.y_coord is not None else '(m)'
+    z_coord = f'{metadata.z_coord:.1f} m' if metadata.z_coord is not None else '(m)'
+
+    if metadata.latitude is not None:
+        lat = _format_lat_dms(metadata.latitude)
+    else:
+        lat = '(N is +)'
+
+    if metadata.longitude is not None:
+        lon = _format_lon_dms(metadata.longitude)
+    else:
+        lon = '(E is +)'
+
+    elev = f'{metadata.elevation:.1f} m' if metadata.elevation is not None else '(m)'
+
+    return f"""2.   Site Location Information
+
+     City or Town             : {city}
+     State or Province        : {state}
+     Country                  : {country}
+     Tectonic Plate           : {plate}
+     Approximate Position (ITRF)
+       X coordinate (m)       : {x_coord}
+       Y coordinate (m)       : {y_coord}
+       Z coordinate (m)       : {z_coord}
+       Latitude (N is +)      : {lat}
+       Longitude (E is +)     : {lon}
+       Elevation (m,ellips.)  : {elev}
+     Additional Information   : (multiple lines)
+"""
+
+
+def _generate_receiver_block(index: int, receiver: ReceiverEntry,
+                              metadata: SiteMetadata) -> str:
+    """Generate a single receiver block (section 3.x)."""
+    sat_sys = metadata.satellite_system
+    cutoff = f'{metadata.elevation_cutoff:.0f} deg' if metadata.elevation_cutoff else '(deg)'
+
+    return f"""3.{index}  Receiver Type            : {receiver.receiver_type}
+     Satellite System         : {sat_sys}
+     Serial Number            : {receiver.serial_number}
+     Firmware Version         : {receiver.firmware_version}
+     Elevation Cutoff Setting : {cutoff}
+     Date Installed           : {_format_date_igs(receiver.date_installed)}
+     Date Removed             : {_format_date_igs(receiver.date_removed)}
+     Temperature Stabiliz.    :
+     Additional Information   :
+"""
+
+
+def _generate_receiver_section(receivers: List[ReceiverEntry],
+                                metadata: SiteMetadata) -> str:
+    """Generate section 3: GNSS Receiver Information."""
+    lines = ["3.   GNSS Receiver Information\n"]
+
+    for i, receiver in enumerate(receivers, 1):
+        lines.append(_generate_receiver_block(i, receiver, metadata))
+
+    # Add template block
+    lines.append("""3.x  Receiver Type            : (A20, from rcvr_ant.tab; see instructions)
+     Satellite System         : (GPS+GLO+GAL+BDS+QZSS+SBAS)
+     Serial Number            : (A20, but note the first A5 is used in SINEX)
+     Firmware Version         : (A11)
+     Elevation Cutoff Setting : (deg)
+     Date Installed           : (CCYY-MM-DDThh:mmZ)
+     Date Removed             : (CCYY-MM-DDThh:mmZ)
+     Temperature Stabiliz.    : (none or tolerance in degrees C)
+     Additional Information   : (multiple lines)
+""")
+
+    return '\n'.join(lines)
+
+
+def _generate_antenna_block(index: int, antenna: AntennaEntry,
+                             metadata: SiteMetadata) -> str:
+    """Generate a single antenna block (section 4.x)."""
+    # Format antenna type with radome (padded to 16 chars + radome)
+    ant_type = f'{antenna.antenna_type:<16}{antenna.radome_type}'
+    ref_point = metadata.antenna_ref_point
+
+    return f"""4.{index}  Antenna Type             : {ant_type}
+     Serial Number            : {antenna.serial_number}
+     Antenna Reference Point  : {ref_point}
+     Marker->ARP Up Ecc. (m)  : {antenna.ecc_up:.4f} m
+     Marker->ARP North Ecc(m) : {antenna.ecc_north:.4f} m
+     Marker->ARP East Ecc(m)  : {antenna.ecc_east:.4f} m
+     Alignment from True N    : {antenna.alignment:.2f} deg
+     Antenna Radome Type      : {antenna.radome_type}
+     Radome Serial Number     :
+     Antenna Cable Type       :
+     Antenna Cable Length     :
+     Date Installed           : {_format_date_igs(antenna.date_installed)}
+     Date Removed             : {_format_date_igs(antenna.date_removed)}
+     Additional Information   :
+"""
+
+
+def _generate_antenna_section(antennas: List[AntennaEntry],
+                               metadata: SiteMetadata) -> str:
+    """Generate section 4: GNSS Antenna Information."""
+    lines = ["4.   GNSS Antenna Information\n"]
+
+    for i, antenna in enumerate(antennas, 1):
+        lines.append(_generate_antenna_block(i, antenna, metadata))
+
+    # Add template block
+    lines.append("""4.x  Antenna Type             : (A20, from rcvr_ant.tab; see instructions)
+     Serial Number            : (A*, but note the first A5 is used in SINEX)
+     Antenna Reference Point  : (BPA/BCR/XXX from "antenna.gra"; see instr.)
+     Marker->ARP Up Ecc. (m)  : (F8.4)
+     Marker->ARP North Ecc(m) : (F8.4)
+     Marker->ARP East Ecc(m)  : (F8.4)
+     Alignment from True N    : (deg; + is clockwise/east)
+     Antenna Radome Type      : (A4 from rcvr_ant.tab; see instructions)
+     Radome Serial Number     :
+     Antenna Cable Type       : (vendor & type number)
+     Antenna Cable Length     : (m)
+     Date Installed           : (CCYY-MM-DDThh:mmZ)
+     Date Removed             : (CCYY-MM-DDThh:mmZ)
+     Additional Information   : (multiple lines)
+""")
+
+    return '\n'.join(lines)
+
+
+def _generate_remaining_sections() -> str:
+    """Generate sections 5-13 with template placeholders."""
+    return """5.   Surveyed Local Ties
+
+5.x  Tied Marker Name         :
+     Tied Marker Usage        : (SLR/VLBI/LOCAL CONTROL/FOOTPRINT/etc)
+     Tied Marker CDP Number   : (A4)
+     Tied Marker DOMES Number : (A9)
+     Differential Components from GNSS Marker to the tied monument (ITRS)
+       dx (m)                 : (m)
+       dy (m)                 : (m)
+       dz (m)                 : (m)
+     Accuracy (mm)            : (mm)
+     Survey method            : (GPS CAMPAIGN/TRILATERATION/TRIANGULATION/etc)
+     Date Measured            : (CCYY-MM-DDThh:mmZ)
+     Additional Information   : (multiple lines)
+
+6.   Frequency Standard
+
+6.x  Standard Type            : (INTERNAL or EXTERNAL H-MASER/CESIUM/etc)
+       Input Frequency        : (if external)
+       Effective Dates        : (CCYY-MM-DD/CCYY-MM-DD)
+       Notes                  : (multiple lines)
+
+7.   Collocation Information
+
+7.x  Instrumentation Type     : (GPS/GLONASS/DORIS/PRARE/SLR/VLBI/TIME/etc)
+       Status                 : (PERMANENT/MOBILE)
+       Effective Dates        : (CCYY-MM-DD/CCYY-MM-DD)
+       Notes                  : (multiple lines)
+
+8.   Meteorological Instrumentation
+
+8.1.x  Humidity Sensor Model  :
+       Manufacturer           :
+       Serial Number          :
+       Data Sampling Interval : (sec)
+       Accuracy (% rel h)     : (% rel h)
+       Aspiration             : (UNASPIRATED/NATURAL/FAN/etc)
+       Height Diff to Ant     : (m)
+       Calibration date       : (CCYY-MM-DD)
+       Effective Dates        : (CCYY-MM-DD/CCYY-MM-DD)
+       Notes                  : (multiple lines)
+
+8.2.x  Pressure Sensor Model  :
+       Manufacturer           :
+       Serial Number          :
+       Data Sampling Interval : (sec)
+       Accuracy               : (hPa)
+       Height Diff to Ant     : (m)
+       Calibration date       : (CCYY-MM-DD)
+       Effective Dates        : (CCYY-MM-DD/CCYY-MM-DD)
+       Notes                  : (multiple lines)
+
+8.3.x  Temp. Sensor Model     :
+       Manufacturer           :
+       Serial Number          :
+       Data Sampling Interval : (sec)
+       Accuracy               : (deg C)
+       Aspiration             : (UNASPIRATED/NATURAL/FAN/etc)
+       Height Diff to Ant     : (m)
+       Calibration date       : (CCYY-MM-DD)
+       Effective Dates        : (CCYY-MM-DD/CCYY-MM-DD)
+       Notes                  : (multiple lines)
+
+8.4.x  Water Vapor Radiometer :
+       Manufacturer           :
+       Serial Number          :
+       Distance to Antenna    : (m)
+       Height Diff to Ant     : (m)
+       Calibration date       : (CCYY-MM-DD)
+       Effective Dates        : (CCYY-MM-DD/CCYY-MM-DD)
+       Notes                  : (multiple lines)
+
+8.5.x  Other Instrumentation  : (multiple lines)
+
+9.   Local Ongoing Conditions Possibly Affecting Computed Position
+
+9.1.x  Radio Interferences    : (TV/CELL PHONE ANTENNA/RADAR/etc)
+       Observed Degradations  : (SN RATIO/DATA GAPS/etc)
+       Effective Dates        : (CCYY-MM-DD/CCYY-MM-DD)
+       Additional Information : (multiple lines)
+
+9.2.x  Multipath Sources      : (METAL ROOF/DOME/VLBI ANTENNA/etc)
+       Effective Dates        : (CCYY-MM-DD/CCYY-MM-DD)
+       Additional Information : (multiple lines)
+
+9.3.x  Signal Obstructions    : (TREES/BUILDINGS/etc)
+       Effective Dates        : (CCYY-MM-DD/CCYY-MM-DD)
+       Additional Information : (multiple lines)
+
+10.  Local Episodic Effects Possibly Affecting Data Quality
+
+10.x Date                     : (CCYY-MM-DD/CCYY-MM-DD)
+     Event                    : (TREE CLEARING/CONSTRUCTION/etc)
+
+11.  On-Site, Point of Contact Agency Information
+
+     Agency                   :
+     Preferred Abbreviation   :
+     Mailing Address          :
+     Primary Contact
+       Contact Name           :
+       Telephone (primary)    :
+       Telephone (secondary)  :
+       Fax                    :
+       E-mail                 :
+     Secondary Contact
+       Contact Name           :
+       Telephone (primary)    :
+       Telephone (secondary)  :
+       Fax                    :
+       E-mail                 :
+     Additional Information   :
+
+12.  Responsible Agency (if different from 11.)
+
+     Agency                   :
+     Preferred Abbreviation   :
+     Mailing Address          :
+     Primary Contact
+       Contact Name           :
+       Telephone (primary)    :
+       Telephone (secondary)  :
+       Fax                    :
+       E-mail                 :
+     Secondary Contact
+       Contact Name           :
+       Telephone (primary)    :
+       Telephone (secondary)  :
+       Fax                    :
+       E-mail                 :
+     Additional Information   :
+
+13.  More Information
+
+     Primary Data Center      :
+     Secondary Data Center    :
+     URL for More Information :
+     Hardcopy on File
+       Site Map               : (Y or URL)
+       Site Diagram           : (Y or URL)
+       Horizon Mask           : (Y or URL)
+       Monument Description   : (Y or URL)
+       Site Pictures          : (Y or URL)
+     Additional Information   : (multiple lines)
+     Antenna Graphics with Dimensions
+
+"""
+
+
+def sessions_to_equipment_lists(sessions: List['StationInfoRecord']
+                                 ) -> Tuple[List[ReceiverEntry], List[AntennaEntry]]:
+    """Convert station sessions to separate receiver and antenna lists.
+
+    Merges consecutive sessions with the same equipment into single entries.
+
+    Args:
+        sessions: List of StationInfoRecord objects
+
+    Returns:
+        Tuple of (receivers, antennas) lists
+    """
+    if not sessions:
+        return [], []
+
+    # Sort sessions by start time
+    sorted_sessions = sorted(sessions, key=lambda s: s.DateStart.datetime() if s.DateStart else _FAR_FUTURE)
+
+    receivers = []
+    antennas = []
+
+    # Track current equipment
+    current_receiver = None
+    current_antenna = None
+
+    for session in sorted_sessions:
+        # Get datetime versions of dates
+        session_start = session.DateStart.datetime() if session.DateStart else _FAR_FUTURE
+        session_end = session.DateEnd.datetime() if session.DateEnd else _FAR_FUTURE
+
+        # Check if receiver changed
+        receiver_key = (session.ReceiverCode, session.ReceiverSerial, session.ReceiverFirmware)
+        if current_receiver is None or receiver_key != (
+            current_receiver.receiver_type,
+            current_receiver.serial_number,
+            current_receiver.firmware_version
+        ):
+            # Close previous receiver
+            if current_receiver is not None:
+                current_receiver.date_removed = session_start
+                receivers.append(current_receiver)
+
+            # Start new receiver
+            current_receiver = ReceiverEntry(
+                receiver_type=session.ReceiverCode or '',
+                serial_number=session.ReceiverSerial or '',
+                firmware_version=session.ReceiverFirmware or '',
+                date_installed=session_start,
+                date_removed=session_end
+            )
+        else:
+            # Extend current receiver
+            current_receiver.date_removed = session_end
+
+        # Check if antenna changed
+        antenna_key = (session.AntennaCode, session.AntennaSerial, session.RadomeCode,
+                       session.AntennaHeight, session.AntennaNorth, session.AntennaEast)
+        if current_antenna is None or antenna_key != (
+            current_antenna.antenna_type,
+            current_antenna.serial_number,
+            current_antenna.radome_type,
+            current_antenna.ecc_up,
+            current_antenna.ecc_north,
+            current_antenna.ecc_east
+        ):
+            # Close previous antenna
+            if current_antenna is not None:
+                current_antenna.date_removed = session_start
+                antennas.append(current_antenna)
+
+            # Start new antenna
+            current_antenna = AntennaEntry(
+                antenna_type=session.AntennaCode or '',
+                radome_type=session.RadomeCode or 'NONE',
+                serial_number=session.AntennaSerial or '',
+                ecc_up=session.AntennaHeight or 0.0,
+                ecc_north=session.AntennaNorth or 0.0,
+                ecc_east=session.AntennaEast or 0.0,
+                alignment=session.AntennaDAZ or 0.0,
+                date_installed=session_start,
+                date_removed=session_end
+            )
+        else:
+            # Extend current antenna
+            current_antenna.date_removed = session_end
+
+    # Add final entries
+    if current_receiver is not None:
+        receivers.append(current_receiver)
+    if current_antenna is not None:
+        antennas.append(current_antenna)
+
+    return receivers, antennas
+
+
+def generate_igs_log(sessions: List['StationInfoRecord'],
+                     metadata: Optional[SiteMetadata] = None) -> str:
+    """Generate IGS site log file content from station sessions.
+
+    Args:
+        sessions: List of StationInfoRecord objects (typically from one station)
+        metadata: Optional site metadata for additional information
+
+    Returns:
+        Complete IGS log file content as a string
+    """
+    if not sessions:
+        raise ValueError("No sessions provided")
+
+    # Use default metadata if not provided
+    if metadata is None:
+        metadata = SiteMetadata()
+
+    # Get station info from first session
+    station_code = sessions[0].StationCode or 'UNKN'
+    station_name = ''  # StationInfoRecord doesn't store station name
+
+    # Convert sessions to equipment lists
+    receivers, antennas = sessions_to_equipment_lists(sessions)
+
+    # Generate all sections
+    sections = [
+        _generate_header(station_code, metadata),
+        _generate_form_section(metadata),
+        _generate_site_id_section(station_code, station_name, metadata),
+        _generate_location_section(metadata),
+        _generate_receiver_section(receivers, metadata),
+        _generate_antenna_section(antennas, metadata),
+        _generate_remaining_sections()
+    ]
+
+    return '\n'.join(sections)
+
+
+def write_igs_log_file(sessions: List['StationInfoRecord'],
+                       file_path: str,
+                       metadata: Optional[SiteMetadata] = None) -> None:
+    """Write station sessions to an IGS site log file.
+
+    Args:
+        sessions: List of StationInfoRecord objects
+        file_path: Output file path
+        metadata: Optional site metadata
+    """
+    content = generate_igs_log(sessions, metadata)
+
+    with open(file_path, 'w') as f:
+        f.write(content)
+
+    logger.info(f'Wrote IGS log file: {file_path}')
+
+
+# =============================================================================
+# Command-line testing
+# =============================================================================
+
+if __name__ == '__main__':
+    import sys
+
+    if len(sys.argv) < 2:
+        print('Usage: python igslog.py <logfile.log>')
+        sys.exit(1)
+
+    logging.basicConfig(level=logging.DEBUG)
+
+    result = parse_igs_log_file(sys.argv[1])
+
+    if result:
+        print(f'\nFound {len(result)} sessions:\n')
+        print(f'{"Start":<20} {"End":<20} {"Receiver":<20} {"Antenna":<16} '
+              f'{"Up":>8} {"North":>8} {"East":>8} {"DAZ":>6}')
+        print('-' * 120)
+
+        for session in result:
+            start_str = str(session.DateStart)[:16] if session.DateStart else 'N/A'
+            end_str = str(session.DateEnd)[:16] if session.DateEnd else 'open'
+            print(f'{start_str:<20} '
+                  f'{end_str:<20} '
+                  f'{(session.ReceiverCode or "")[:20]:<20} '
+                  f'{(session.AntennaCode or "")[:16]:<16} '
+                  f'{session.AntennaHeight or 0:>8.4f} {session.AntennaNorth or 0:>8.4f} {session.AntennaEast or 0:>8.4f} '
+                  f'{session.AntennaDAZ or 0:>6.1f}')
+    else:
+        print('Failed to parse log file')

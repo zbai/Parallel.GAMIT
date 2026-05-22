@@ -90,8 +90,9 @@ def load_parameters_db(config: EtmConfig,
             for i in range(3):
                 funct.p.params[i] = np.array(obj['params'][i]).astype(float)
                 funct.p.sigmas[i] = np.array(obj['sigmas'][i]).astype(float)
-                # save the sigmas in continuous form to upload them to
-                if funct.p.object != 'stochastic':
+                # save the sigmas in continuous form - only for fitted functions
+                # (parameters vector only contains fitted function params)
+                if funct.p.object != 'stochastic' and funct.fit:
                     etm_results.results[i].parameter_sigmas = (
                         np.concatenate((etm_results.results[i].parameter_sigmas, funct.p.sigmas[i])))
 

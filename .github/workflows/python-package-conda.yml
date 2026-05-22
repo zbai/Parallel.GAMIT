@@ -25,15 +25,15 @@ jobs:
         conda env update --file environment.yml --name base
     - name: Lint with flake8
       run: |
-        pip install flake8                                          # <-- changed
+        pip install flake8
         flake8 . --count --select=E9,F63,F7 --show-source --statistics
         flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
     - name: Test with pytest
       run: |
-        pip install pytest                                          # <-- changed
+        pip install pytest
         pytest
     - name: Coverage
       run: |
-        pip install coverage                                        # <-- changed
+        pip install coverage
         coverage run -m pytest
         coverage report -m

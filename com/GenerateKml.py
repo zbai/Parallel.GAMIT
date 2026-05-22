@@ -530,7 +530,7 @@ def plot_station_info_rinex(cnn, NetworkCode, StationCode, stninfo_records):
         for record in stninfo_records:
             stnfo.append([record['DateStart'].fyear,
                           (record['DateEnd'].fyear
-                           if record['DateEnd'].year is not None
+                           if record['DateEnd'].year is not None and record['DateEnd'].year < 2099
                            else pyDate.Date(
                                datetime=datetime.datetime.now()).fyear)
                           ])

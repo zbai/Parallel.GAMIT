@@ -199,18 +199,30 @@ def mjd2date(mjd):
 
 
 def parse_stninfo(stninfo_datetime):
+    """Parse station info datetime format: 'YYYY DDD HH MM SS'"""
+    if stninfo_datetime is None:
+        return 9999, 1, 0, 0, 0
 
     sdate = stninfo_datetime.split()
 
+    # Validate we have enough parts
+    if len(sdate) < 5:
+        raise pyDateException(
+            f"Invalid stninfo date format: '{stninfo_datetime}'. "
+            f"Expected 'YYYY DDD HH MM SS' (got {len(sdate)} parts)"
+        )
+
+    # Check for open-ended date (year 9999)
+    if int(sdate[0]) == 9999:
+        return 9999, 1, 0, 0, 0
+
+    # Clamp hour to valid range
     if int(sdate[2]) > 23:
         sdate[2] = '23'
         sdate[3] = '59'
         sdate[4] = '59'
 
-    if int(sdate[0]) == 9999:
-        return None, None, None, None, None
-    else:
-        return int(sdate[0]), int(sdate[1]), int(sdate[2]), int(sdate[3]), int(sdate[4])
+    return int(sdate[0]), int(sdate[1]), int(sdate[2]), int(sdate[3]), int(sdate[4])
 
 
 class Date(object):
@@ -280,7 +292,20 @@ class Date(object):
 
                 self.from_stninfo = True
 
-                if isinstance(arg, str):
+                if arg is None or (isinstance(arg, str) and arg.strip() == ''):
+                    # None or empty string = open-ended/far-future date (9999 999 00 00 00)
+                    self.year = 9999
+                    self.doy = 1
+                    self.day = 1
+                    self.month = 1
+                    self.hour = 0
+                    self.minute = 0
+                    self.second = 0
+                    self.fyear = 9999.0
+                    self.gpsWeek = 99999
+                    self.gpsWeekDay = 0
+                    self.mjd = 99999999
+                elif isinstance(arg, str):
                     self.year, self.doy, self.hour, self.minute, self.second = parse_stninfo(arg)
                 elif isinstance(arg, datetime) or isinstance(arg, Date):
                     self.day    = arg.day
@@ -289,9 +314,6 @@ class Date(object):
                     self.hour   = arg.hour
                     self.minute = arg.minute
                     self.second = arg.second
-                elif arg is None:
-                    # ok to receive a None argument from the database due to 9999 999 00 00 00 records
-                    break
                 else:
                     raise pyDateException('invalid type %s for %s\n' % (str(type(arg)), key))
                 
@@ -302,16 +324,26 @@ class Date(object):
         if self.year is not None and \
            self.doy  is not None:
 
-            # compute the month and day of month
-            self.month, self.day = doy2date(self.year, self.doy)
+            # Special handling for year 9999 (open-ended/far-future date)
+            if self.year == 9999:
+                self.month = 1
+                self.day = 1
+                self.doy = 1
+                self.fyear = 9999.0  # Use a large fyear for comparisons
+                self.gpsWeek = 99999
+                self.gpsWeekDay = 0
+                self.mjd = 99999999
+            else:
+                # compute the month and day of month
+                self.month, self.day = doy2date(self.year, self.doy)
 
-            # compute the fractional year
-            self.fyear = yeardoy2fyear(self.year, self.doy, self.hour, self.minute, self.second)
+                # compute the fractional year
+                self.fyear = yeardoy2fyear(self.year, self.doy, self.hour, self.minute, self.second)
 
-            # compute the gps date
-            self.gpsWeek, self.gpsWeekDay = date2gpsDate(self.year, self.month, self.day)
+                # compute the gps date
+                self.gpsWeek, self.gpsWeekDay = date2gpsDate(self.year, self.month, self.day)
 
-            self.mjd = gpsDate2mjd(self.gpsWeek,self.gpsWeekDay)
+                self.mjd = gpsDate2mjd(self.gpsWeek,self.gpsWeekDay)
 
         elif self.gpsWeek    is not None and \
              self.gpsWeekDay is not None:
@@ -364,7 +396,7 @@ class Date(object):
             # compute the gps date
             self.gpsWeek, self.gpsWeekDay = date2gpsDate(self.year, self.month, self.day)
 
-        elif not self.from_stninfo:
+        elif not self.from_stninfo and self.year != 9999:
             # if empty Date object from a station info, it means that it should be printed as 9999 999 00 00 00
             raise pyDateException('not enough independent input args to compute full date')
         
@@ -387,7 +419,7 @@ class Date(object):
         return 'pyDate.Date(%s,%s)' % (str(self.year), str(self.doy))
 
     def __str__(self):
-        if self.year is None:
+        if self.year == 9999:
             return '9999 999 00 00 00'
         else:
             return '%04i %03i %02i %02i %02i' % (self.year, self.doy, self.hour, self.minute, self.second)
@@ -470,14 +502,25 @@ class Date(object):
         return "%d-%02d-%02d" % (self.year, self.month, self.day)
 
     def datetime(self):
-        if self.year is None:
+        if self.year is None or self.year == 9999:
             return datetime(year=9999, month=1, day=1,
-                            hour=1, minute=1, second=1)
+                            hour=0, minute=0, second=0)
         else:
             return datetime(year=self.year, month=self.month, day=self.day,
                             hour=self.hour, minute=self.minute, second=self.second)
 
     def first_epoch(self, out_format='datetime_str'):
+        # Handle year 9999 (far-future date)
+        if self.year == 9999:
+            if out_format == 'datetime_str':
+                return '9999-01-01 00:00:00'
+            elif out_format == 'fyear':
+                return 9999.0
+            elif out_format == 'datetime':
+                return datetime(year=9999, month=1, day=1, hour=0, minute=0, second=0)
+            else:
+                return Date(stninfo=None)
+
         if out_format == 'datetime_str':
             return datetime(year=self.year, month=self.month, day=self.day, hour=0, minute=0, second=0).strftime(
                 '%Y-%m-%d %H:%M:%S')
@@ -489,6 +532,17 @@ class Date(object):
             return Date(year=self.year, doy=self.doy, hour=0, minute=0, day=0)
 
     def last_epoch(self, out_format='datetime_str'):
+        # Handle year 9999 (far-future date)
+        if self.year == 9999:
+            if out_format == 'datetime_str':
+                return '9999-12-31 23:59:59'
+            elif out_format == 'fyear':
+                return 9999.999
+            elif out_format == 'datetime':
+                return datetime(year=9999, month=12, day=31, hour=23, minute=59, second=59)
+            else:
+                return Date(stninfo=None)
+
         if out_format == 'datetime_str':
             return datetime(year=self.year, month=self.month, day=self.day, hour=23, minute=59, second=59).strftime(
                 '%Y-%m-%d %H:%M:%S')

@@ -25,9 +25,12 @@ dependencies:
   - geopandas
   - pip
   - pip:
+    - anthropic
     - country_converter
     - charset-normalizer
     - dispy
     - hdf5storage
     - simplekml
     - usgs-libcomcat
+    - textual>=0.50.0
+    - rich>=13.0.0

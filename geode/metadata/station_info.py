@@ -55,6 +55,7 @@ class StationInfoRecord:
     """
     NetworkCode: Optional[str] = None
     StationCode: Optional[str] = None
+    StationName: Optional[str] = None
     ReceiverCode: str = ''
     ReceiverSerial: Optional[str] = None
     ReceiverFirmware: Optional[str] = None
@@ -70,6 +71,7 @@ class StationInfoRecord:
     ReceiverVers: Optional[str] = None
     AntennaDAZ: Optional[float] = 0.0
     Comments: Optional[str] = ''
+    source: Optional[str] = None  # Provenance: "database" | "logfile" | "stninfo"
     hash: Optional[int] = field(default=None, init=False)
 
     # Internal field to pass record data during initialization
@@ -77,7 +79,7 @@ class StationInfoRecord:
 
     RECORD_FORMAT = (
         ' {:4.4}  {:16.16}  {:19.19}{:19.19}{:7.4f}  {:5.5}  {:7.4f}  {:7.4f}  '
-        '{:20.20}  {:20.20}  {:>5.5}  {:20.20}  {:15.15}  {:5.5}  {:20.20}  {:8.1f} {}'
+        '{:20.20}  {:20.20}  {:>5.5}  {:20.20}  {:15.15}  {:5.5}  {:20.20}  {:6.1f} {:s}'
     )
 
     # Field specification for parsing fixed-width records
@@ -192,6 +194,7 @@ class StationInfoRecord:
             f'{self.AntennaNorth:.4f} {self.AntennaEast:.4f} '
             f'{self.AntennaHeight:.4f} {self.HeightCode} '
             f'{self.AntennaCode} {self.RadomeCode} {self.ReceiverCode}'
+            f'{self.DateStart} {self.DateEnd}'
         )
         self.hash = crc32(hash_string)
 
@@ -274,6 +277,9 @@ class StationInfoRecord:
         valid_fields = {f.name for f in cls.__dataclass_fields__.values()}
         filtered_data = {k: v for k, v in data.items() if k in valid_fields}
 
+        # add station name if available
+        filtered_data['StationName'] = data.get('StationName', '')
+
         return cls(**filtered_data)
 
     def to_database_dict(self) -> Dict[str, Any]:
@@ -286,9 +292,28 @@ class StationInfoRecord:
             if key == 'DateStart' and value:
                 result[key] = value.datetime()
             elif key == 'DateEnd':
-                result[key] = value.datetime() if value and value.year else None
+                result[key] = value.datetime() if value and value.year < 9999 else None
             else:
                 result[key] = value
+
+        return result
+
+    def to_claude_dict(self) -> Dict[str, Any]:
+        """Convert record to JSON-serializable dictionary for Claude API."""
+        result = {}
+
+        for key in [item[0] for item in self._FIELD_SPEC]:
+            value = getattr(self, key)
+
+            if key == 'DateStart' and value:
+                result[key] = value.strftime()  # ISO format string
+            elif key == 'DateEnd':
+                result[key] = value.strftime() if value and value.year < 9999 else None
+            else:
+                result[key] = value
+
+        # include hash for claude
+        result['hash'] = self.hash
 
         return result
 
@@ -303,7 +328,7 @@ class StationInfoRecord:
         """Format record as station info string."""
         return self.RECORD_FORMAT.format(
             (self.StationCode or '').upper(),
-            '',
+            (self.StationName or ''),
             str(self.DateStart) if self.DateStart else '',
             str(self.DateEnd) if self.DateEnd else '',
             self.AntennaHeight,
@@ -392,7 +417,9 @@ class StationInfo:
             StationInfoException: If no records found and allow_empty is False
         """
         result = self.cnn.query(
-            f'SELECT * FROM stationinfo WHERE "NetworkCode" = \'{self.NetworkCode}\' '
+            f'SELECT stationinfo.*,"StationName" FROM stationinfo '
+            f'LEFT JOIN stations USING ("NetworkCode", "StationCode")'
+            f'WHERE "NetworkCode" = \'{self.NetworkCode}\' '
             f'AND "StationCode" = \'{self.StationCode}\' ORDER BY "DateStart"'
         )
 
@@ -424,10 +451,11 @@ class StationInfo:
         """
         target_dt = date.datetime()
         tolerance = datetime.timedelta(hours=h_tolerance)
+        far_future = datetime.datetime(9999, 1, 1)
 
         for record in self.records:
             start_dt = record.DateStart.datetime()
-            end_dt = record.DateEnd.datetime()
+            end_dt = record.DateEnd.datetime() if record.DateEnd and record.DateEnd.year < 9999 else far_future
 
             if start_dt - tolerance <= target_dt <= end_dt + tolerance:
                 self.current_record = record
@@ -554,6 +582,11 @@ class StationInfo:
         """
         Parse station information from file or list.
 
+        Format detection is content-based:
+        1. Check for IGS log signature ("Site Information Form")
+        2. Try parsing as station info format
+        3. Try parsing as NGL format
+
         Args:
             stninfo_file_list: File path or list of station info records
 
@@ -562,18 +595,38 @@ class StationInfo:
         """
         if isinstance(stninfo_file_list, list):
             stninfo = stninfo_file_list
+            pre_filter = False
         else:
-            _, ext = os.path.splitext(stninfo_file_list)
+            # Content-based format detection
+            file_format = self._detect_file_format(stninfo_file_list)
 
-            if ext.lower() == '.log':
+            if file_format == 'igslog':
                 stninfo = self._parse_log_file(stninfo_file_list)
-            elif ext.lower() == '.ngl':
+                pre_filter = False  # IGS logs are single-station
+            elif file_format == 'ngl':
                 stninfo = self._parse_ngl_file(stninfo_file_list)
-            else:
+                pre_filter = False  # Already filtered in _parse_ngl_file
+            else:  # 'stninfo' or unknown - try station info format
                 stninfo = file_readlines(stninfo_file_list)
+                pre_filter = True  # Multi-station file, enable pre-filtering
+
+        # Pre-filter optimization for multi-station files
+        # Station code is at the beginning of each line (positions 1-4)
+        target_station = self.StationCode.upper() if self.StationCode else None
 
         records = []
         for line in stninfo:
+            # Quick pre-filter: skip lines that don't match target station
+            # This avoids expensive parsing for irrelevant stations
+            if pre_filter and target_station:
+                # Skip comments and empty lines
+                if not line.strip() or line.startswith('*') or line.startswith('#'):
+                    continue
+                # Check if line starts with target station (with optional leading space)
+                line_station = line.strip()[:4].upper()
+                if line_station != target_station:
+                    continue
+
             try:
                 record = StationInfoRecord.from_string(
                     line, self.NetworkCode, self.StationCode
@@ -581,46 +634,80 @@ class StationInfo:
                 if record and record.DateStart:
                     records.append(record)
             except IndexError:
-                print(f'Invalid station info format at line {line}')
-            except Exception as e:
-                print(f'Unexpected error at line {line}: {type(e).__name__}: {e}')
+                pass  # Silently skip malformed lines
+            except Exception:
+                pass  # Silently skip errors during bulk parsing
         return records
 
-    @ staticmethod
+    @staticmethod
+    def _detect_file_format(filename: str) -> str:
+        """
+        Detect metadata file format by examining file contents.
+
+        Detection order:
+        1. IGS site log - look for "Site Information Form" in header
+        2. NGL format - "SITE YYMMMDD 1 Event_Description" pattern
+        3. Station info - DOY-based dates (YYYY DDD HH MM SS)
+
+        Args:
+            filename: Path to the file
+
+        Returns:
+            'igslog', 'ngl', or 'stninfo'
+        """
+        import re
+
+        try:
+            with open(filename, 'r', encoding='utf-8', errors='ignore') as f:
+                # Read first 100 lines for detection
+                header_lines = []
+                for i, line in enumerate(f):
+                    if i >= 100:
+                        break
+                    header_lines.append(line)
+                header_text = ''.join(header_lines)
+        except Exception:
+            return 'stninfo'  # Default on read error
+
+        # Check for IGS site log format
+        # Pattern: "Site Information Form" anywhere in header
+        if re.search(r'Site Information Form', header_text, re.IGNORECASE):
+            return 'igslog'
+
+        # Check for NGL format - has YYMMMDD dates like "17MAY04", "96JUN28"
+        # Pattern: SITE  YYMMMDD  1  Event_Description
+        ngl_pattern = re.compile(
+            r'^\s*[A-Z0-9]{4}\s+\d{2}[A-Z]{3}\d{2}\s+\d\s+\w+',
+            re.MULTILINE
+        )
+        if ngl_pattern.search(header_text):
+            return 'ngl'
+
+        # Check for station info format - DOY-based dates (YYYY DDD HH MM SS)
+        # Pattern: SITE name YYYY DDD HH MM SS YYYY DDD HH MM SS ...
+        stninfo_pattern = re.compile(
+            r'^\s*[A-Z0-9]{4}\s+\S*\s+\d{4}\s+\d{1,3}\s+\d{1,2}\s+\d{1,2}\s+\d{1,2}',
+            re.MULTILINE
+        )
+        if stninfo_pattern.search(header_text):
+            return 'stninfo'
+
+        # Default to station info format (will fail gracefully if wrong)
+        return 'stninfo'
+
+    @staticmethod
     def _parse_log_file(filename: str) -> List[str]:
-        """Parse IGS log file format."""
-        logfile = igslog.parse_igs_log_file(filename)
-        stninfo = []
+        """Parse IGS log file format.
 
-        for row in logfile:
-            end_date = (
-                str(Date(datetime=row[3]))
-                if row[3].year < 2100
-                else '9999 999 00 00 00'
-            )
+        Returns list of stninfo-format strings.
+        """
+        sessions = igslog.parse_igs_log_file(filename)
+        if not sessions:
+            return []
 
-            record = StationInfoRecord.RECORD_FORMAT.format(
-                row[0],  # station code
-                row[1],  # station name
-                str(Date(datetime=row[2])),  # session start
-                end_date,  # session end
-                float(row[4]) if isinstance(row[4], float) else 0.0,
-                row[5],  # height code
-                float(row[6]) if isinstance(row[6], float) else 0.0,
-                float(row[7]) if isinstance(row[7], float) else 0.0,
-                row[8],  # receiver type
-                row[9],  # receiver firmware
-                row[10],  # software version
-                row[11],  # receiver serial
-                row[12],  # antenna type
-                row[13],  # radome
-                row[14],  # antenna serial
-                0.0, # AntennaDAZ
-                row[15],  # comment
-            )
-            stninfo.append(record)
-
-        return stninfo
+        # parse_igs_log_file returns StationInfoRecord objects
+        # Convert them to stninfo-format strings
+        return [str(session) for session in sessions]
 
     def _parse_ngl_file(self, filename: str) -> List[str]:
         """Parse NGL format file for the current station only."""
@@ -721,9 +808,10 @@ class StationInfo:
         h_offset = float(htc[0]['h_offset'])
         v_offset = float(htc[0]['v_offset'])
 
-        record.AntennaHeight = np.sqrt(
-            np.square(record.AntennaHeight) - np.square(h_offset)
-        ) - v_offset
+        record.AntennaHeight = float(
+                np.sqrt(np.square(record.AntennaHeight) -
+                        np.square(h_offset)) - v_offset
+        )
 
         comment_addition = f'\nChanged from {record.HeightCode} to DHARP by pyStationInfo.\n'
         record.Comments = (
@@ -784,13 +872,16 @@ class StationInfo:
         Returns:
             List of overlapping records
         """
+        # Use far-future date for open-ended sessions
+        far_future = datetime.datetime(9999, 1, 1)
+
         overlaps = []
         q_start = qrecord.DateStart.datetime()
-        q_end = qrecord.DateEnd.datetime()
+        q_end = qrecord.DateEnd.datetime() if qrecord.DateEnd and qrecord.DateEnd.year < 9999 else far_future
 
         for record in self.records:
             r_start = record.DateStart.datetime()
-            r_end = record.DateEnd.datetime()
+            r_end = record.DateEnd.datetime() if record.DateEnd and record.DateEnd.year < 9999 else far_future
 
             earliest_end = min(q_end, r_end)
             latest_start = max(q_start, r_start)
@@ -947,8 +1038,8 @@ class StationInfo:
 
         elif (len(overlaps) == 1 and
               overlaps[0] == self.records[-1] and
-              not self.records[-1].DateEnd.year):
-            # Overlap with last session
+              (self.records[-1].DateEnd is None or self.records[-1].DateEnd.year >= 2099)):
+            # Overlap with last session (open-ended)
             new_end_date = record.DateStart.datetime() - datetime.timedelta(seconds=1)
             self.cnn.update(
                 'stationinfo',
