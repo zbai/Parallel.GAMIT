@@ -21,12 +21,12 @@ from geode.metadata.comparator import StationMetadataComparator, ComparatorError
 from geode.metadata.report import ReportParseError
 
 
-def test_comparator_with_station(cfg_path: str,
-                                  log_path: str,
-                                  network_code: str,
-                                  station_code: str):
+def run_comparator_test(cfg_path: str,
+                        log_path: str,
+                        network_code: str,
+                        station_code: str):
     """
-    Test the comparator with a real station.
+    Manual integration test for the comparator with a real station.
 
     Args:
         cfg_path: Path to gnss_data.cfg
@@ -152,5 +152,5 @@ if __name__ == '__main__':
     if len(sys.argv) > 3:
         network_code = sys.argv[3].lower()
 
-    success = test_comparator_with_station(cfg_path, log_path, network_code, station_code)
+    success = run_comparator_test(cfg_path, log_path, network_code, station_code)
     sys.exit(0 if success else 1)
