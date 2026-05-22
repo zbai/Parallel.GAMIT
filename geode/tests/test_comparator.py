@@ -16,7 +16,7 @@ logging.basicConfig(
 )
 
 from geode.dbConnection import Cnn
-from geode.metadata.serializers import bundle_from_db, bundle_from_logfile
+from geode.metadata.serializers import bundle_from_db, bundle_from_file
 from geode.metadata.comparator import StationMetadataComparator, ComparatorError
 from geode.metadata.report import ReportParseError
 
@@ -68,7 +68,7 @@ def test_comparator_with_station(cfg_path: str,
     # Parse IGS log file
     print("\n3. Parsing IGS log file...")
     try:
-        file_bundle = bundle_from_logfile(log_path, network_code, station_code)
+        file_bundle = bundle_from_file(log_path, network_code, station_code)
         print(f"   Found {len(file_bundle.sessions)} session(s) in log file")
         for i, s in enumerate(file_bundle.sessions):
             end_str = s.DateEnd.strftime() if s.DateEnd else "open"
@@ -100,7 +100,7 @@ def test_comparator_with_station(cfg_path: str,
     # Run comparison
     print("\n5. Running comparison...")
     try:
-        report = comparator.compare(db_bundle, file_bundle, cnn, file_source="IGS log")
+        report = comparator.compare(db_bundle, file_bundle, file_source="IGS log")
         print(f"   Comparison complete")
     except ComparatorError as e:
         print(f"   ERROR: API error: {e}")
