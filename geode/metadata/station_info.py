@@ -42,6 +42,14 @@ class StationInfoHeightCodeNotFound(StationInfoException):
     pass
 
 
+class StationInfoOverlapException(StationInfoException):
+    """Exception raised when a record overlaps with existing records."""
+
+    def __init__(self, message: str, overlapping_records: list | None = None):
+        super().__init__(message)
+        self.overlapping_records = overlapping_records or []
+
+
 class StationInfoNoRecordFound(StationInfoException):
     pass
 
@@ -916,10 +924,11 @@ class StationInfo:
         overlaps = self.overlaps(new_record)
         for overlap in overlaps:
             if overlap.DateStart.datetime() != record.DateStart.datetime():
-                raise StationInfoException(
+                raise StationInfoOverlapException(
                     f'Record {record.DateStart} -> {record.DateEnd} '
                     f'overlaps with existing station.info records: '
-                    f'{overlap.DateStart} -> {overlap.DateEnd}'
+                    f'{overlap.DateStart} -> {overlap.DateEnd}',
+                    overlapping_records=[overlap]
                 )
 
         # Insert event
@@ -1064,9 +1073,10 @@ class StationInfo:
             overlap_strs = [
                 f'{o.DateStart} -> {o.DateEnd}' for o in overlaps
             ]
-            raise StationInfoException(
+            raise StationInfoOverlapException(
                 f'Record {record.DateStart} -> {record.DateEnd} '
-                f'overlaps with existing station.info records: {" ".join(overlap_strs)}'
+                f'overlaps with existing station.info records: {" ".join(overlap_strs)}',
+                overlapping_records=overlaps
             )
 
     def rinex_based_stninfo(self, ignore: int) -> str:
@@ -1179,7 +1189,8 @@ class StationInfo:
             record1.AntennaNorth == record2.AntennaNorth and
             record1.AntennaEast == record2.AntennaEast and
             record1.HeightCode == record2.HeightCode and
-            record1.RadomeCode == record2.RadomeCode
+            record1.RadomeCode == record2.RadomeCode and
+            record1.ReceiverFirmware == record2.ReceiverFirmware
         )
 
     def __eq__(self, other: object) -> bool:

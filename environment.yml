@@ -23,6 +23,7 @@ dependencies:
   - shapely
   - obspy
   - geopandas
+  - cartopy>=0.22
   - pip
   - pip:
     - anthropic

@@ -89,6 +89,12 @@ CLASSIFICATION RULES:
                         cannot be explained by gap simplification. Action: UPDATE.
                         IMPORTANT: If dates differ by 1 day or less, this is NOT a
                         DATE_MISMATCH — it is within tolerance and should be NO_ACTION.
+                        SPECIAL CASE for the FIRST record: If the DB start date is EARLIER
+                        than the external file start date, this is NOT a DATE_MISMATCH —
+                        the database may have data predating the agency's published file.
+                        Report as NO_ACTION. However, if the external file start date is
+                        EARLIER than the DB start date, this IS a DATE_MISMATCH because
+                        the database is missing earlier data that the file indicates exists.
 
   ECCENTRICITY_CHANGE — ARP offsets differ by more than 0.001 m. Action: UPDATE.
 
@@ -134,6 +140,11 @@ Respond ONLY with a JSON object — no preamble, no markdown fences:
     }
   ]
 }
+
+IMPORTANT: When mentioning dates in human-readable text (summary, description fields),
+ALWAYS include the full timestamp with time component in "YYYY-MM-DD HH:MM:SS" format.
+Never use just the date without time. For example, write "session starting 2025-09-02 00:00:00"
+not "session starting 2025-09-02". This applies to all human-readable text, not just JSON fields.
 
 db_record must contain only {"DateStart": "YYYY-MM-DD HH:MM:SS"} to identify the
 matching DB session. This is the DateStart of the DB session that overlaps with

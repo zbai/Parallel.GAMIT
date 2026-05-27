@@ -393,7 +393,7 @@ class EtmEngine:
         else:
             return None
 
-    def get_position(self, dates: Union[Date, List[Date]],
+    def get_position(self, dates: Union[Date, list],
                      etm_solution: EtmSolutionType = EtmSolutionType.MODEL) -> Dict:
         """
         use computed model to obtain a station position

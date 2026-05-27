@@ -657,13 +657,14 @@ def determine_frame(frames, date):
 def print_columns(l):
 
     for a, b, c, d, e, f, g, h in zip(l[::8], l[1::8], l[2::8], l[3::8], l[4::8], l[5::8], l[6::8], l[7::8]):
-        print('    {:<10}{:<10}{:<10}{:<10}{:<10}{:<10}{:<10}{:<}'.format(a, b, c, d, e, f, g, h))
+        print('    {:<10}{:<10}{:<10}{:<10}{:<10}{:<10}{:<10}{:<}'.format(a, b, c, d, e, f, g, h),
+              file=sys.stderr)
 
     if len(l) % 8 != 0:
-        sys.stdout.write('    ')
+        sys.stderr.write('    ')
         for i in range(len(l) - len(l) % 8, len(l)):
-            sys.stdout.write('{:<10}'.format(l[i]))
-        sys.stdout.write('\n')
+            sys.stderr.write('{:<10}'.format(l[i]))
+        sys.stderr.write('\n')
 
 
 def get_resource_delimiter():
@@ -759,7 +760,7 @@ def process_stnlist(cnn, stnlist_in, print_summary=True, summary_title=None):
     """
     # Read from file if single argument is a file path
     if len(stnlist_in) == 1 and os.path.isfile(stnlist_in[0]):
-        print(f' >> Station list read from file: {stnlist_in[0]}')
+        print(f' >> Station list read from file: {stnlist_in[0]}', file=sys.stderr)
         with open(stnlist_in[0], 'r') as f:
             stnlist_in = [line.strip() for line in f if line.strip()]
 
@@ -802,16 +803,16 @@ def process_stnlist(cnn, stnlist_in, print_summary=True, summary_title=None):
     # Print summary if requested
     if print_summary:
         if summary_title is None:
-            print(' >> Selected station list:')
+            print(' >> Selected station list:', file=sys.stderr)
         else:
-            print(f' >> {summary_title}')
+            print(f' >> {summary_title}', file=sys.stderr)
 
         # Assuming print_columns is defined elsewhere
         try:
             print_columns([stationID(s) for s in station_list])
         except NameError:
             # Fallback if print_columns not available
-            print(', '.join([stationID(s) for s in station_list]))
+            print(', '.join([stationID(s) for s in station_list]), file=sys.stderr)
 
     return station_list
 

@@ -33,7 +33,7 @@ from textual.containers import Container, Horizontal, Vertical, ScrollableContai
 from textual.screen import Screen, ModalScreen
 from textual.widgets import (
     Header, Footer, Static, DataTable, Button, Input, Label,
-    TabbedContent, TabPane, TextArea, Select, Rule, OptionList
+    TabbedContent, TabPane, TextArea, Select, Rule, OptionList, Collapsible
 )
 from textual.widgets.option_list import Option
 from textual.message import Message
@@ -47,7 +47,25 @@ from rich.table import Table
 from rich.console import Console
 
 from geode import dbConnection
-from geode.metadata.station_info import StationInfo, StationInfoRecord
+from geode.metadata.station_info import (
+    StationInfo,
+    StationInfoRecord,
+    StationInfoOverlapException,
+)
+from geode.metadata.planner import (
+    StationInfoPlanner,
+    PlannerResult,
+    PlannerOperation,
+    PlannerError,
+    execute_plan,
+    try_direct_apply,
+)
+from geode.metadata.report import Finding
+
+
+class PlannerPendingException(Exception):
+    """Raised when planner is invoked (async) - disposition update deferred."""
+    pass
 from geode import pyDate
 from geode.pyEvents import Event
 from geode.Utils import process_date, add_version_argument, process_stnlist
@@ -840,7 +858,14 @@ class DiffViewScreen(ModalScreen[None]):
 
 
 class AuditActionScreen(ModalScreen[Optional[tuple]]):
-    """Modal screen for taking action on an audit finding."""
+    """
+    Modal screen for taking action on an audit finding.
+
+    For all finding types (INSERT, UPDATE, REVIEW):
+    - Shows Claude's summary and the finding details
+    - Provides Apply, Dismiss, Defer, Cancel options
+    - Includes instructions field (required for REVIEW, optional for INSERT/UPDATE)
+    """
 
     BINDINGS = [
         Binding("escape", "cancel", "Cancel"),
@@ -851,15 +876,43 @@ class AuditActionScreen(ModalScreen[Optional[tuple]]):
         self.finding = finding
 
     def compose(self) -> ComposeResult:
-        yield Container(
+        action = self.finding.get('action_required', '')
+        is_review = action == 'REVIEW'
+
+        # Get Comments from db_field_values for REVIEW findings
+        db_field_values = self.finding.get('db_field_values') or {}
+        comments = db_field_values.get('Comments', '')
+
+        # Determine if instructions are required
+        instructions_required = is_review
+        instructions_label = "Instructions (required):" if instructions_required else "Instructions (optional):"
+        instructions_hint = (
+            "[dim]Describe what you want to do: merge into preceding session, "
+            "merge into following session, keep as is, or delete.[/dim]"
+            if is_review else
+            "[dim]Enter plain-language instructions for the planner. "
+            "If provided, direct apply will be skipped.[/dim]"
+        )
+
+        yield Vertical(
             Static(f"Action: {self.finding['finding_type']}", classes="dialog-title"),
             ScrollableContainer(
                 Static(self.finding.get('claude_summary', ''), classes="summary-text"),
-                classes="summary-scroll"
+                # Show session comments for REVIEW findings
+                Rule() if is_review else Static(""),
+                Static("[bold]Session Comments:[/bold]") if is_review else Static(""),
+                Static(
+                    comments if comments else "[dim](No comments in this session)[/dim]"
+                ) if is_review else Static(""),
+                Rule(),
+                Label(instructions_label),
+                Static(instructions_hint, classes="instructions-hint"),
+                TextArea(id="custom_instructions", classes="instructions-input"),
+                Rule(),
+                Label("Review Notes (optional):"),
+                TextArea(id="notes", classes="notes-input"),
+                id="action-scroll-container",
             ),
-            Rule(),
-            Label("Review Notes (optional):"),
-            TextArea(id="notes", classes="notes-input"),
             Horizontal(
                 Button("Apply", variant="success", id="apply"),
                 Button("Dismiss", variant="warning", id="dismiss"),
@@ -878,6 +931,14 @@ class AuditActionScreen(ModalScreen[Optional[tuple]]):
             self.dismiss(None)
         else:
             notes = self.query_one("#notes", TextArea).text
+            custom_instructions = self.query_one("#custom_instructions", TextArea).text.strip()
+
+            # Check if instructions are required for this action
+            action_type = self.finding.get('action_required', '')
+            if event.button.id == "apply" and action_type == 'REVIEW' and not custom_instructions:
+                self.notify("Instructions are required for REVIEW findings", severity="error")
+                return
+
             action = event.button.id.upper()
             if action == "APPLY":
                 action = "APPLIED"
@@ -885,7 +946,124 @@ class AuditActionScreen(ModalScreen[Optional[tuple]]):
                 action = "DISMISSED"
             elif action == "DEFER":
                 action = "DEFERRED"
-            self.dismiss((action, notes))
+            # Return (action, notes, custom_instructions)
+            self.dismiss((action, notes, custom_instructions))
+
+
+class PlanPreviewScreen(ModalScreen[bool]):
+    """Modal screen showing plan preview with Confirm/Cancel buttons."""
+
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel"),
+    ]
+
+    def __init__(self, result: PlannerResult, station_id: str):
+        super().__init__()
+        self.result = result
+        self.station_id = station_id
+
+    def compose(self) -> ComposeResult:
+        yield Container(
+            Static(f"[bold]Plan Preview for {self.station_id}[/bold]", classes="dialog-title"),
+            ScrollableContainer(
+                Static(self._format_operations(), classes="plan-text"),
+                classes="plan-scroll"
+            ),
+            Rule(),
+            Static(f"[dim]Summary:[/dim] {self.result.summary}", classes="plan-summary"),
+            Horizontal(
+                Button("Confirm", variant="success", id="confirm"),
+                Button("Cancel", variant="error", id="cancel"),
+                classes="dialog-buttons"
+            ),
+            classes="plan-dialog"
+        )
+
+    def _format_operations(self) -> str:
+        """Format operations as human-readable lines."""
+        lines = []
+        for op in self.result.operations:
+            if op.operation == "INSERT":
+                date_start = op.fields.get('DateStart', '')
+                date_end = op.fields.get('DateEnd', 'ongoing')
+                receiver = op.fields.get('ReceiverCode', '')
+                firmware = op.fields.get('ReceiverFirmware', '')
+                antenna = op.fields.get('AntennaCode', '')
+                radome = op.fields.get('RadomeCode', '')
+                lines.append(
+                    f"[green]INSERT[/green] {op.target.get('StationCode', '') if op.target else self.station_id.split('.')[-1]}: "
+                    f"{date_start[:10] if date_start else '?'} to {date_end[:10] if date_end and date_end != 'ongoing' else 'ongoing'} "
+                    f"({receiver}, fw {firmware}, {antenna}/{radome})"
+                )
+            elif op.operation == "UPDATE":
+                target_date = op.target.get('DateStart', '') if op.target else ''
+                field_changes = ", ".join(f"{k}={v}" for k, v in op.fields.items())
+                lines.append(
+                    f"[yellow]UPDATE[/yellow] {self.station_id.split('.')[-1]} @ {target_date[:10] if target_date else '?'} -> "
+                    f"set {field_changes}"
+                )
+            elif op.operation == "DELETE":
+                target_date = op.target.get('DateStart', '') if op.target else ''
+                lines.append(
+                    f"[red]DELETE[/red] {self.station_id.split('.')[-1]} @ {target_date[:10] if target_date else '?'}"
+                )
+            lines.append(f"  [dim]Reason: {op.reason}[/dim]")
+            lines.append("")
+        return "\n".join(lines) if lines else "[dim]No operations[/dim]"
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "confirm":
+            self.dismiss(True)
+        else:
+            self.dismiss(False)
+
+
+class ConflictScreen(ModalScreen[None]):
+    """Modal screen showing planner conflicts."""
+
+    BINDINGS = [
+        Binding("escape", "close", "Close"),
+    ]
+
+    def __init__(self, conflicts: List[str], station_id: str):
+        super().__init__()
+        self.conflicts = conflicts
+        self.station_id = station_id
+
+    def compose(self) -> ComposeResult:
+        yield Container(
+            Static(f"[bold red]Conflicts Detected for {self.station_id}[/bold red]", classes="dialog-title"),
+            ScrollableContainer(
+                Static(self._format_conflicts(), classes="conflict-text"),
+                classes="conflict-scroll"
+            ),
+            Rule(),
+            Static(
+                "[dim]Resolve these conflicts before applying this finding.[/dim]",
+                classes="conflict-hint"
+            ),
+            Horizontal(
+                Button("Close", variant="error", id="close"),
+                classes="dialog-buttons"
+            ),
+            classes="conflict-dialog"
+        )
+
+    def _format_conflicts(self) -> str:
+        lines = []
+        for i, conflict in enumerate(self.conflicts, 1):
+            lines.append(f"[red]{i}.[/red] {conflict}")
+            lines.append("")
+        return "\n".join(lines)
+
+    def action_close(self) -> None:
+        self.dismiss(None)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        self.dismiss(None)
 
 
 class TimelineViewScreen(ModalScreen[None]):
@@ -1130,17 +1308,47 @@ class StationInfoEditApp(App):
     .action-dialog {
         width: 80;
         height: auto;
-        max-height: 35;
+        max-height: 40;
         padding: 1 2;
         background: $panel;
         border: solid $primary;
     }
 
-    .action-dialog .summary-scroll {
-        height: auto;
-        max-height: 15;
+    .action-dialog #action-scroll-container {
+        height: 1fr;
+        max-height: 28;
         border: solid $secondary;
         margin: 0 0 1 0;
+        padding: 1;
+    }
+
+    .action-dialog Collapsible {
+        margin: 1 0;
+    }
+
+    .hidden {
+        display: none;
+    }
+
+    .toggle-btn {
+        width: auto;
+        min-width: 35;
+        margin: 1 0;
+    }
+
+    .instructions-hint {
+        padding: 0 1;
+        margin-bottom: 1;
+    }
+
+    .instructions-input {
+        height: 5;
+        margin-bottom: 1;
+    }
+
+    #instructions_container {
+        height: auto;
+        padding: 0;
     }
 
     .dialog-title {
@@ -1484,7 +1692,7 @@ class StationInfoEditApp(App):
         self._load_data()
         self._refresh_records_table()
         self._refresh_audit_table()
-        self.notify("Data refreshed")
+        self.notify("Data refreshed", severity="information")
 
     def action_focus_search(self) -> None:
         """Show and focus the search input."""
@@ -1723,7 +1931,7 @@ class StationInfoEditApp(App):
         if not finding:
             return
 
-        # If not already settled, show action dialog
+        # If not already settled, show action dialog (same screen for all finding types)
         if not finding.get('disposition') or finding.get('disposition') == 'DEFERRED':
             self.push_screen(AuditActionScreen(finding), self._on_audit_action_result)
         else:
@@ -1735,7 +1943,13 @@ class StationInfoEditApp(App):
         self._selected_finding = None
 
         if result:
-            action, notes = result
+            # Handle both old (action, notes) and new (action, notes, custom_instructions) formats
+            if len(result) == 3:
+                action, notes, custom_instructions = result
+            else:
+                action, notes = result
+                custom_instructions = ""
+
             try:
                 import getpass
                 user = getpass.getuser()
@@ -1743,7 +1957,7 @@ class StationInfoEditApp(App):
                 # If applying, try to update/insert the station info record FIRST
                 # Only mark as APPLIED if the apply succeeds
                 if action == 'APPLIED':
-                    self._apply_audit_finding(finding)
+                    self._apply_audit_finding(finding, custom_instructions)
 
                 # Now that the action succeeded, update the disposition
                 update_audit_disposition(
@@ -1758,21 +1972,206 @@ class StationInfoEditApp(App):
                 self._refresh_audit_table()
                 self._refresh_records_table()
                 self.notify(f"Finding marked as {action}", severity="information")
+            except PlannerPendingException:
+                # Planner was invoked asynchronously - disposition will be
+                # updated in _on_plan_preview_result when plan is executed
+                self._pending_plan_notes = notes
+                pass
             except Exception as e:
                 self.notify(f"Error: {e}", severity="error")
 
-    def _apply_audit_finding(self, finding: Dict[str, Any]) -> None:
+    def _apply_audit_finding(self, finding: Dict[str, Any],
+                              custom_instructions: str = "") -> None:
         """
         Apply an audit finding using structured field values.
 
-        Delegates to apply_finding() which handles INSERT and UPDATE actions
-        using the existing logic in StationInfo.insert_station_info() and
-        StationInfo.update_station_info().
+        For INSERT/UPDATE: Uses SQL-first strategy with planner fallback.
+        - If custom_instructions provided, skip direct apply and use planner
+        - If StationInfoOverlapException, invoke planner to resolve conflicts
+
+        For REVIEW: Always uses planner (requires user instructions).
 
         Args:
             finding: Audit finding dict with file_field_values JSONB data
+            custom_instructions: Optional plain-language instructions for planner
         """
-        apply_finding(self.cnn, self.stn_info, finding)
+        action = finding.get('action_required')
+
+        # REVIEW findings always require planner with instructions
+        if action == 'REVIEW':
+            if not custom_instructions:
+                raise ValueError("REVIEW findings require instructions")
+            self.notify("Calling Claude planner... please wait", severity="information")
+            self.set_timer(0.1, lambda: self._do_invoke_planner(finding, custom_instructions))
+            raise PlannerPendingException("Planner invoked - disposition update deferred")
+
+        # If custom instructions provided, skip direct apply and go to planner
+        if custom_instructions:
+            self.notify("Calling Claude planner... please wait", severity="information")
+            self.set_timer(0.1, lambda: self._do_invoke_planner(finding, custom_instructions))
+            raise PlannerPendingException("Planner invoked - disposition update deferred")
+
+        # Try direct apply first (INSERT/UPDATE only)
+        try:
+            apply_finding(self.cnn, self.stn_info, finding)
+            return  # Success - caller should update disposition
+
+        except StationInfoOverlapException:
+            # Direct apply failed due to overlap - invoke planner
+            self.notify("Overlap detected, calling Claude planner...", severity="warning")
+            self.set_timer(0.1, lambda: self._do_invoke_planner(finding, None))
+            raise PlannerPendingException("Planner invoked - disposition update deferred")
+
+    def _do_invoke_planner(self, finding: Dict[str, Any],
+                            user_instructions: Optional[str]) -> None:
+        """
+        Invoke the planner and show preview screen.
+
+        Called via set_timer so the notification is visible first.
+
+        Args:
+            finding: The finding to apply
+            user_instructions: Optional user instructions for the planner
+        """
+        station_id = f"{self.network_code}.{self.station_code}"
+
+        try:
+            # Convert finding dict to Finding object for planner
+            db_fields = set(finding.get('db_field_values', {}) or {})
+            file_fields = set(finding.get('file_field_values', {}) or {})
+            finding_obj = Finding(
+                finding_type=finding.get('finding_type', ''),
+                action=finding.get('action_required', ''),
+                description=finding.get('claude_summary', ''),
+                affected_fields=list(db_fields.union(file_fields)),
+                db_record=finding.get('db_record'),
+                db_field_values=finding.get('db_field_values'),
+                file_field_values=finding.get('file_field_values'),
+                hash=finding.get('session_hash', 0),
+            )
+
+            # Get all findings for this station (for context)
+            all_findings_data = self._get_all_station_findings()
+            all_findings = [
+                (
+                    Finding(
+                        finding_type=f.get('finding_type', ''),
+                        action=f.get('action_required', ''),
+                        description=f.get('claude_summary', ''),
+                        affected_fields=list(
+                            set(f.get('db_field_values', {}) or {}).union(
+                                set(f.get('file_field_values', {}) or {})
+                            )
+                        ),
+                        db_record=f.get('db_record'),
+                        db_field_values=f.get('db_field_values'),
+                        file_field_values=f.get('file_field_values'),
+                        hash=f.get('session_hash', 0),
+                    ),
+                    f.get('disposition'),
+                )
+                for f in all_findings_data
+            ]
+
+            # Invoke planner (blocking API call)
+            planner = StationInfoPlanner()
+            result = planner.plan(
+                finding=finding_obj,
+                all_findings=all_findings,
+                db_sessions=self.stn_info.records,
+                network_code=self.network_code,
+                station_code=self.station_code,
+                user_instructions=user_instructions,
+            )
+
+            # Check for conflicts
+            if result.conflicts:
+                self.push_screen(ConflictScreen(result.conflicts, station_id))
+                return  # ConflictScreen will handle user interaction
+
+            # Check for empty operations (e.g., "keep as is" for REVIEW)
+            if not result.operations:
+                self.notify(result.summary, severity="information")
+                return
+
+            # Store result for callback
+            self._pending_plan_result = result
+            self._pending_plan_finding = finding
+
+            # Show preview
+            self.push_screen(
+                PlanPreviewScreen(result, station_id),
+                self._on_plan_preview_result
+            )
+
+        except PlannerError as e:
+            self.notify(f"Planner error: {e.message}", severity="error")
+        except Exception as e:
+            self.notify(f"Error: {e}", severity="error")
+
+    def _on_plan_preview_result(self, confirmed: bool) -> None:
+        """Handle result from plan preview screen."""
+        result = self._pending_plan_result
+        finding = self._pending_plan_finding
+        notes = getattr(self, '_pending_plan_notes', '')
+        self._pending_plan_result = None
+        self._pending_plan_finding = None
+        self._pending_plan_notes = None
+
+        if not confirmed:
+            self.notify("Plan cancelled", severity="warning")
+            return
+
+        # Execute the plan
+        try:
+            messages = execute_plan(
+                self.cnn,
+                result.operations,
+                self.network_code,
+                self.station_code,
+                finding.get('finding_type', ''),
+                dry_run=False
+            )
+
+            # Update disposition now that plan succeeded
+            import getpass
+            user = getpass.getuser()
+            update_audit_disposition(
+                self.cnn,
+                finding['api_id'],
+                'APPLIED',
+                user,
+                notes or f"Applied via planner: {result.summary[:100]}..."
+            )
+
+            self._load_data()
+            self._refresh_audit_table()
+            self._refresh_records_table()
+            self.notify(f"Plan executed: {len(result.operations)} operation(s)", severity="information")
+        except Exception as e:
+            self.notify(f"Plan execution failed: {e}", severity="error")
+
+    def _get_all_station_findings(self) -> List[Dict[str, Any]]:
+        """
+        Get all audit findings for this station with their dispositions.
+
+        Returns all findings regardless of disposition status, so Claude can
+        reason about the full history:
+        - Pending findings (disposition=NULL or DEFERRED) may conflict
+        - Applied findings explain current DB state
+        - Dismissed findings represent deliberate past decisions
+        - NO_ACTION findings are background context
+        """
+        result = self.cnn.query_float(f'''
+            SELECT api_id, session_hash, finding_type, action_required,
+                   db_record, claude_summary,
+                   db_field_values, file_field_values, disposition
+            FROM stationinfo_audit
+            WHERE "NetworkCode" = '{self.network_code}'
+              AND "StationCode" = '{self.station_code}'
+            ORDER BY created_at ASC
+        ''', as_dict=True)
+        return list(result) if result else []
 
 
 # =============================================================================
@@ -1966,17 +2365,36 @@ def _field_values_to_record_dict(field_values: Dict[str, Any]) -> Dict[str, str]
 
 
 def _record_to_dict(record: StationInfoRecord) -> Dict[str, str]:
-    """Convert a StationInfoRecord to a dict for modification."""
-    # Use to_claude_dict() which includes all fields including StationName
-    result = record.to_claude_dict()
-    # Remove hash field (not needed for record reconstruction)
-    result.pop('hash', None)
-    # Convert None values to empty strings for consistency
-    for key, value in result.items():
+    """Convert a StationInfoRecord to a dict for modification.
+
+    Returns dates in station info format (YYYY DDD HH MM SS) since the dict
+    will be passed to StationInfoRecord(..., _record=dict) which expects
+    this format for Date(stninfo=...) parsing.
+    """
+    from geode.pyDate import Date
+    result = {}
+
+    # Get all fields from the record
+    for field_spec in StationInfoRecord._FIELD_SPEC:
+        key = field_spec[0]
+        value = getattr(record, key, None)
+
         if value is None:
             result[key] = ''
+        elif key in ('DateStart', 'DateEnd'):
+            # Convert Date objects to station info format string
+            if isinstance(value, Date):
+                if value.year == 9999:
+                    result[key] = ''  # Open-ended
+                else:
+                    result[key] = str(value)  # Station info format: YYYY DDD HH MM SS
+            else:
+                result[key] = ''
         elif not isinstance(value, str):
             result[key] = str(value)
+        else:
+            result[key] = value
+
     return result
 
 
@@ -2050,6 +2468,13 @@ def apply_pending_for_station(cnn: dbConnection.Cnn,
             finding_type = finding.get('finding_type')
             action = finding.get('action_required')
 
+            # Skip REVIEW findings in batch mode - they require user instructions
+            if action == 'REVIEW':
+                result['skipped'] += 1
+                if verbose:
+                    print(f"    - Skipping {finding_type} (REVIEW requires user instructions)")
+                continue
+
             if verbose:
                 print(f"    - Applying {finding_type} ({action})...", end=' ')
 
@@ -2060,6 +2485,17 @@ def apply_pending_for_station(cnn: dbConnection.Cnn,
                 result['applied'] += 1
                 if verbose:
                     print("OK")
+            except StationInfoOverlapException as e:
+                # Overlap detected - skip this finding in batch mode
+                result['skipped'] += 1
+                if verbose:
+                    print(f"SKIPPED (overlap): {e}")
+                else:
+                    import logging
+                    logging.warning(
+                        f"[{station_id}] Finding {api_id} skipped due to overlap: {e}"
+                    )
+                # Don't raise - continue with other findings
             except Exception as e:
                 result['errors'].append(f"Finding {api_id}: {e}")
                 if verbose:

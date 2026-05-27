@@ -59,7 +59,8 @@ dependencies = [
     "scikit-image",
     "shapely",
     "obspy",
-    "geopandas"
+    "geopandas",
+    "cartopy>=0.22"
 ]
 
 [project.urls]

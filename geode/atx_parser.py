@@ -21,10 +21,20 @@ Usage (standalone):
 from __future__ import annotations
 
 import os
-import re
+import numpy as np
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
+
+# app
+from .dbConnection import Cnn
+
+# LC ionosphere-free combination coefficients (GPS)
+# c_LC(θ) = LC_F1 × c_L1(θ) - LC_F2 × c_L2(θ)   [mm]
+# These follow from f1=1575.42 MHz, f2=1227.60 MHz:
+#   α = f1²/(f1²-f2²) ≈ 2.5457,  β = f2²/(f1²-f2²) ≈ 1.5457
+LC_F1 = 2.5457
+LC_F2 = 1.5457
 
 # ---------------------------------------------------------------------------
 # Data classes that mirror the DB tables
@@ -732,3 +742,107 @@ def reconstruct_atx_antenna(cnn, antenna_code: str, radome_code: str,
 
     lines.append(rec('', 'END OF ANTENNA'))
     return ''.join(lines)
+
+def fetch_atx_noazi(cnn: Cnn, antenna_code: str, radome_code: str) -> dict | None:
+    """
+    Fetch the NOAZI PCV for both G01 (L1) and G02 (L2) and return the
+    ionosphere-free LC combination:
+
+        c_LC(θ) = 2.5457 × NOAZI_L1(θ) − 1.5457 × NOAZI_L2(θ)
+
+    This is the calibration that GAMIT actually removed from the observations,
+    since it processes the LC observable.  GAMIT applies L1 and L2 corrections
+    independently at the observation level, but the net effect in the LC
+    residuals is exactly the linear combination above.
+
+    Fall-back logic (mirrors GAMIT):
+      1. Try (antenna_code, radome_code)
+      2. If not found, try (antenna_code, 'NONE')
+      3. Return None if neither has data
+
+    If G02 is not available the function falls back to G01 alone and prints
+    a warning, since many older calibrations only carry L1.
+
+    Returns
+    -------
+    dict with:
+        'elev'       – elevation degrees (ascending, 0→90)
+        'pcv'        – LC PCV values [mm]
+        'pcv_l1'     – raw L1 PCV [mm]
+        'pcv_l2'     – raw L2 PCV [mm] or None
+        'radome_used'– radome code actually found in the table
+        'lc_used'    – True if LC combination was computed, False if L1-only
+    or None if no calibration found at all.
+    """
+    def _query_freq(ant, rad, freq):
+        rows = cnn.query_float(f"""
+            SELECT
+                ac.zen1, ac.zen2, ac.dzen,
+                p.pcv_values,
+                ac."RadomeCode" AS radome_used
+            FROM antenna_calibrations   ac
+            JOIN antenna_calibration_freq f
+              ON f.calibration_id = ac.calibration_id
+             AND f.frequency      = '{freq}'
+            JOIN antenna_calibration_pcv  p
+              ON p.freq_id = f.freq_id
+             AND p.azimuth IS NULL
+            WHERE ac."AntennaCode" = '{ant}'
+              AND ac."RadomeCode"  = '{rad}'
+            ORDER BY ac.calibration_id DESC
+            LIMIT 1
+        """, as_dict=True)
+        return rows[0] if rows else None
+
+    def _query_both(ant, rad):
+        r1 = _query_freq(ant, rad, 'G01')
+        r2 = _query_freq(ant, rad, 'G02')
+        return r1, r2
+
+    # Try exact radome first, then fall back to NONE
+    r1, r2 = _query_both(antenna_code, radome_code)
+    radome_used = radome_code
+    if r1 is None and radome_code != 'NONE':
+        r1, r2 = _query_both(antenna_code, 'NONE')
+        radome_used = 'NONE'
+
+    if r1 is None:
+        return None
+
+    def _to_elev_array(row):
+        """Convert a PCV row (zenith-ordered) to elevation-ordered numpy array."""
+        zen1  = float(row['zen1'])
+        zen2  = float(row['zen2'])
+        dzen  = float(row['dzen'])
+        pcv   = np.array(row['pcv_values'], dtype=float)
+        n_pts = round((zen2 - zen1) / dzen) + 1
+        zens  = np.linspace(zen1, zen2, n_pts)
+        elevs = 90.0 - zens                 # zenith → elevation
+        idx   = np.argsort(elevs)
+        return elevs[idx], pcv[idx]
+
+    elev, pcv_l1 = _to_elev_array(r1)
+
+    if r2 is not None:
+        elev2, pcv_l2 = _to_elev_array(r2)
+        # Interpolate L2 onto L1 grid in case grids differ
+        if not np.array_equal(elev, elev2):
+            pcv_l2 = np.interp(elev, elev2, pcv_l2)
+        pcv_lc  = LC_F1 * pcv_l1 - LC_F2 * pcv_l2
+        lc_used = True
+    else:
+        print(f"    ATX: G02 not found for {antenna_code} [{radome_used}] "
+              f"— using L1 only (LC approximation)")
+        pcv_l2  = None
+        pcv_lc  = pcv_l1
+        lc_used = False
+
+    return {
+        'elev'       : elev,
+        'pcv'        : pcv_lc,
+        'pcv_l1'     : pcv_l1,
+        'pcv_l2'     : pcv_l2,
+        'radome_used'     : radome_used,
+        'radome_requested' : radome_code,
+        'lc_used'          : lc_used,
+    }

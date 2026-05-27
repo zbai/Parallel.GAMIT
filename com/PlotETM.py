@@ -9,7 +9,7 @@ User interface to plot and save JSON files of ETM objects.
 Type python pyPlotETM.py -h for usage help
 """
 import argparse
-import os
+import os, sys
 import logging
 from dataclasses import asdict
 from datetime import datetime
@@ -240,6 +240,7 @@ def print_query(args, etm: EtmEngine):
     date_index = 1
 
     strp = ''
+    extrapolate = False
     # if user requests velocity too, output it
     if etm.config.modeling.status == etm.config.modeling.status.POSTFIT:
         if 'vel' in args.query:
@@ -261,6 +262,10 @@ def print_query(args, etm: EtmEngine):
                     # also output seasonal terms, if requested
                     strp += ' '.join(pxyz)
 
+        if 'extrapolate' in args.query:
+            date_index += 1
+            extrapolate = True
+
     q_date = []
     for d in args.query[date_index:]:
         q_date.append(process_date_str(d))
@@ -268,9 +273,18 @@ def print_query(args, etm: EtmEngine):
     solution = etm.get_position(q_date, mode_obs)
 
     for i, d in enumerate(q_date):
-        print(' %s %14.5f %14.5f %14.5f %8.3f %s -> %s' \
-              % (etm.config.get_station_id(), solution['position'][0][i],
-                 solution['position'][1][i], solution['position'][2][i], d.fyear, strp, solution['source']))
+        if extrapolate:
+            print(' %s %14.5f %14.5f %14.5f %8.3f %s -> %s' \
+                  % (etm.config.get_station_id(), solution['position'][0][i],
+                     solution['position'][1][i], solution['position'][2][i], d.fyear, strp, solution['source']))
+        else:
+            if etm.config.metadata.first_obs < d < etm.config.metadata.last_obs:
+                print(' %s %14.5f %14.5f %14.5f %8.3f %s -> %s' \
+                      % (etm.config.get_station_id(), solution['position'][0][i],
+                         solution['position'][1][i], solution['position'][2][i], d.fyear, strp, solution['source']))
+            else:
+                print(' %s %14s %14s %14s %8.3f %s -> %s' \
+                      % (etm.config.get_station_id(),'NaN', 'NaN', 'NaN', d.fyear, strp, solution['source']))
 
 
 def get_prefit_models(config, args):
@@ -604,8 +618,10 @@ def main():
                         metavar='{type}', default=[],
                         help='Specify "model" or "solution" to get the '
                              'ETM value or the value of the daily solution (if exists). '
-                             'Specify the date/dates of the desired output. Append "vel" and "per" after model or '
-                             'solution to also include the velocity and seasonal (periodic) components. '
+                             'Append "vel" and "per" after model or solution to also include the velocity and '
+                             'seasonal (periodic) components. Append "extrapolate" if you want a coordinate estimate '
+                             'before of after the data span of the station (default is do not extrapolate). '
+                             'Specify the date/dates of the desired output coordinates. '
                              'Output is in XYZ.')
 
     parser.add_argument('-no_save', '--no_save_database', action='store_true', default=False,
@@ -630,7 +646,7 @@ def main():
         stnlist = read_kml_or_kmz(cnn, args.stnlist[0], args.metadata_filename,
                                   args.s_score_mag_limit, args.filename, args.format)
 
-        print(' >> Station from kml/kmz file %s' % args.stnlist[0])
+        print(' >> Station from kml/kmz file %s' % args.stnlist[0], file=sys.stderr)
         print_columns([stationID(item) for item in stnlist])
         from_kmz = True
     else:
@@ -662,11 +678,11 @@ def main():
 
         try:
             if from_kmz:
-                print('About to process ' + stn['network_code'] + '.' + stn['station_code'])
+                print('About to process ' + stn['network_code'] + '.' + stn['station_code'], file=sys.stderr)
                 config = EtmConfig(stn['network_code'], stn['station_code'], json_file=stn,
                                    solution_options=solution_options)
             else:
-                print('About to process ' + stn['NetworkCode'] + '.' + stn['StationCode'])
+                print('About to process ' + stn['NetworkCode'] + '.' + stn['StationCode'], file=sys.stderr)
                 config = EtmConfig(stn['NetworkCode'], stn['StationCode'], cnn=cnn,
                                    solution_options=solution_options)
 
@@ -751,9 +767,9 @@ def main():
             if args.query:
                 print_query(args, etm)
 
-            print('Successfully plotted ' + stn['NetworkCode'] + '.' + stn['StationCode'])
+            print('Successfully plotted ' + stn['NetworkCode'] + '.' + stn['StationCode'], file=sys.stderr)
         except SolutionDataException as e:
-            print(str(e))
+            print(str(e), file=sys.stderr)
 
 
 if __name__ == '__main__':
