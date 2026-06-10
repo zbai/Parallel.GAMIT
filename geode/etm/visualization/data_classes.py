@@ -5,7 +5,7 @@ Author: Demian D. Gomez
 """
 
 import numpy as np
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any, Tuple
 from io import BytesIO
 
@@ -15,12 +15,12 @@ from ..core.data_classes import BaseDataClass
 @dataclass
 class ComponentData:
     """Data for one coordinate component"""
-    observations: np.ndarray
-    observations_fit: np.ndarray
-    observations_not_fit: np.ndarray
-    time_vector: np.ndarray
-    time_vector_fit: np.ndarray
-    time_vector_not_fit: np.ndarray
+    observations: np.ndarray = field(default_factory=lambda: np.array([]))
+    observations_fit: np.ndarray = field(default_factory=lambda: np.array([]))
+    observations_not_fit: np.ndarray = field(default_factory=lambda: np.array([]))
+    time_vector: np.ndarray = field(default_factory=lambda: np.array([]))
+    time_vector_fit: np.ndarray = field(default_factory=lambda: np.array([]))
+    time_vector_not_fit: np.ndarray = field(default_factory=lambda: np.array([]))
     model_values: Optional[np.ndarray] = None
     model_time_vector: Optional[np.ndarray] = None
     confidence_bounds: Optional[Tuple[np.ndarray, np.ndarray]] = None
@@ -44,7 +44,7 @@ class TimeSeriesPlotData:
     east_data: ComponentData
     up_data: ComponentData
 
-    missing_solutions: np.ndarray = np.array([])
+    missing_solutions: np.ndarray = field(default_factory=lambda: np.array([]))
 
     # ETM results
     has_etm_results: bool = False
