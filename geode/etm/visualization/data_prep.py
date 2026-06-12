@@ -109,8 +109,8 @@ class PlotDataPreparer:
             data = self._create_base_component_data(observations[i], solution_data, mask)
 
             if is_postfit:
-                self._add_model_and_residuals(data, i, solution_data, etm_results, mask)
-                self._apply_signal_removals(data, i, solution_data, etm_results, mask)
+                self._add_model_and_residuals(data, i, solution_data, etm_results)
+                self._apply_signal_removals(data, i, solution_data, etm_results)
                 self._add_confidence_bounds(data, i, etm_results)
                 data.outlier_flags = etm_results.outlier_flags
 
@@ -129,12 +129,13 @@ class PlotDataPreparer:
             time_vector=solution_data.time_vector,
             time_vector_fit=solution_data.time_vector[mask],
             time_vector_not_fit=solution_data.time_vector[~mask],
-            time_range=(solution_data.time_vector.min(), solution_data.time_vector.max())
+            time_range=(solution_data.time_vector.min(), solution_data.time_vector.max()),
+            mask=mask
         )
 
     @staticmethod
     def _add_model_and_residuals(data: ComponentData, component_idx: int,
-                                 solution_data: SolutionData, etm_results: EtmFit, mask: np.ndarray) -> None:
+                                 solution_data: SolutionData, etm_results: EtmFit) -> None:
         """Add model values and residuals to component data"""
         result = etm_results.results[component_idx]
         design = etm_results.design_matrix
@@ -146,15 +147,14 @@ class PlotDataPreparer:
         data.model_values = model_values * M_TO_MM
         data.residuals = result.residuals * M_TO_MM
 
-        if np.any(~mask):
+        if np.any(~data.mask):
             # create a residual vector for the data not fit
-            model_not_fit = (design.alternate_time_vector(solution_data.time_vector[~mask])
+            model_not_fit = (design.alternate_time_vector(solution_data.time_vector[~data.mask])
                              @ result.parameters) * M_TO_MM
             data.residuals_not_fit = data.observations_not_fit - model_not_fit
 
     def _apply_signal_removals(self, data: ComponentData, component_idx: int,
-                               solution_data: SolutionData, etm_results: EtmFit,
-                               mask: np.ndarray) -> None:
+                               solution_data: SolutionData, etm_results: EtmFit) -> None:
         """Remove requested signal components from observations and model"""
         cfg = self.output_config
 
@@ -164,12 +164,12 @@ class PlotDataPreparer:
             # Remove periodic, polynomial, or jump signals if requested
             if self._should_remove_signal(obj_type, cfg) and funct.fit:
                 self._subtract_signal_from_data(data, component_idx, funct,
-                                                solution_data.time_vector_cont, mask)
+                                                solution_data.time_vector_cont)
 
             # Handle stochastic signal specially
             if obj_type == 'stochastic':
                 self._handle_stochastic_signal(data, component_idx, funct,
-                                               solution_data, etm_results, mask)
+                                               solution_data, etm_results)
 
     @staticmethod
     def _should_remove_signal(obj_type: str, cfg: PlotOutputConfig) -> bool:
@@ -180,32 +180,31 @@ class PlotDataPreparer:
 
     @staticmethod
     def _subtract_signal_from_data(data: ComponentData, component_idx: int,
-                                   funct, time_vector_cont: np.ndarray,
-                                   mask: np.ndarray) -> None:
+                                   funct, time_vector_cont: np.ndarray) -> None:
         """Subtract a signal component from all relevant data arrays"""
         data.observations -= funct.eval(component_idx, data.time_vector) * M_TO_MM
         data.observations_fit -= funct.eval(component_idx, data.time_vector_fit) * M_TO_MM
-        if np.any(~mask):
+        if np.any(~data.mask):
             data.observations_not_fit -= funct.eval(component_idx, data.time_vector_not_fit) * M_TO_MM
         data.model_values -= funct.eval(component_idx, time_vector_cont) * M_TO_MM
 
     def _handle_stochastic_signal(self, data: ComponentData, component_idx: int,
                                   funct, solution_data: SolutionData,
-                                  etm_results: EtmFit, mask: np.ndarray) -> None:
+                                  etm_results: EtmFit) -> None:
         """Handle stochastic signal removal or restoration in residuals"""
         time_mjd = solution_data.time_vector_mjd
 
         if self.output_config.plot_remove_stochastic:
             # Remove stochastic signal from observations and model
             data.observations -= funct.eval(component_idx, time_mjd) * M_TO_MM
-            data.observations_fit -= funct.eval(component_idx, time_mjd[mask]) * M_TO_MM
-            if np.any(~mask):
-                data.observations_not_fit -= funct.eval(component_idx, time_mjd[~mask]) * M_TO_MM
+            data.observations_fit -= funct.eval(component_idx, time_mjd[data.mask]) * M_TO_MM
+            if np.any(~data.mask):
+                data.observations_not_fit -= funct.eval(component_idx, time_mjd[~data.mask]) * M_TO_MM
             data.model_values -= etm_results.results[component_idx].stochastic_signal * M_TO_MM
             # Note: residuals don't include stochastic signal, so no removal needed
         else:
             # Residuals have stochastic removed by default; add it back if user wants to see it
-            data.residuals += funct.eval(component_idx, time_mjd[mask]) * M_TO_MM
+            data.residuals += funct.eval(component_idx, time_mjd[data.mask]) * M_TO_MM
 
     def _add_confidence_bounds(self, data: ComponentData, component_idx: int,
                                etm_results: EtmFit) -> None:

@@ -21,6 +21,7 @@ class ComponentData:
     time_vector: np.ndarray = field(default_factory=lambda: np.array([]))
     time_vector_fit: np.ndarray = field(default_factory=lambda: np.array([]))
     time_vector_not_fit: np.ndarray = field(default_factory=lambda: np.array([]))
+    mask: np.ndarray = field(default_factory=lambda: np.array([]))
     model_values: Optional[np.ndarray] = None
     model_time_vector: Optional[np.ndarray] = None
     confidence_bounds: Optional[Tuple[np.ndarray, np.ndarray]] = None

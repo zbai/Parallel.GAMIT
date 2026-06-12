@@ -13,7 +13,7 @@ from datetime import datetime
 from geode.pyDate import Date
 from geode.metadata.station_info import StationInfoRecord
 from geode.etm.core.type_declarations import (JumpType, PeriodicStatus, FitStatus,
-                                               AdjustmentModels, CovarianceFunction, SolutionType)
+                                               AdjustmentModels, CovarianceFunction, SolutionType, EtmException)
 
 
 @dataclass
@@ -291,6 +291,10 @@ class ModelingParameters(BaseDataClass):
             mask = np.zeros(time_vector.shape).astype(bool)
             for win in self.data_model_window:
                 mask[np.logical_and(time_vector > win[0], time_vector < win[1])] = True
+
+            if ~np.any(mask):
+                raise EtmException('Fit window yielded a null observation vector. Check your fit window dates '
+                                   'and the available station data.')
         else:
             mask = np.ones(time_vector.shape).astype(bool)
 

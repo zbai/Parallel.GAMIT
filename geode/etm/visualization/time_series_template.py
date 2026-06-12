@@ -177,7 +177,7 @@ class TimeSeriesTemplate(PlotTemplate):
                 ax.plot(data.time_vector, data.residuals,
                         color=self.colors['observations'], **self.styles['observations'])
 
-            if data.observations_not_fit is not None:
+            if np.any(~data.mask):
                 ax.plot(data.time_vector_not_fit, data.residuals_not_fit,
                         color=self.colors['observations_not_fit'], **self.styles['observations'])
 
