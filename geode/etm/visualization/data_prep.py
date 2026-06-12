@@ -109,7 +109,7 @@ class PlotDataPreparer:
             data = self._create_base_component_data(observations[i], solution_data, mask)
 
             if is_postfit:
-                self._add_model_and_residuals(data, i, solution_data, etm_results)
+                self._add_model_and_residuals(data, i, solution_data, etm_results, mask)
                 self._apply_signal_removals(data, i, solution_data, etm_results, mask)
                 self._add_confidence_bounds(data, i, etm_results)
                 data.outlier_flags = etm_results.outlier_flags
@@ -134,7 +134,7 @@ class PlotDataPreparer:
 
     @staticmethod
     def _add_model_and_residuals(data: ComponentData, component_idx: int,
-                                 solution_data: SolutionData, etm_results: EtmFit) -> None:
+                                 solution_data: SolutionData, etm_results: EtmFit, mask: np.ndarray) -> None:
         """Add model values and residuals to component data"""
         result = etm_results.results[component_idx]
         design = etm_results.design_matrix
@@ -145,6 +145,12 @@ class PlotDataPreparer:
         data.model_time_vector = solution_data.time_vector_cont
         data.model_values = model_values * M_TO_MM
         data.residuals = result.residuals * M_TO_MM
+
+        if np.any(~mask):
+            # create a residual vector for the data not fit
+            model_not_fit = (design.alternate_time_vector(solution_data.time_vector[~mask])
+                             @ result.parameters) * M_TO_MM
+            data.residuals_not_fit = data.observations_not_fit - model_not_fit
 
     def _apply_signal_removals(self, data: ComponentData, component_idx: int,
                                solution_data: SolutionData, etm_results: EtmFit,
@@ -177,7 +183,7 @@ class PlotDataPreparer:
                                    funct, time_vector_cont: np.ndarray,
                                    mask: np.ndarray) -> None:
         """Subtract a signal component from all relevant data arrays"""
-        data.observations -= funct.eval(component_idx) * M_TO_MM
+        data.observations -= funct.eval(component_idx, data.time_vector) * M_TO_MM
         data.observations_fit -= funct.eval(component_idx, data.time_vector_fit) * M_TO_MM
         if np.any(~mask):
             data.observations_not_fit -= funct.eval(component_idx, data.time_vector_not_fit) * M_TO_MM

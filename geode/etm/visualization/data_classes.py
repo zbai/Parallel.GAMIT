@@ -25,6 +25,7 @@ class ComponentData:
     model_time_vector: Optional[np.ndarray] = None
     confidence_bounds: Optional[Tuple[np.ndarray, np.ndarray]] = None
     residuals: Optional[np.ndarray] = None
+    residuals_not_fit: Optional[np.ndarray] = None
     outlier_flags: Optional[np.ndarray] = None
     time_range: Optional[Tuple[float, float]] = None
 
@@ -81,6 +82,7 @@ class PlotOutputConfig(BaseDataClass):
     plot_remove_polynomial: bool = False
     plot_remove_periodic: bool = False
     plot_remove_stochastic: bool = False
+    plot_no_model: bool = False
 
     # Missing data
     plot_missing_solutions: bool = False

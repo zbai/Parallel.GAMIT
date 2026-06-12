@@ -129,8 +129,8 @@ class EtmPlotter:
         else:
             template.plot_observations(ax, data)
 
-            # Plot model if available
-            if plot_data.has_etm_results:
+            # Plot model if available and requested
+            if plot_data.has_etm_results and not self.config.plotting_config.plot_no_model:
                 template.plot_model(ax, data)
                 template.plot_confidence_bounds(ax, data)
 

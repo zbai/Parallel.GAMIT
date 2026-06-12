@@ -12,7 +12,7 @@ warnings.filterwarnings('ignore', message='Starting a Matplotlib GUI outside')
 import matplotlib
 matplotlib.use('Agg')  # Non-interactive backend
 import matplotlib.pyplot as plt
-from typing import List, Tuple, Dict, Any
+from typing import List, Tuple, Dict, Any, Union
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 
@@ -171,11 +171,15 @@ class TimeSeriesTemplate(PlotTemplate):
         if data.residuals is not None:
             if data.outlier_flags is not None:
                 good_mask = data.outlier_flags
-                ax.plot(data.time_vector[good_mask], data.residuals[good_mask],
+                ax.plot(data.time_vector_fit[good_mask], data.residuals[good_mask],
                         color=self.colors['observations'], **self.styles['observations'])
             else:
                 ax.plot(data.time_vector, data.residuals,
                         color=self.colors['observations'], **self.styles['observations'])
+
+            if data.observations_not_fit is not None:
+                ax.plot(data.time_vector_not_fit, data.residuals_not_fit,
+                        color=self.colors['observations_not_fit'], **self.styles['observations'])
 
     def plot_jumps(self, ax, jumps: List, time_range: Tuple[float, float]) -> None:
         """Plot jump markers"""
@@ -235,8 +239,20 @@ class TimeSeriesTemplate(PlotTemplate):
             fig.text(0.0025, initial_pos, self.config.get_label('table_title'), color='black',
                      fontsize=8, family='monospace')
 
-    def apply_time_window(self, ax, time_window: Tuple[float, float]) -> None:
+    def apply_time_window(self, ax,
+                          time_window: Union[Tuple[float, float], int, float]) -> None:
         """Apply time window to axis"""
+
+        if type(time_window) == float or type(time_window) == int:
+            time_window = ((self.config.metadata.last_obs - int(time_window)).fyear,
+                           self.config.metadata.last_obs.fyear)
+
+        if len(time_window) < 2:
+            time_window = (time_window[0], self.config.metadata.last_obs.fyear)
+
+        if time_window[0] < self.config.metadata.first_obs.fyear:
+            time_window = (self.config.metadata.first_obs.fyear, time_window[1])
+
         ax.set_xlim(time_window)
         # Auto-scale y-axis for the visible data
         self._autoscale_y_axis(ax)

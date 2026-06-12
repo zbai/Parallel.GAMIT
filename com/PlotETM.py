@@ -222,12 +222,12 @@ def process_plot_dates(args):
 def process_fit_dates(args):
     dates = []
     if args.fit_window is not None:
-        if np.mod(args.fit_window, 2):
+        if np.mod(len(args.fit_window), 2):
             raise ValueError('Fit dates must be given in start/end pairs')
 
         for i in range(0, len(args.fit_window), 2):
             try:
-                dates.append(process_date(args.fit_window[i:i+1]))
+                dates.append([d.fyear for d in process_date(args.fit_window[i:i+2])])
             except ValueError:
                 raise ValueError('Invalid fit dates')
 
@@ -709,6 +709,7 @@ def main():
             config.plotting_config.plot_show_outliers = 'out' in args.plot_options
             config.plotting_config.plot_residuals_mode = 'residuals' in args.plot_options
             config.plotting_config.plot_missing_solutions = 'missing' in args.plot_options
+            config.plotting_config.plot_no_model = 'no-model' in args.plot_options
 
             config.modeling.relaxation = np.array(args.default_relax)
             config.modeling.data_model_window = process_fit_dates(args)
