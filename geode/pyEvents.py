@@ -1,5 +1,5 @@
 """
-Project: Geodesy Database Engine (GeoDE)
+Project: Geodetic Database Engine (GeoDE)
 Date: 10/25/17 8:53 AM
 Author: Demian D. Gomez
 

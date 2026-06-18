@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Project: Geodesy Database Engine (GeoDE)
+Project: Geodetic Database Engine (GeoDE)
 Date: 11/20/2023
 Author: Demian D. Gomez
 

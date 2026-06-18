@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """
 Original author: Federico Fernandez (IGN)
-Project: Geodesy Database Engine (GeoDE)
+Project: Geodetic Database Engine (GeoDE)
 Date: Jul 31 2023 12:24 PM
 Modified by: Demian D. Gomez
 

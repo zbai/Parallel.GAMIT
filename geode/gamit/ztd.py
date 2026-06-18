@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Project: Geodesy Database Engine (GeoDE)
+Project: Geodetic Database Engine (GeoDE)
 Date: 6/18/20 14:28
 Author: Demian D. Gomez
 """

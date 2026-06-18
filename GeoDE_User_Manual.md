@@ -24,7 +24,7 @@
 
 ### 1.1 What is GeoDE?
 
-**GeoDE (Geodesy Database Engine)** is a comprehensive Python framework designed for automated GNSS data processing, analysis, and management. Originally developed by Demian Gomez and contributors, GeoDE provides an end-to-end solution for handling large-scale geodetic datasets with robust metadata tracking and comprehensive quality control tools.
+**GeoDE (Geodetic Database Engine)** is a comprehensive Python framework designed for automated GNSS data processing, analysis, and management. Originally developed by Demian Gomez and contributors, GeoDE provides an end-to-end solution for handling large-scale geodetic datasets with robust metadata tracking and comprehensive quality control tools.
 
 ### 1.2 Key Features
 
@@ -3506,7 +3506,7 @@ station_info: PRIMARY KEY (id), UNIQUE (NetworkCode, StationCode, DateStart)
 
 **Citation:**
 ```
-Gomez, D.D., et al. (2024). GeoDE: Geodesy Database Engine for 
+Gomez, D.D., et al. (2024). GeoDE: Geodetic Database Engine for 
 automated GNSS processing and analysis. GitHub repository. 
 https://github.com/demiangomez/Parallel.GAMIT
 

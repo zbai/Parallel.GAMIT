@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Project: Geodesy Database Engine (GeoDE)
+Project: Geodetic Database Engine (GeoDE)
 Date: Jul 20 2023 11:40 AM
 Author: Demian D. Gomez
 Script to convert from one date type to others
