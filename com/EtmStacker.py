@@ -123,71 +123,14 @@ class EtmStackerShell(cmd.Cmd):
         for cmd in self.etm_stacker.command_history:
             print(cmd)
 
-    def do_smoothing(self, arg: str):
-        """
-        Update the smoothing coefficient of an earthquake.
-        syntax: smoothing <id> <value> (default: 1e-6)
-                alternatively, call without <id> to apply to all events
-                smoothing <value>
-        """
-        try:
-            args = arg.split()
-            if len(args) == 2:
-                eid, value = arg.split()
-                self.etm_stacker.update_smoothing(eid, float(value))
-                if not self.etm_stacker.solved:
-                    print(f"Updated to event {eid} smoothing to {value}")
-                    print('Remember to invoke solve again!')
-                else:
-                    print(f"Could not find event {eid}!")
-            elif len(args) == 1:
-                for event in self.etm_stacker.earthquakes:
-                    self.etm_stacker.update_smoothing(event.id, float(arg))
-                    print(f"Updated to event {event.id} smoothing to {arg}")
-
-                print('Remember to invoke solve again!')
-        except ValueError:
-            print("Usage: smoothing <id> <value>")
-
-    def do_smoothing_start_stop(self, arg: str):
-        """
-        Update the smoothing search start and stop values of an earthquake.
-        syntax: smoothing_start_stop [id] <value> <value> (default: 1e-6 1e-12)
-                alternatively, call without [id] to apply to all events
-                smoothing_start_stop <value> <value>
-        """
-        try:
-            args = arg.split()
-            if len(args) == 3:
-                eid, value_start, value_stop = arg.split()
-                if float(value_start) <= float(value_stop):
-                    raise ValueError('start value must be > stop value')
-
-                self.etm_stacker.update_smoothing_start_stop(eid, float(value_start), float(value_stop))
-                print(f"Updated event {eid} smoothing start {value_start} stop {value_stop}")
-                print('Remember to call predict!')
-
-            elif len(args) == 2:
-                if float(args[0]) <= float(args[1]):
-                    raise ValueError('start value must be > stop value')
-
-                for event in self.etm_stacker.earthquakes:
-                    self.etm_stacker.update_smoothing_start_stop(event.id, float(args[0]), float(args[1]))
-                    print(f"Updated event {event.id} smoothing start {args[0]} stop {args[1]}")
-
-                print('Remember to call predict!')
-
-        except ValueError as e:
-            print(f"Usage: smoothing_start_stop <id> <value_start> <value_stop>: {str(e)}")
-
     def do_remove_station(self, arg: str):
         self.etm_stacker.remove_station(arg)
         print(f'Removed station {arg}, invoke solve again when ready')
 
     def do_reweight_station(self, arg: str):
         """
-        Update the smoothing coefficient of an earthquake.
-        syntax: smoothing <id> <value> (default: 1e-6)
+        Update the weight scale of one or more stations.
+        syntax: reweight_station <net.stn> [<net.stn> ...] <value>
         """
         try:
             values = arg.split()
@@ -350,49 +293,105 @@ class EtmStackerShell(cmd.Cmd):
 
     def do_update_constraint(self, arg):
         """
-        update the weights of constraints
-        syntax: update_constraint <interseismic|coseismic|postseismic> [event_id] [relax] <h_sigma> <v_sigma>
-        if event_id is not given, all constraints of selected type will be modified. Relax only valid for postseismic
+        Update constraint sigmas and re-solve (without field interpolation).
+        syntax: update_constraint <interseismic|coseismic|postseismic> [event_id] [relax] <h_sigma_mm> <v_sigma_mm>
+        if event_id is not given, all constraints of selected type will be modified. Relax only valid for postseismic.
+        Sigmas are in millimetres.
         """
-        if arg:
-            parts = arg.split()
+        if not arg:
+            print('syntax: update_constraint <interseismic|coseismic|postseismic> [event_id] [relax] '
+                  '<h_sigma_mm> <v_sigma_mm>')
+            return
 
-            if parts[0] not in ('interseismic', 'coseismic', 'postseismic'):
-                print(f'{parts[0]}: invalid constraint type, use interseismic, coseismic, or postseismic')
-                return
+        parts = arg.split()
 
+        if parts[0] not in ('interseismic', 'coseismic', 'postseismic'):
+            print(f'{parts[0]}: invalid constraint type, use interseismic, coseismic, or postseismic')
+            return
+
+        try:
             if len(parts) == 5:
-                # relaxation given
+                # type event_id relax h v
                 relax   = float(parts[2])
-                h_sigma = float(parts[3])
-                v_sigma = float(parts[4])
-                if parts[0] == 'postseismic':
-                    self.etm_stacker.update_weights(
-                        constraint_type=parts[0], event_id=parts[1], h_sigma=h_sigma, v_sigma=v_sigma, relax=relax
-                    )
-                    print(f'Updated constraint for event id {parts[1]}')
-                else:
-                    print(f'Relaxation argument only valid for postseismic constraint')
+                h_sigma = float(parts[3]) / 1000.
+                v_sigma = float(parts[4]) / 1000.
+                if parts[0] != 'postseismic':
+                    print('Relaxation argument only valid for postseismic constraint')
+                    return
+                self.etm_stacker.update_weights(
+                    constraint_type=parts[0], event_id=parts[1], h_sigma=h_sigma, v_sigma=v_sigma, relax=relax
+                )
             elif len(parts) == 4:
-                # no relaxation
-                h_sigma = float(parts[2])
-                v_sigma = float(parts[3])
-
+                # type event_id h v
+                h_sigma = float(parts[2]) / 1000.
+                v_sigma = float(parts[3]) / 1000.
                 self.etm_stacker.update_weights(
                     constraint_type=parts[0], event_id=parts[1], h_sigma=h_sigma, v_sigma=v_sigma
                 )
-                print(f'Updated constraint for event id {parts[1]}')
-            else:
-                h_sigma = float(parts[1])
-                v_sigma = float(parts[2])
-
+            elif len(parts) == 3:
+                # type h v
+                h_sigma = float(parts[1]) / 1000.
+                v_sigma = float(parts[2]) / 1000.
                 self.etm_stacker.update_weights(
                     constraint_type=parts[0], h_sigma=h_sigma, v_sigma=v_sigma
                 )
-                print(f'Updated all constraints of type {parts[0]}')
-        else:
+            else:
+                print('syntax: update_constraint <interseismic|coseismic|postseismic> [event_id] [relax] '
+                      '<h_sigma_mm> <v_sigma_mm>')
+                return
+        except ValueError:
             print('syntax: update_constraint <interseismic|coseismic|postseismic> [event_id] [relax] '
-                  '<h_sigma> <v_sigma>')
+                  '<h_sigma_mm> <v_sigma_mm>')
+            return
+
+        print('Re-solving...')
+        tic = time.time()
+        self.velocities, self.postseismic = self.etm_stacker.solve()
+        print(f'Solved in {(time.time() - tic):.1f} sec')
+
+    def do_okada_weights(self, arg):
+        """
+        Update SW-Okada regularization weights for co/postseismic constraints and re-solve.
+        syntax: okada_weights <h_weight> <v_weight> [event_id [relax]]
+        Examples:
+          okada_weights 10 10                      apply to all co/postseismic constraints
+          okada_weights 50 50 us20005iis            apply to one event (co + postseismic)
+          okada_weights 20 20 us20005iis 0.050      apply to one postseismic relaxation only
+        The solver runs automatically after updating (without field interpolation).
+        Use predict afterwards if you want the interpolated grid fields refreshed.
+        """
+        if not arg:
+            print('syntax: okada_weights <h_weight> <v_weight> [event_id [relax]]')
+            return
+
+        parts = arg.split()
+        try:
+            if len(parts) == 2:
+                h_weight, v_weight = float(parts[0]), float(parts[1])
+                event_id, relax = None, None
+            elif len(parts) == 3:
+                h_weight, v_weight = float(parts[0]), float(parts[1])
+                event_id, relax = parts[2], None
+            elif len(parts) == 4:
+                h_weight, v_weight = float(parts[0]), float(parts[1])
+                event_id, relax = parts[2], float(parts[3])
+            else:
+                print('syntax: okada_weights <h_weight> <v_weight> [event_id [relax]]')
+                return
+        except ValueError:
+            print('syntax: okada_weights <h_weight> <v_weight> [event_id [relax]]')
+            return
+
+        n = self.etm_stacker.update_okada_weights(h_weight, v_weight,
+                                                   event_id=event_id, relax=relax)
+        if n == 0:
+            return
+
+        print(f'Updated {n} constraint(s). Re-solving...')
+        tic = time.time()
+        self.velocities, self.postseismic = self.etm_stacker.solve()
+        toc = time.time()
+        print(f'Solved in {(toc - tic):.1f} sec')
 
     def do_print(self, arg=''):
         """
@@ -877,6 +876,8 @@ def main():
         )
 
         etm_stacker = EtmStacker(config)
+
+        etm_stacker.prepare_earthquake_list(cnn, stnlist)
 
         for stn in stnlist:
             # processing station

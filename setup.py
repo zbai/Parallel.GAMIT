@@ -17,8 +17,8 @@ if __name__ == "__main__":
     },
     include_package_data=True,
     scripts=[
-        'com/StationInfoEdit.py',
         'com/ArchiveService.py',
+        'com/CampaignPlanner.py',
         'com/GenerateKml.py',
         'com/PlotETM.py',
         'com/AlterETM.py',
@@ -45,6 +45,8 @@ if __name__ == "__main__":
         'com/ScanArchive.py',
         'com/Stacker.py',
         'com/StationInfoEdit.py',
+        'com/StationKmz.py',
+        'com/StationReport.py',
         'com/SyncOrbits.py',
         'com/SyncMetadata.py',
         'com/TrajectoryFit.py',
