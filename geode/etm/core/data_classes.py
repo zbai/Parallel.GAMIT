@@ -232,7 +232,7 @@ class ModelingParameters(BaseDataClass):
     sigma_floor_h: float = 0.10
     sigma_floor_v: float = 0.15
     # minimum number of days between earthquakes
-    earthquake_min_days: int = 6
+    earthquake_min_days: int = 15
     # minimum magnitude to consider adding jumps
     earthquake_magnitude_limit: int = 6.0
     # earthquakes to add to the fit even if they fall outside of earthquake_magnitude_limit
@@ -240,7 +240,7 @@ class ModelingParameters(BaseDataClass):
     # flag to activste / deactivate checks between jumps
     check_jump_collisions: bool = True
     # minimum number of days between jumps
-    jump_min_days: int = 3
+    jump_min_days: int = 5
     # years to add postseismic decays from jumps back in time
     post_seismic_back_lim: Union[int, Date] = 365 * 5
 
