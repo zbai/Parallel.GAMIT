@@ -15,7 +15,7 @@ from ...Utils import load_json
 from ...dbConnection import Cnn
 from ..core.type_declarations import PeriodicStatus, JumpType, EtmException
 from ..core.logging_config import setup_etm_logging
-from ..core.data_classes import (SolutionOptions, ModelingParameters,
+from ..core.data_classes import (SolutionOptions, ModelingParameters, SolutionType,
                                  ValidationRules, StationMetadata, JumpParameters)
 from ..visualization.data_classes import PlotOutputConfig
 
@@ -283,12 +283,18 @@ class EtmConfig:
         from ..core.s_score import ScoreTable
 
         # @todo: analyze if "soln" = 'gamit' always or should also allow 'ppp'
+
+        if self.solution.solution_type != SolutionType.NGL:
+            sol = self.solution.solution_type.code
+        else:
+            sol = SolutionType.PPP.code
+
         query = '''
             SELECT "Year", "DOY", "action", "jump_type", "relaxation", "soln"
             FROM etm_params 
             WHERE "NetworkCode" = '%s' AND "StationCode" = '%s' 
             AND "object" = 'jump' AND "soln" = '%s' ORDER BY ("Year", "DOY")
-        ''' % (self.network_code, self.station_code, self.solution.solution_type.code)
+        ''' % (self.network_code, self.station_code, sol)
 
         try:
             result = cnn.query_float(query, as_dict=True)
