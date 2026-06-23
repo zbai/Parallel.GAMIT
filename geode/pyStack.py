@@ -159,7 +159,7 @@ class Stack(list):
                                                  % (project, end_date.year, end_date.doy), as_dict=True)
 
             #print("NAH-LEN", len(gamit_vertices))
-            for d in tqdm(self.dates, ncols=160, desc=' >> Initializing the stack polyhedrons'):
+            for d in tqdm(self.dates, ncols=160, desc=' >> Initializing the stack polyhedrons', disable=None):
                 self.append(Polyhedron(self.gamit_vertices, project, d))
 
         else:

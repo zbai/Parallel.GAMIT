@@ -571,15 +571,29 @@ class StationInfo:
 
         if rnxtbl['first_obs'] and self.records:
             if rnxtbl['first_obs'] < self.records[0].DateStart.datetime():
+                cnt = self.cnn.query(
+                    f'SELECT count(*) as rcount FROM rinex_proc '
+                    f'WHERE "NetworkCode" = \'{self.NetworkCode}\' '
+                    f'AND "StationCode" = \'{self.StationCode}\' '
+                    f'AND "ObservationSTime" < \'{self.records[0].DateStart.strftime()}\' '
+                    f'AND "Completion" >= 0.5'
+                ).dictresult()[0]['rcount']
                 gaps.append({
-                    'rinex_count': 1,
+                    'rinex_count': cnt,
                     'record_start': self.records[0],
                     'record_end': None
                 })
 
             if rnxtbl['last_obs'] > self.records[-1].DateEnd.datetime():
+                cnt = self.cnn.query(
+                    f'SELECT count(*) as rcount FROM rinex_proc '
+                    f'WHERE "NetworkCode" = \'{self.NetworkCode}\' '
+                    f'AND "StationCode" = \'{self.StationCode}\' '
+                    f'AND "ObservationETime" > \'{self.records[-1].DateEnd.strftime()}\' '
+                    f'AND "Completion" >= 0.5'
+                ).dictresult()[0]['rcount']
                 gaps.append({
-                    'rinex_count': 1,
+                    'rinex_count': cnt,
                     'record_start': None,
                     'record_end': self.records[-1]
                 })

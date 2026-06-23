@@ -52,6 +52,55 @@ from . import pyDate
 from . import pyEvents
 from .Utils import ct2lg, lg2ct, rotlg2ct, crc32, stationID, lla2ecef
 from .pyBunch import Bunch
+
+LIMIT = 2.5
+
+
+type_dict = {-1: 'UNDETERMINED',
+              1: 'MECHANICAL (MANUAL)',
+              2: 'MECHANICAL (ANTENNA CHANGE)',
+              5: 'REFERENCE FRAME CHANGE',
+             10: 'CO+POSTSEISMIC',
+             15: 'COSEISMIC ONLY',
+             20: 'POSTSEISMIC ONLY'}
+
+type_dict_user = {0: 'MECHANICAL',
+                  1: 'CO+POSTSEISMIC',
+                  2: 'POSTSEISMIC'}
+
+periodic_status_dict = {'A': 'AUTOMATICALLY ADDED',
+                        'R': 'ADDED BY USER',
+                        'D': 'ADDED BY USER, UNABLE TO FIT'}
+
+# unknown jump
+UNDETERMINED = -1
+# no effect: display purposes
+GENERIC_JUMP = 1
+# antenna change jump
+ANTENNA_CHANGE = 2
+# reference frame jump
+REFERENCE_FRAME_JUMP = 5
+# co-seismic jump and decay
+CO_SEISMIC_JUMP_DECAY = 10
+# co-seismic jump only, no decay
+CO_SEISMIC_JUMP = 15
+# co-seismic decay only
+CO_SEISMIC_DECAY = 20
+
+EQ_MIN_DAYS = 15
+JP_MIN_DAYS = 5
+
+DEFAULT_RELAXATION = np.array([0.5])
+DEFAULT_POL_TERMS = 2
+DEFAULT_FREQUENCIES = np.array(
+    (1 / 365.25, 1 / (365.25 / 2)))  # (1 yr, 6 months) expressed in 1/days (one year = 365.25)
+
+SIGMA_FLOOR_H = 0.10
+SIGMA_FLOOR_V = 0.15
+
+ESTIMATION = 0
+DATABASE = 1
+
 from . import pyOkada
 from . import dbConnection
 
@@ -136,55 +185,6 @@ def prYellow(skk):
         return "\033[93m{}\033[00m" .format(skk)
     else:
         return skk
-
-
-LIMIT = 2.5
-
-
-type_dict = {-1: 'UNDETERMINED',
-              1: 'MECHANICAL (MANUAL)',
-              2: 'MECHANICAL (ANTENNA CHANGE)',
-              5: 'REFERENCE FRAME CHANGE',
-             10: 'CO+POSTSEISMIC',
-             15: 'COSEISMIC ONLY',
-             20: 'POSTSEISMIC ONLY'}
-
-type_dict_user = {0: 'MECHANICAL',
-                  1: 'CO+POSTSEISMIC',
-                  2: 'POSTSEISMIC'}
-
-periodic_status_dict = {'A': 'AUTOMATICALLY ADDED',
-                        'R': 'ADDED BY USER',
-                        'D': 'ADDED BY USER, UNABLE TO FIT'}
-
-# unknown jump
-UNDETERMINED = -1
-# no effect: display purposes
-GENERIC_JUMP = 1
-# antenna change jump
-ANTENNA_CHANGE = 2
-# reference frame jump
-REFERENCE_FRAME_JUMP = 5
-# co-seismic jump and decay
-CO_SEISMIC_JUMP_DECAY = 10
-# co-seismic jump only, no decay
-CO_SEISMIC_JUMP = 15
-# co-seismic decay only
-CO_SEISMIC_DECAY = 20
-
-EQ_MIN_DAYS = 15
-JP_MIN_DAYS = 5
-
-DEFAULT_RELAXATION = np.array([0.5])
-DEFAULT_POL_TERMS = 2
-DEFAULT_FREQUENCIES = np.array(
-    (1 / 365.25, 1 / (365.25 / 2)))  # (1 yr, 6 months) expressed in 1/days (one year = 365.25)
-
-SIGMA_FLOOR_H = 0.10
-SIGMA_FLOOR_V = 0.15
-
-ESTIMATION = 0
-DATABASE = 1
 
 
 class Model(object):

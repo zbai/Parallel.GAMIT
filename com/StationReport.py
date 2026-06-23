@@ -97,6 +97,14 @@ def main():
         '--no-geodynamics', action='store_true',
         help='Omit the Geodynamic Events section.',
     )
+    parser.add_argument(
+        '--no-maps', action='store_true',
+        help='Omit map tile images (OSM overview, site detail, satellite).',
+    )
+    parser.add_argument(
+        '--maps-dir', default=None,
+        help='Base directory for map JPEG files; images land in <dir>/<net>.<stn>/ (default: production/reports).',
+    )
 
     add_version_argument(parser)
     args = parser.parse_args()
@@ -139,6 +147,8 @@ def main():
                 show_contacts     = not args.no_contacts,
                 show_visits       = not args.no_visits,
                 show_geodynamics  = not args.no_geodynamics,
+                show_maps         = not args.no_maps,
+                maps_out_dir      = args.maps_dir,
             )
         except Exception as exc:
             print(f' !! {tag}: failed to build report — {exc}', file=sys.stderr)

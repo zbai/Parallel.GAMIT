@@ -64,7 +64,6 @@ import hashlib
 import logging
 import os
 import sys
-import tempfile
 import xml.etree.ElementTree as _ET
 import zipfile as _zipfile
 from pathlib import Path
@@ -359,8 +358,10 @@ def attach_maps_to_station(station, out_dir: Optional[str] = None, **kwargs):
         html = build_report(station, ...)
     """
     if out_dir is None:
-        # Use a temp dir that persists for the process lifetime
-        out_dir = tempfile.mkdtemp(prefix="geode_maps_")
+        stn_tag = f'{getattr(station, "network", "unk")}.{getattr(station, "station", "unk")}'.lower()
+        out_dir = os.path.join('production/reports', stn_tag)
+
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
 
     # Pass navigation KML path from StationReport if not already supplied by caller
     if 'navigation_kml' not in kwargs and getattr(station, 'navigation_kml_path', None):

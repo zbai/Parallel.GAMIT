@@ -87,6 +87,10 @@ class KmzStation:
     station_images: list = field(default_factory=list)  # [(abs_path, caption), …]
     visits:        list = field(default_factory=list)   # list[KmzVisit]
     logo_path:     Optional[str] = None
+    stninfo_issues:   list = field(default_factory=list)  # pre-formatted gap messages
+    has_stninfo_gaps: bool = False
+    in_project:       bool = True   # False when project context is given and station is not in it
+    rinex_plot_b64:   Optional[str] = None   # base64 PNG, embedded as data URI in balloon script
 
 
 # ── Icon helpers ───────────────────────────────────────────────────────────────
@@ -105,6 +109,27 @@ def _make_dot_png(hex_color: str, size: int = 32) -> bytes:
         m = 4
         draw.ellipse([(m, m), (size - 1 - m, size - 1 - m)], fill=(r, g, b, 255))
         buf = io.BytesIO()
+        img.save(buf, 'PNG')
+        return buf.getvalue()
+    except Exception:
+        return b''
+
+
+def _make_warning_png(size: int = 48) -> bytes:
+    """Generate a transparent PNG with a yellow warning triangle for stations with stationinfo gaps."""
+    try:
+        from PIL import Image, ImageDraw
+        img  = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+        draw = ImageDraw.Draw(img)
+        m    = 2
+        pts  = [(size // 2, m), (size - m, size - m), (m, size - m)]
+        draw.polygon(pts, fill=(255, 196, 0, 255), outline=(160, 100, 0, 255))
+        cx   = size // 2
+        draw.rectangle([(cx - 2, size // 3 + 2), (cx + 2, int(size * 0.62))],
+                        fill=(30, 20, 0, 255))
+        dy   = int(size * 0.70)
+        draw.ellipse([(cx - 2, dy), (cx + 2, dy + 4)], fill=(30, 20, 0, 255))
+        buf  = io.BytesIO()
         img.save(buf, 'PNG')
         return buf.getvalue()
     except Exception:
@@ -391,7 +416,49 @@ def build_balloon_html(s: KmzStation) -> str:
             f'</div>'
         )
 
-    # ── 8. Footer ─────────────────────────────────────────────────────────────
+    # ── 8. Station info gap warnings ──────────────────────────────────────────
+    gaps_section = ''
+    if s.stninfo_issues:
+        cards = ''
+        for msg in s.stninfo_issues:
+            cards += (
+                f'<div style="margin-bottom:4px;background:#fde8e8;'
+                f'border:0.5px solid #e8b4b4;border-left:3px solid #c0392b;'
+                f'border-radius:0 6px 6px 0;padding:7px 10px">'
+                f'<div style="font-size:10.5px;color:#6b1a1a;line-height:1.5">{msg}</div>'
+                f'</div>'
+            )
+        gaps_section = (
+            f'<div style="padding:6px 14px 4px">'
+            f'<div style="font-size:9.5px;font-weight:700;text-transform:uppercase;'
+            f'letter-spacing:.06em;color:#c0392b;margin-bottom:5px">'
+            f'&#9888; Station Info Issues</div>'
+            f'{cards}</div>'
+        )
+
+    # ── 9. RINEX availability button ──────────────────────────────────────────
+    # rinex_plot_b64 is the base64 PNG; we pass the data URI directly to
+    # window.open() — a single-step call that GE Pro's Chromium handles by
+    # opening the image in a new window (unlike the two-step blank+write approach).
+    rinex_script = ''
+    rinex_btn    = ''
+    if s.rinex_plot_b64:
+        rinex_script = (
+            f'<script>'
+            f'var _rp="data:image/png;base64,{s.rinex_plot_b64}";'
+            f'function _showRinex(){{window.open(_rp,"_blank");return false;}}'
+            f'</script>'
+        )
+        rinex_btn = (
+            f'<div style="padding:6px 14px 10px;text-align:center">'
+            f'<a href="#" onclick="return _showRinex()" '
+            f'style="display:inline-block;background:#185fa5;color:#fff;'
+            f'font-size:11px;font-weight:600;padding:6px 18px;border-radius:6px;'
+            f'text-decoration:none">View RINEX Availability</a>'
+            f'</div>'
+        )
+
+    # ── 10. Footer ────────────────────────────────────────────────────────────
     footer = (
         f'<table width="100%" cellpadding="0" cellspacing="0"'
         f' style="background:#f5f5f3;border-top:0.5px solid #e0ded8;'
@@ -406,7 +473,7 @@ def build_balloon_html(s: KmzStation) -> str:
 
     return (
         '<html>\n'
-        '<head><meta charset="UTF-8"></head>\n'
+        f'<head><meta charset="UTF-8">{rinex_script}</head>\n'
         '<body style="font-family:Arial,Helvetica,sans-serif;font-size:12px;'
         'color:#1a1a18;margin:0;padding:0;width:420px">\n'
         + header
@@ -416,6 +483,8 @@ def build_balloon_html(s: KmzStation) -> str:
         + imagery_section
         + visits_section
         + comments_section
+        + gaps_section
+        + rinex_btn
         + footer
         + '\n</body>\n</html>'
     )
@@ -576,6 +645,47 @@ def station_data_from_db(cnn,
             navigation_abs_path = nav_abs,
         ))
 
+    # ── Station info integrity check ─────────────────────────────────────────
+    stninfo_issues   = []
+    has_stninfo_gaps = False
+    try:
+        from geode.metadata.station_info import StationInfo, StationInfoHeightCodeNotFound
+        _si = StationInfo(cnn, nc, sc, allow_empty=True)
+        if len(_si.records) == 0:
+            stninfo_issues.append('No station information records found.')
+            has_stninfo_gaps = True
+        else:
+            for gap in _si.station_info_gaps():
+                has_stninfo_gaps = True
+                rs  = gap.get('record_start')
+                re_ = gap.get('record_end')
+                cnt = gap.get('rinex_count', '?')
+                if rs and re_:
+                    stninfo_issues.append(
+                        f"At least {cnt} RINEX file(s) outside of station info "
+                        f"record ending at {re_['DateEnd']} and next record "
+                        f"starting at {rs['DateStart']}.")
+                elif rs:
+                    stninfo_issues.append(
+                        f"At least {cnt} RINEX file(s) outside of station info "
+                        f"record starting at {rs['DateStart']}.")
+                elif re_:
+                    stninfo_issues.append(
+                        f"At least {cnt} RINEX file(s) outside of station info "
+                        f"record ending at {re_['DateEnd']}.")
+    except Exception as _e:
+        import logging as _log
+        _log.getLogger(__name__).warning(f'StationInfo check failed for {nc}.{sc}: {_e}')
+
+    # ── RINEX availability plot ───────────────────────────────────────────────
+    rinex_plot_b64 = None
+    try:
+        from geode.Utils import plot_rinex_completion
+        rinex_plot_b64 = plot_rinex_completion(cnn, nc, sc) or None
+    except Exception as _e:
+        import logging as _log
+        _log.getLogger(__name__).warning(f'RINEX plot failed for {nc}.{sc}: {_e}')
+
     # ── Logo (bundled with the package) ──────────────────────────────────────
     _logo     = Path(__file__).parent / 'geode_logo.png'
     logo_path = str(_logo) if _logo.exists() else None
@@ -606,6 +716,9 @@ def station_data_from_db(cnn,
         station_images   = station_images,
         visits           = visits,
         logo_path        = logo_path,
+        stninfo_issues   = stninfo_issues,
+        has_stninfo_gaps = has_stninfo_gaps,
+        rinex_plot_b64   = rinex_plot_b64,
     )
 
 
@@ -732,7 +845,8 @@ def _embed_nav_content(output_path: str,
 
 # ── KMZ builder ───────────────────────────────────────────────────────────────
 
-def build_kmz(stations: list, output_path: str) -> None:
+def build_kmz(stations: list, output_path: str,
+              project_name: Optional[str] = None) -> None:
     """
     Build a Google Earth KMZ for one or more KmzStation objects and write it to
     ``output_path``.
@@ -756,36 +870,73 @@ def build_kmz(stations: list, output_path: str) -> None:
     tmp_dir = tempfile.mkdtemp(prefix='geode_kmz_')
 
     try:
-        _icon_hrefs: dict = {}   # hex_color → KMZ-internal href string
-        nav_embed:   list = []   # (station_name, visit_date, nav_abs_path)
+        _icon_hrefs: dict = {}   # key → KMZ-internal href string
+        _stylemaps:  dict = {}   # key → StyleMap (label hidden at rest, shown on hover)
+        nav_embed:   list = []   # (station_folder_name, visit_date, nav_abs_path)
+        _WARN_KEY         = '__warn__'
+
+        # ── Top-level folder structure ────────────────────────────────────────
+        if project_name:
+            proj_folder  = kml.newfolder(name=project_name)
+            other_folder = kml.newfolder(name='other stations')
 
         for station in stations:
             stn_name = f'{station.network}.{station.station}'
-            s_folder = kml.newfolder(name=stn_name)
+
+            if project_name:
+                parent   = proj_folder if station.in_project else other_folder
+                s_folder = parent.newfolder(name=stn_name)
+            else:
+                s_folder = kml.newfolder(name=stn_name)
 
             # ── Placemark ─────────────────────────────────────────────────────
             pnt = s_folder.newpoint(
                 name   = stn_name,
                 coords = [(station.lon, station.lat, station.height)],
             )
-            pnt.description             = build_balloon_html(station)
-            pnt.style.balloonstyle.text = '$[description]'
+            pnt.description = build_balloon_html(station)
 
-            # Coloured dot icon — one PNG per unique status colour
-            hex_c = _STATUS_COLOR_MAP.get(station.status_color or '', '#185fa5')
-            if hex_c not in _icon_hrefs:
-                dot_bytes = _make_dot_png(hex_c)
-                if dot_bytes:
-                    icon_name = f'dot_{hex_c.lstrip("#")}.png'
-                    icon_tmp  = os.path.join(tmp_dir, icon_name)
-                    Path(icon_tmp).write_bytes(dot_bytes)
-                    _icon_hrefs[hex_c] = kml.addfile(icon_tmp)
-                else:
-                    _icon_hrefs[hex_c] = ''
+            # ── Icon: warning triangle when gaps exist, coloured dot otherwise ─
+            if station.has_stninfo_gaps:
+                if _WARN_KEY not in _icon_hrefs:
+                    warn_bytes = _make_warning_png()
+                    if warn_bytes:
+                        warn_tmp = os.path.join(tmp_dir, 'warn_icon.png')
+                        Path(warn_tmp).write_bytes(warn_bytes)
+                        _icon_hrefs[_WARN_KEY] = kml.addfile(warn_tmp)
+                    else:
+                        _icon_hrefs[_WARN_KEY] = ''
+                sm_key    = _WARN_KEY
+                icon_href = _icon_hrefs[_WARN_KEY]
+            else:
+                hex_c = _STATUS_COLOR_MAP.get(station.status_color or '', '#185fa5')
+                if hex_c not in _icon_hrefs:
+                    dot_bytes = _make_dot_png(hex_c)
+                    if dot_bytes:
+                        icon_name = f'dot_{hex_c.lstrip("#")}.png'
+                        icon_tmp  = os.path.join(tmp_dir, icon_name)
+                        Path(icon_tmp).write_bytes(dot_bytes)
+                        _icon_hrefs[hex_c] = kml.addfile(icon_tmp)
+                    else:
+                        _icon_hrefs[hex_c] = ''
+                sm_key    = hex_c
+                icon_href = _icon_hrefs[hex_c]
 
-            if _icon_hrefs[hex_c]:
-                pnt.style.iconstyle.icon.href = _icon_hrefs[hex_c]
-                pnt.style.iconstyle.scale     = 0.7
+            # ── StyleMap: label hidden at rest, visible on hover ───────────────
+            if icon_href and sm_key not in _stylemaps:
+                sm = simplekml.StyleMap()
+                sm.normalstyle.iconstyle.icon.href    = icon_href
+                sm.normalstyle.iconstyle.scale        = 0.7
+                sm.normalstyle.labelstyle.scale       = 0
+                sm.normalstyle.balloonstyle.text      = '$[description]'
+                sm.highlightstyle.iconstyle.icon.href = icon_href
+                sm.highlightstyle.iconstyle.scale     = 1.0
+                sm.highlightstyle.labelstyle.scale    = 1.0
+                sm.highlightstyle.balloonstyle.text   = '$[description]'
+                _stylemaps[sm_key] = sm
+
+            if sm_key in _stylemaps:
+                pnt.stylemap = _stylemaps[sm_key]
 
             # ── Default route (station-level navigation) ──────────────────────
             _DEFAULT_FOLDER = 'Default route'

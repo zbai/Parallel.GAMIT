@@ -36,6 +36,7 @@ from geode import dbConnection
 from geode.Utils import (
     process_stnlist,
     station_list_help,
+    stationID,
     add_version_argument,
 )
 from geode.reports.station_kmz import station_data_from_db, build_kmz
@@ -54,7 +55,7 @@ def main():
     )
 
     parser.add_argument(
-        'stnlist', type=str, nargs='+',
+        'stnlist', type=str, nargs='*', default=[],
         help=station_list_help(),
     )
     parser.add_argument(
@@ -65,9 +66,19 @@ def main():
         '--separate', action='store_true',
         help='Write one KMZ per station instead of a single combined file.',
     )
+    parser.add_argument(
+        '-proj', '--project', type=str, default=None,
+        metavar='project.cfg',
+        help='GAMIT project config file. When provided the station list is read '
+             'from the project; explicit stnlist further filters it. Stations not '
+             'in the project are placed in an "other stations" folder.',
+    )
 
     add_version_argument(parser)
     args = parser.parse_args()
+
+    if not args.stnlist and not args.project:
+        parser.error('Provide at least one station (stnlist) or a project file (--project).')
 
     # ── Database connection ───────────────────────────────────────────────────
     cnn = dbConnection.Cnn('gnss_data.cfg', write_cfg_file=True)
@@ -76,8 +87,33 @@ def main():
     cfg.read('gnss_data.cfg')
     media_path = cfg.get('archive', 'media', fallback=None)
 
-    # ── Station list ─────────────────────────────────────────────────────────
-    stnlist = process_stnlist(cnn, args.stnlist)
+    # ── Project file (optional) ───────────────────────────────────────────────
+    project_name    = None
+    project_stn_set = set()   # stationID strings of stations in the project
+
+    if args.project:
+        from geode.gamit.gamit_config import GamitConfiguration
+        gamit_cfg    = GamitConfiguration(args.project, check_config=False)
+        project_name = gamit_cfg.NetworkConfig.network_id.lower()
+        proj_raw     = gamit_cfg.NetworkConfig['stn_list'].split(',')
+        project_stn_set = {
+            stationID(s) for s in process_stnlist(cnn, proj_raw)
+        }
+        print(f' >> Project: {project_name} ({len(project_stn_set)} stations)',
+              file=sys.stderr)
+
+    # ── Station list ──────────────────────────────────────────────────────────
+    if args.stnlist:
+        # Explicit list provided — use it as-is (may include stations outside project)
+        stnlist = process_stnlist(cnn, args.stnlist)
+    elif project_stn_set:
+        # No explicit list — use all project stations
+        stnlist = process_stnlist(
+            cnn, [f'{s.split(".")[0]}.{s.split(".")[1]}' for s in project_stn_set]
+        )
+    else:
+        stnlist = []
+
     if not stnlist:
         print(' >> No stations matched the provided list.', file=sys.stderr)
         sys.exit(1)
@@ -88,6 +124,12 @@ def main():
 
     errors = []
 
+    def _load_station(nc, sc):
+        station = station_data_from_db(cnn, nc, sc, media_path=media_path)
+        if project_stn_set:
+            station.in_project = (f'{nc}.{sc}' in project_stn_set)
+        return station
+
     if args.separate:
         # ── One KMZ per station ───────────────────────────────────────────────
         for stn in stnlist:
@@ -96,14 +138,14 @@ def main():
             tag = f'{nc}.{sc}'
             print(f' >> Processing {tag}', file=sys.stderr)
             try:
-                station = station_data_from_db(cnn, nc, sc, media_path=media_path)
+                station = _load_station(nc, sc)
             except Exception as exc:
                 print(f' !! {tag}: failed to build data — {exc}', file=sys.stderr)
                 errors.append(tag)
                 continue
             out_path = out_dir / f'{nc}.{sc}.kmz'
             try:
-                build_kmz([station], str(out_path))
+                build_kmz([station], str(out_path), project_name=project_name)
                 print(f'    {tag} → {out_path}')
             except Exception as exc:
                 print(f' !! {tag}: KMZ build failed — {exc}', file=sys.stderr)
@@ -118,21 +160,22 @@ def main():
             tag = f'{nc}.{sc}'
             print(f' >> Processing {tag}', file=sys.stderr)
             try:
-                station = station_data_from_db(cnn, nc, sc, media_path=media_path)
-                stations.append(station)
+                stations.append(_load_station(nc, sc))
             except Exception as exc:
                 print(f' !! {tag}: failed to build data — {exc}', file=sys.stderr)
                 errors.append(tag)
 
         if stations:
-            if len(stations) == 1:
+            if project_name:
+                out_name = f'{project_name}.kmz'
+            elif len(stations) == 1:
                 s        = stations[0]
                 out_name = f'{s.network}.{s.station}.kmz'
             else:
                 out_name = 'geode_stations.kmz'
             out_path = out_dir / out_name
             try:
-                build_kmz(stations, str(out_path))
+                build_kmz(stations, str(out_path), project_name=project_name)
                 print(f'    {len(stations)} station(s) → {out_path}')
             except Exception as exc:
                 print(f' !! KMZ build failed — {exc}', file=sys.stderr)

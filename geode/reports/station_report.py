@@ -149,26 +149,33 @@ class StationReport:
 
 def _encode_image(path: Optional[str],
                   max_size: tuple[int, int] = (900, 540),
-                  quality: int = 85) -> Optional[str]:
-    """Load an image from disk, resize, and return a data: URI string."""
+                  quality: int = 85,
+                  crop: bool = True) -> Optional[str]:
+    """Load an image from disk, resize, and return a data: URI string.
+
+    When crop=True (default) the image is cropped to max_size's aspect ratio
+    before resizing so it fills its cell edge-to-edge.  When crop=False the
+    full image is scaled to fit within max_size preserving the original aspect
+    ratio (no pixels are discarded).
+    """
     if not path or not os.path.exists(path):
         return None
     try:
         from PIL import Image, ImageOps
         img = ImageOps.exif_transpose(Image.open(path)).convert("RGB")
-        # Crop to target aspect ratio symmetrically
-        tw, th = max_size
-        iw, ih = img.size
-        target_ratio = tw / th
-        current_ratio = iw / ih
-        if current_ratio > target_ratio:
-            new_w = int(ih * target_ratio)
-            left = (iw - new_w) // 2
-            img = img.crop((left, 0, left + new_w, ih))
-        elif current_ratio < target_ratio:
-            new_h = int(iw / target_ratio)
-            top = (ih - new_h) // 2
-            img = img.crop((0, top, iw, top + new_h))
+        if crop:
+            tw, th = max_size
+            iw, ih = img.size
+            target_ratio = tw / th
+            current_ratio = iw / ih
+            if current_ratio > target_ratio:
+                new_w = int(ih * target_ratio)
+                left = (iw - new_w) // 2
+                img = img.crop((left, 0, left + new_w, ih))
+            elif current_ratio < target_ratio:
+                new_h = int(iw / target_ratio)
+                top = (ih - new_h) // 2
+                img = img.crop((0, top, iw, top + new_h))
         img.thumbnail(max_size, Image.LANCZOS)
         buf = io.BytesIO()
         img.save(buf, "JPEG", quality=quality)
@@ -845,7 +852,7 @@ def build_report(s: StationReport,
     map_gen_uri   = _encode_image(s.map_general_path, (900, 540))
     map_det_uri   = _encode_image(s.map_detail_path,  (900, 540))
     sat_uri       = _encode_image(s.satellite_path,   (900, 540))
-    mon_uri       = _encode_image(s.monument_path,    (900, 540))
+    mon_uri       = _encode_image(s.monument_path,    (900, 540), crop=False)
 
     # ETM and RINEX: prefer pre-rendered base64 from StationReport; fall back to file
     if s.etm_base64:
@@ -930,8 +937,9 @@ def build_report(s: StationReport,
     # Monument cell: show placeholder when no image is available
     if mon_uri:
         mon_cell = (
-            f'<div class="cell">'
-            f'<img src="{mon_uri}" alt="Monument">'
+            f'<div class="cell" style="background:#f5f5f3">'
+            f'<img src="{mon_uri}" alt="Monument"'
+            f' style="width:100%;height:100%;object-fit:contain;display:block">'
             f'<div class="cap">Monument &middot; {s.monument}</div></div>'
         )
     else:
@@ -1211,7 +1219,9 @@ def station_from_db(cnn,
                     show_rinex:        bool = True,
                     show_contacts:     bool = True,
                     show_visits:       bool = True,
-                    show_geodynamics:  bool = True) -> StationReport:
+                    show_geodynamics:  bool = True,
+                    show_maps:         bool = True,
+                    maps_out_dir:      Optional[str] = None) -> StationReport:
     """
     Build a StationReport from the GeoDE PostgreSQL database.
 
@@ -1223,6 +1233,9 @@ def station_from_db(cnn,
     media_path   : str   — root of the Django MEDIA_ROOT folder
                            (from gnss_data.cfg [archive] media).
                            When None, file-backed fields are omitted.
+    show_maps    : bool  — fetch OSM/satellite map tiles (requires staticmap).
+    maps_out_dir : str   — base directory for map JPEGs; images land in
+                           <maps_out_dir>/<net>.<stn>/ (default: 'production/reports').
     """
     nc = network_code          # keep as-is (DB stores NetworkCode in lowercase)
     sc = station_code.lower()
@@ -1526,6 +1539,32 @@ def station_from_db(cnn,
             _log.getLogger(__name__).warning(
                 f'Geodynamic events failed for {nc}.{sc}: {_e}')
 
+    # ── Map tiles ─────────────────────────────────────────────────────────────
+    map_general_path = None
+    map_detail_path  = None
+    satellite_path   = None
+    if show_maps and MAP_FETCH_AVAILABLE:
+        try:
+            from .map_fetch import fetch_maps_to_files
+            _base = maps_out_dir or 'production/reports'
+            _maps_dir = os.path.join(_base, f'{nc}.{sc}')
+            _map_paths = fetch_maps_to_files(
+                lat, lon,
+                out_dir=_maps_dir,
+                navigation_kml=navigation_kml_path,
+            )
+            map_general_path = _map_paths.get('general')
+            map_detail_path  = _map_paths.get('detail')
+            satellite_path   = _map_paths.get('satellite')
+        except Exception as _e:
+            import logging as _log
+            _log.getLogger(__name__).warning(f'Map fetch failed for {nc}.{sc}: {_e}')
+    elif show_maps and not MAP_FETCH_AVAILABLE:
+        import logging as _log
+        _log.getLogger(__name__).info(
+            'staticmap not installed — map tiles skipped. '
+            'Run: pip install staticmap pillow')
+
     # ── Logo (bundled with the package) ──────────────────────────────────────
     _logo = Path(__file__).parent / 'geode_logo.png'
     logo_path = str(_logo) if _logo.exists() else None
@@ -1556,6 +1595,9 @@ def station_from_db(cnn,
         contacts           = contacts,
         monument_path      = monument_path,
         navigation_kml_path = navigation_kml_path,
+        map_general_path   = map_general_path,
+        map_detail_path    = map_detail_path,
+        satellite_path     = satellite_path,
         station_images     = station_images,
         etm_base64         = etm_base64,
         rinex_base64       = rinex_base64,
