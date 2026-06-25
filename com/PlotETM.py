@@ -236,6 +236,8 @@ def process_fit_dates(args):
 
 def print_query(args, etm: EtmEngine):
 
+    from geode.Utils import lg2ct
+
     mode_obs = EtmSolutionType.MODEL if args.query[0] == 'model' else EtmSolutionType.OBSERVATION
     date_index = 1
 
@@ -250,7 +252,10 @@ def print_query(args, etm: EtmEngine):
                 if x.p.object == 'polynomial':
                     vxyz += [p[1] for p in x.p.params]
             if vxyz:
-                strp = '%8.5f %8.5f %8.5f ' % (vxyz[0], vxyz[1], vxyz[2])
+                # don't forget to transform to XYZ!
+                # @todo: change this to a method within the ETM
+                vxyz = lg2ct(vxyz[0], vxyz[1], vxyz[2], etm.config.metadata.lat[0], etm.config.metadata.lon[0])
+                strp = '%8.5f %8.5f %8.5f ' % (vxyz[0].item(), vxyz[1].item(), vxyz[2].item())
 
         if 'per' in args.query:
             date_index += 1
