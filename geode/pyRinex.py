@@ -1098,10 +1098,10 @@ class ReadRinex(RinexRecord):
 
         d = int((end - start).total_seconds())
 
-        cmd = pyRunWithRetry.RunCommand('gfzrnx_lx -finp %s -fout %s.t -epo_beg %i%02i%02i_%02i%02i%02i -d %i -kv'
+        cmd = pyRunWithRetry.RunCommand('gfzrnx_lx -finp %s -fout %s.t -epo_beg %i%02i%02i_%02i%02i%02i -d %i -f -kv'
                                         % (self.rinex_path, self.rinex_path,
                                            start.year, start.month, start.day,
-                                           start.hour, start.minute, start.second, d), 45)
+                                           start.hour, start.minute, start.second, d), 120)
         try:
             _, err = cmd.run_shell()
             # raise error if error reported by gfzrnx
@@ -1132,8 +1132,8 @@ class ReadRinex(RinexRecord):
             copyto = self.rinex_path
             self.interval = decimate_rate
 
-        cmd = pyRunWithRetry.RunCommand('gfzrnx_lx -finp %s -fout %s.t -smp %i -kv'
-                                        % (copyto, copyto, decimate_rate), 45)
+        cmd = pyRunWithRetry.RunCommand('gfzrnx_lx -finp %s -fout %s.t -smp %i -f -kv'
+                                        % (copyto, copyto, decimate_rate), 120)
         try:
             _, err = cmd.run_shell()
             # raise error if error reported by gfzrnx
@@ -1161,7 +1161,7 @@ class ReadRinex(RinexRecord):
         vsys = 'CEIGJRS'
         rsys = ''.join(s for s in vsys if s not in systems)
 
-        cmd = pyRunWithRetry.RunCommand('gfzrnx_lx -finp %s -fout %s.t -satsys %s -kv' % (copyto, copyto, rsys), 45)
+        cmd = pyRunWithRetry.RunCommand('gfzrnx_lx -finp %s -fout %s.t -satsys %s -f -kv' % (copyto, copyto, rsys), 120)
 
         try:
             _, err = cmd.run_shell()
