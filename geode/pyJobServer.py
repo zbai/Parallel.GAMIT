@@ -160,11 +160,10 @@ def test_node(check_gamit_tables=None, check_archive=True, check_executables=Tru
         # check that all executables and GAMIT bins are in the path
         for prg in ('crz2rnx', 'crx2rnx', 'rnx2crx', 'rnx2crz', 'gfzrnx_lx', 'svpos', 'tform',
                     'sh_rx2apr', 'doy', 'sed', 'compress'):
-            with pyRunWithRetry.command('which ' + prg) as run:
-                print(' >> Testing %s' % prg)
-                run.run()
-                if run.stdout == '':
-                    return ' -- %s: Could not find path to %s' % (platform.node(), prg)
+            print(' >> Testing %s' % prg)
+            stdout, _ = pyRunWithRetry.RunCommand('which ' + prg, 10).run_shell()
+            if not stdout.strip():
+                return ' -- %s: Could not find path to %s' % (platform.node(), prg)
         print(' -- Done')
 
         # check grdtab and ppp from the config file
@@ -348,8 +347,8 @@ class JobServer:
                 os._exit(1)
 
             for r in self.result:
-                if 'Test passed!' not in r:
-                    print(r)
+                if r is None or 'Test passed!' not in r:
+                    print(r if r is not None else ' -- Node returned no result (job crashed on the remote node)')
                     print(' >> Errors were encountered during initialization. Check messages.')
                     # terminate execution if problems were found
                     self.cluster.close()
@@ -360,8 +359,8 @@ class JobServer:
             print(' >> Parallel processing deactivated by user')
             r = test_node(check_gamit_tables=check_gamit_tables, check_archive=check_archive,
                           check_executables=check_executables, check_atx=check_atx)
-            if 'Test passed!' not in r:
-                print(r)
+            if r is None or 'Test passed!' not in r:
+                print(r if r is not None else ' -- test_node returned no result')
                 print(' >> Errors were encountered during initialization. Check messages.')
                 os._exit(1)
 
