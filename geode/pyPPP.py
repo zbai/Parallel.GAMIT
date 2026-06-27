@@ -280,9 +280,9 @@ class RunPPP(PPPSpatialCheck):
                 if sp3altrn:
                     self.get_orbits(self.sp3altrn)
                 else:
-                    raise type(e)(type(e)(str(e) + ' -> This exception usually occurs due to the need of having '
-                                                   'the orbit for the day being processed and the orbit of the '
-                                                   'next day.'))
+                    raise type(e)(str(e) + ' -> This exception usually occurs due to the need of having '
+                                          'the orbit for the day being processed and the orbit of the '
+                                          'next day.')
 
             self.write_otl()
             self.copyfiles()
