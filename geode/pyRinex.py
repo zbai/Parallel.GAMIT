@@ -1196,7 +1196,8 @@ class ReadRinex(RinexRecord):
                                        'RINEX file. Date on RINEX: ' + self.date.yyyyddd() +
                                        '; Station Info: ' + NewValues.date.yyyyddd())
             else:
-                NewValues = NewValues.current_record
+                NewValues = {k: v for k, v in vars(NewValues.current_record).items()
+                             if not k.startswith('_')}
 
         # DDG: check if NewValues is None -> assign empty dict in that case
         if NewValues is None:
