@@ -1039,7 +1039,7 @@ def main():
                              pbar,
                              modules=('geode.pyRinex',
                                       'geode.pyArchiveStruct',
-                                      'geode.pyOTL', 'geode.pyStationInfo',
+                                      'geode.pyOTL', 'geode.metadata.station_info',
                                       'geode.dbConnection', 'geode.Utils',
                                       'geode.pyDate', 'geode.pyProducts',
                                       'geode.pyOptions', 'geode.pyEvents',
