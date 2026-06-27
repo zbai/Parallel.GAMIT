@@ -425,10 +425,10 @@ def insert_stninfo(NetworkCode, StationCode, stninfofile):
                ' using node ' + platform.node()
 
     try:
-        stnInfo = StationInfo(cnn, NetworkCode, StationCode, allow_empty=True)
+        stnInfo = station_info.StationInfo(cnn, NetworkCode, StationCode, allow_empty=True)
         stninfo = stnInfo.parse_station_info(stninfofile)
 
-    except StationInfoException:
+    except station_info.StationInfoException:
         return traceback.format_exc() + ' insert_stninfo: ' + NetworkCode + ' ' + StationCode + \
                ' using node ' + platform.node()
 
@@ -441,9 +441,9 @@ def insert_stninfo(NetworkCode, StationCode, stninfofile):
         if stn.get('StationCode').lower() == StationCode:
             try:
                 # call station info again in case there was a change from other records
-                stnobj = StationInfo(cnn, NetworkCode, StationCode, allow_empty=True)
+                stnobj = station_info.StationInfo(cnn, NetworkCode, StationCode, allow_empty=True)
                 stnobj.insert_station_info(stn)
-            except StationInfoException as e:
+            except station_info.StationInfoException as e:
                 errors.append(str(e))
 
             except:
@@ -543,7 +543,7 @@ def execute_ppp(record, rinex_path, h_tolerance):
                     cnn.close()
                     return
 
-                stninfo = StationInfo(cnn, NetworkCode, StationCode, Rinex.date, h_tolerance=h_tolerance)
+                stninfo = station_info.StationInfo(cnn, NetworkCode, StationCode, Rinex.date, h_tolerance=h_tolerance)
 
                 Rinex.normalize_header(stninfo, 
                                        x = stn[0]['auto_x'], 
@@ -587,7 +587,7 @@ def execute_ppp(record, rinex_path, h_tolerance):
             pyRinex.pyRinexExceptionBadFile,
             pyRinex.pyRinexExceptionSingleEpoch,
             pyPPP.pyRunPPPException,
-            StationInfoException) as e:
+            station_info.StationInfoException) as e:
 
         e.event['StationCode'] = StationCode
         e.event['NetworkCode'] = NetworkCode
@@ -713,7 +713,7 @@ def scan_station_info(JobServer, pyArchive, archive_path, master_list):
 
     pbar = tqdm(total=len(stninfo), ncols=80, disable=None)
 
-    modules = ('pgamit.dbConnection', 'pgamit.metadata.station_info', 'sys', 'datetime', 'pgamit.pyDate',
+    modules = ('geode.dbConnection', 'geode.metadata.station_info', 'sys', 'datetime', 'geode.pyDate',
                'platform', 'traceback')
 
     JobServer.create_cluster(insert_stninfo, callback=callback_handle, progress_bar=pbar, modules=modules)
@@ -867,9 +867,9 @@ def process_ppp(cnn, Config, pyArchive, archive_path, JobServer, master_list, sd
 
     pbar = tqdm(total=len(tblrinex), ncols=80, disable=None)
 
-    modules = ('pgamit.dbConnection', 'pgamit.pyRinex', 'pgamit.pyPPP', 'pgamit.metadata.station_info', 'pgamit.pyDate',
-               'pgamit.pyProducts', 'os', 'platform', 'pgamit.pyArchiveStruct', 'traceback', 'pgamit.pyOptions',
-               'pgamit.pyEvents', 'pgamit.Utils')
+    modules = ('geode.dbConnection', 'geode.pyRinex', 'geode.pyPPP', 'geode.metadata.station_info', 'geode.pyDate',
+               'geode.pyProducts', 'os', 'platform', 'geode.pyArchiveStruct', 'traceback', 'geode.pyOptions',
+               'geode.pyEvents', 'geode.Utils')
 
     depfuncs = (remove_from_archive, verify_rinex_date_multiday)
 
