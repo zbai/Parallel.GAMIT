@@ -620,7 +620,7 @@ def process_crinex_file(crinez, filename, data_rejected, data_retry):
         fill_event(e.event)
         error_handle(cnn, e.event, crinez, reject_folder, filename)
 
-    except StationInfoException as e:
+    except station_info.StationInfoException as e:
 
         retry_folder = retry_folder.replace(
             '%reason%', 'station_info_exception')
