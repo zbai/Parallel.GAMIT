@@ -12,6 +12,7 @@ import _thread
 import queue
 import traceback
 import os
+import threading
 
 # deps
 from tqdm import tqdm
@@ -249,26 +250,26 @@ class JobServer:
     def check_cluster(self, status, node, job):
 
         if status == dispy.DispyNode.Initialized:
-            print(' -- Checking node %s (%i CPUs)...' % (node.name, node.avail_cpus))
-            # test node to make sure everything works
+            with self._node_init_lock:
+                print(' -- Checking node %s (%i CPUs)...' % (node.name, node.avail_cpus))
 
-            self.cluster.send_file('gnss_data.cfg', node)
-            
-            job = self.cluster.submit_node(node, self.check_gamit_tables, self.check_archive, self.check_atx,
-                                           self.software_sync)
+                try:
+                    self.cluster.send_file('gnss_data.cfg', node)
+                except Exception as e:
+                    print(' -- %s: Could not send gnss_data.cfg: %s' % (node.name, e))
+                    return
 
-            self.cluster.wait()
+                job = self.cluster.submit_node(node, self.check_gamit_tables, self.check_archive, self.check_atx,
+                                               self.software_sync)
 
-            # create a delay to allow propagation of the result
-            # <nah> @todo aca si job es None bug, y no está claro si con el wait() el
-            # delay es realmente necesario / delay arbitrario sin reintentos?
-            start_t = time.time()
-            while job is None and (time.time() - start_t) < self.delay:
-                time.sleep(1)
+                if job is None:
+                    print(' -- %s: submit_node returned None (node may be unavailable)' % node.name)
+                    return
 
-            self.result.append(job.result)
+                job.wait()
 
-            self.nodes.append(node)
+                self.result.append(job.result)
+                self.nodes.append(node)
 
     def __init__(self, Config, check_gamit_tables=None, check_archive=True, check_executables=True, check_atx=True,
                  run_parallel=True, software_sync=()):
@@ -286,9 +287,10 @@ class JobServer:
         self.check_atx          = check_atx
         self.software_sync      = software_sync
 
-        self.nodes        = []
-        self.result       = []
-        self.jobs         = []
+        self.nodes           = []
+        self.result          = []
+        self.jobs            = []
+        self._node_init_lock = threading.Lock()
         self.run_parallel = Config.run_parallel and run_parallel
         self.delay        = Config.cluster_delay
         self.verbose      = False
