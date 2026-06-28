@@ -266,7 +266,7 @@ class JobServer:
                     print(' -- %s: submit_node returned None (node may be unavailable)' % node.name)
                     return
 
-                job.wait()
+                self.cluster.wait()
 
                 self.result.append(job.result)
                 self.nodes.append(node)
