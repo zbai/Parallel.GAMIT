@@ -20,6 +20,7 @@ import xml.etree.ElementTree as ET
 import zipfile
 from io import BytesIO
 import matplotlib
+from tqdm import tqdm
 
 # app
 from geode import dbConnection
@@ -55,6 +56,333 @@ VERBOSITY_MAP = {
     'info': logging.INFO,
     'debug': logging.DEBUG
 }
+
+class TqdmLoggingHandler(logging.Handler):
+    """Routes log records through tqdm.write so the progress bar isn't overwritten."""
+    def emit(self, record):
+        try:
+            tqdm.write(self.format(record))
+            self.flush()
+        except Exception:
+            self.handleError(record)
+
+
+# Collects query-mode output from parallel workers, printed after wait()
+etm_query_results = []
+
+
+def callback_etm_plot(job):
+    global etm_query_results
+    if job.result is not None:
+        error_msg, query_output, station_id = job.result
+        if error_msg:
+            tqdm.write(' -- Error processing %s:\n%s' % (station_id, error_msg))
+        else:
+            tqdm.write(' >> Successfully plotted %s' % station_id)
+        if query_output:
+            etm_query_results.append(query_output)
+    elif job.exception:
+        tqdm.write(' -- Unhandled job exception:\n%s' % str(job.exception))
+
+
+def process_etm_station(stn, args_dict, from_kmz):
+    """
+    Dispy worker: fully self-contained per-station ETM processing.
+    args_dict is vars(args) plus two precomputed keys:
+      _plot_dates  -> result of process_plot_dates(args)
+      _fit_dates   -> result of process_fit_dates(args)
+    Returns (error_msg, query_output, station_id).
+    """
+    import sys, os, traceback, io, logging
+    import numpy as np
+    import matplotlib
+    if not args_dict.get('interactive'):
+        matplotlib.use('Agg')
+
+    from geode import dbConnection
+    from geode.pyDate import Date
+    from geode.etm.core.logging_config import setup_etm_logging
+    from geode.etm.core.etm_engine import EtmEngine, EtmSolutionType
+    from geode.etm.core.etm_config import EtmConfig
+    from geode.etm.core.type_declarations import JumpType
+    from geode.etm.data.solution_data import SolutionDataException
+    from geode.etm.core.data_classes import (AdjustmentModels, SolutionType, CovarianceFunction,
+                                              ModelingParameters, SolutionOptions,
+                                              JumpParameters, ValidationRules)
+    from geode.etm.etm_functions.polynomial import PolynomialFunction
+    from geode.etm.etm_functions.periodic import PeriodicFunction
+    from geode.etm.etm_functions.jumps import JumpFunction
+    from geode.Utils import process_date_str, load_json, lg2ct
+
+    ADJUSTMENT_MODEL_MAP = {
+        'rls': AdjustmentModels.ROBUST_LEAST_SQUARES,
+        'lsc': AdjustmentModels.LSQ_COLLOCATION,
+    }
+    COVARIANCE_MAP = {
+        'arma': CovarianceFunction.ARMA,
+        'gaussian': CovarianceFunction.GAUSSIAN,
+    }
+    VERBOSITY_MAP = {
+        'quiet': logging.CRITICAL,
+        'info':  logging.INFO,
+        'debug': logging.DEBUG,
+    }
+
+    setup_etm_logging(level=VERBOSITY_MAP[args_dict['verbosity']])
+
+    net  = stn['network_code'] if from_kmz else stn['NetworkCode']
+    stnm = stn['station_code'] if from_kmz else stn['StationCode']
+    station_id = '%s.%s' % (net, stnm)
+
+    try:
+        cnn = dbConnection.Cnn('gnss_data.cfg')
+
+        solution_options = SolutionOptions()
+        no_save_db = args_dict['no_save_database']
+
+        if not args_dict['filename']:
+            solution_options.solution_type = SolutionType.from_code(args_dict['solution'])
+            solution_options.stack_name    = args_dict['solution']
+        else:
+            fname = args_dict['filename'].replace('{net}', net).replace('{stn}', stnm)
+            solution_options.solution_type = SolutionType.NGL
+            solution_options.stack_name    = 'external file'
+            solution_options.format        = args_dict['format']
+            solution_options.filename      = fname
+            no_save_db = True
+
+        if from_kmz:
+            config = EtmConfig(net, stnm, json_file=stn,
+                               solution_options=solution_options)
+        else:
+            config = EtmConfig(net, stnm, cnn=cnn,
+                               solution_options=solution_options)
+
+        config.language = args_dict['language'].lower()
+        config.plotting_config.plot_time_window = args_dict['_plot_dates']
+
+        remove = args_dict['remove']
+        if remove is not None:
+            if not len(remove):
+                remove = ['poly', 'per', 'jumps', 'stoch']
+            config.plotting_config.plot_remove_polynomial  = 'poly'  in remove
+            config.plotting_config.plot_remove_jumps       = 'jumps' in remove
+            config.plotting_config.plot_remove_periodic    = 'per'   in remove
+            config.plotting_config.plot_remove_stochastic  = 'stoch' in remove
+
+        if args_dict.get('interactive'):
+            config.plotting_config.interactive = True
+        else:
+            config.plotting_config.filename = args_dict['directory']
+        config.plotting_config.plot_show_outliers    = 'out'       in args_dict['plot_options']
+        config.plotting_config.plot_residuals_mode   = 'residuals' in args_dict['plot_options']
+        config.plotting_config.plot_missing_solutions= 'missing'   in args_dict['plot_options']
+        config.plotting_config.plot_no_model         = 'no-model'  in args_dict['plot_options']
+
+        config.modeling.relaxation          = np.array(args_dict['default_relax'])
+        config.modeling.data_model_window   = args_dict['_fit_dates']
+
+        # --- prefit models (inlined from get_prefit_models) ---
+        user_prefit_models = []
+        prefit_args = args_dict['prefit_model']
+        if prefit_args:
+            fmap_str = {'poly': 'polynomial', 'per': 'periodic', 'jump': 'jump'}
+            fmap     = {'poly': PolynomialFunction, 'per': PeriodicFunction, 'jump': JumpFunction}
+            funcs    = load_json(prefit_args[0])['functions']
+            cur      = prefit_args[1]
+            i = 2
+            while i < len(prefit_args):
+                if cur == 'jump':
+                    mjd = process_date_str(prefit_args[i]).mjd
+                    jf  = [f for f in funcs if f['object'] == fmap_str[cur]
+                           and f['jump_date']['mjd'] == mjd]
+                    fn  = fmap[cur](config, time_vector=np.array([0]),
+                                   date=Date(**jf[0]['jump_date']),
+                                   jump_type=JumpType.UNDETERMINED, fit=True)
+                    i += 1
+                else:
+                    jf = [f for f in funcs if f['object'] == fmap_str[cur]]
+                    fn = fmap[cur](config)
+                fn.load_from_json(jf[0])
+                user_prefit_models.append(fn)
+                i += 1
+        config.modeling.prefit_models = user_prefit_models
+
+        config.modeling.check_jump_collisions = not args_dict['no_jump_check']
+        config.modeling.least_squares_strategy.adjustment_model = \
+            ADJUSTMENT_MODEL_MAP[args_dict['least_squares_strategy']]
+        config.modeling.fit_auto_detected_jumps        = args_dict['fit_auto_jumps'][0] is not None
+        config.modeling.fit_auto_detected_jumps_method = args_dict['fit_auto_jumps'][0]
+        config.modeling.least_squares_strategy.iterations          = args_dict['max_iterations']
+        config.modeling.least_squares_strategy.sigma_filter_limit  = args_dict['sigma_limit']
+        config.modeling.least_squares_strategy.covariance_function = \
+            COVARIANCE_MAP[args_dict['covariance'][0]]
+
+        # --- constraints (inlined from get_constraints) ---
+        user_constraints = []
+        const_args = args_dict['constraints']
+        if const_args:
+            fmap_str = {'poly': 'polynomial', 'per': 'periodic', 'jump': 'jump'}
+            fmap     = {'poly': PolynomialFunction, 'per': PeriodicFunction, 'jump': JumpFunction}
+            funcs    = load_json(const_args[0])['functions']
+            cur      = const_args[1]
+            arg_count = 0
+            i = 2
+            while i < len(const_args):
+                if arg_count == 0:
+                    if cur == 'jump':
+                        mjd = process_date_str(const_args[i]).mjd
+                        jf  = [f for f in funcs if f['object'] == fmap_str[cur]
+                               and f['jump_date']['mjd'] == mjd]
+                        fn  = fmap[cur](config, time_vector=np.array([0]),
+                                       date=Date(**jf[0]['jump_date']),
+                                       jump_type=JumpType.UNDETERMINED, fit=False)
+                        i += 1
+                    else:
+                        jf = [f for f in funcs if f['object'] == fmap_str[cur]]
+                        fn = fmap[cur](config)
+                    fn.load_from_json(jf[0])
+                    params = np.zeros_like(fn.p.params[0], dtype=bool)
+                    user_constraints.append(fn)
+                    arg_count += 1
+                else:
+                    if const_args[i] in fmap_str:
+                        for j in range(3):
+                            user_constraints[-1].p.params[j][~params] = np.nan
+                            user_constraints[-1].p.sigmas[j][~params] = np.nan
+                        arg_count = 0
+                        cur = const_args[i]
+                    else:
+                        params[int(const_args[i][1])] = True
+                        arg_count += 1
+                    i += 1
+            for j in range(3):
+                user_constraints[-1].p.params[j][~params] = np.nan
+                user_constraints[-1].p.sigmas[j][~params] = np.nan
+        config.modeling.least_squares_strategy.constraints = user_constraints
+
+        cov = args_dict['covariance']
+        if cov[0] == 'arma' and len(cov) > 1:
+            config.modeling.least_squares_strategy.arma_roots  = cov[1]
+        if cov[0] == 'arma' and len(cov) > 2:
+            config.modeling.least_squares_strategy.arma_points = cov[2]
+
+        os.makedirs(args_dict['directory'], exist_ok=True)
+
+        config.validation.max_condition_number = args_dict['max_condition_number']
+
+        psb = args_dict['post_seismic_back']
+        if isinstance(psb, str) and any(c in psb for c in ('_', '.', '/')):
+            time_back = process_date_str(psb)
+        else:
+            time_back = int(psb) * 365
+        config.modeling.post_seismic_back_lim        = time_back
+        config.modeling.earthquake_magnitude_limit    = args_dict['s_score_mag_limit']
+        config.modeling.earthquakes_cherry_picked     = args_dict['force_earthquakes']
+
+        if not from_kmz:
+            config.refresh_config(cnn)
+
+        # --- custom relaxations (inlined from process_custom_relaxations) ---
+        events, cur_event, cur_relax = [], None, []
+        for arg in args_dict['event_relax']:
+            try:
+                cur_relax.append(float(arg))
+            except ValueError:
+                if cur_event is not None:
+                    events.append((cur_event, cur_relax))
+                cur_event, cur_relax = arg, []
+        if cur_event is not None:
+            events.append((cur_event, cur_relax))
+        for event, relax in events:
+            rs   = cnn.query_float("SELECT * FROM earthquakes WHERE id = '%s'" % event,
+                                   as_dict=True)[0]
+            date = Date(datetime=rs['date'])
+            config.modeling.user_jumps.append(
+                JumpParameters(jump_type=JumpType.COSEISMIC_JUMP_DECAY,
+                               relaxation=relax, date=date, action='+'))
+
+        etm = EtmEngine(config, cnn=cnn)
+        etm.run_adjustment(cnn=cnn,
+                           try_save_to_db=not no_save_db,
+                           try_loading_db=not no_save_db)
+
+        json_opts = args_dict['json']
+        if json_opts is not None:
+            etm.save_etm(filename=args_dict['directory'],
+                         dump_observations  ='obs' in json_opts,
+                         dump_design_matrix ='dmx' in json_opts,
+                         dump_raw_results   ='raw' in json_opts,
+                         dump_model         ='mod' in json_opts)
+
+        if 'no-plots' not in args_dict['plot_options']:
+            etm.plot()
+            if 'hist' in args_dict['plot_options']:
+                etm.plot_hist()
+
+        # --- query output (inlined from print_query, captured to string) ---
+        query_output = None
+        if args_dict['query']:
+            buf        = io.StringIO()
+            mode_obs   = (EtmSolutionType.MODEL
+                          if args_dict['query'][0] == 'model'
+                          else EtmSolutionType.OBSERVATION)
+            date_index = 1
+            strp       = ''
+            extrapolate = False
+
+            if etm.config.modeling.status == etm.config.modeling.status.POSTFIT:
+                if 'vel' in args_dict['query']:
+                    date_index += 1
+                    vxyz = []
+                    for x in etm.design_matrix.functions:
+                        if x.p.object == 'polynomial':
+                            vxyz += [p[1] for p in x.p.params]
+                    if vxyz:
+                        vxyz = lg2ct(vxyz[0], vxyz[1], vxyz[2],
+                                     etm.config.metadata.lat[0],
+                                     etm.config.metadata.lon[0])
+                        strp = '%8.5f %8.5f %8.5f ' % (vxyz[0].item(),
+                                                         vxyz[1].item(),
+                                                         vxyz[2].item())
+                if 'per' in args_dict['query']:
+                    date_index += 1
+                    pxyz = []
+                    for x in etm.design_matrix.functions:
+                        if x.p.object == 'periodic':
+                            for k in range(3):
+                                pxyz += ['%8.5f' % (p * 1000)
+                                         for p in x.p.params[k].tolist()]
+                    strp += ' '.join(pxyz)
+                if 'extrapolate' in args_dict['query']:
+                    date_index += 1
+                    extrapolate = True
+
+            q_date   = [process_date_str(d) for d in args_dict['query'][date_index:]]
+            solution = etm.get_position(q_date, mode_obs)
+
+            for i, d in enumerate(q_date):
+                sid = etm.config.get_station_id()
+                if extrapolate or (etm.config.metadata.first_obs < d
+                                   < etm.config.metadata.last_obs):
+                    buf.write(' %s %14.5f %14.5f %14.5f %8.3f %s -> %s\n'
+                              % (sid,
+                                 solution['position'][0][i],
+                                 solution['position'][1][i],
+                                 solution['position'][2][i],
+                                 d.fyear, strp, solution['source']))
+                else:
+                    buf.write(' %s %14s %14s %14s %8.3f %s -> %s\n'
+                              % (sid, 'NaN', 'NaN', 'NaN',
+                                 d.fyear, strp, solution['source']))
+            query_output = buf.getvalue()
+
+        return None, query_output, station_id
+
+    except SolutionDataException as e:
+        return str(e), None, station_id
+    except Exception:
+        return traceback.format_exc(), None, station_id
 
 ADJUSTMENT_MODEL_MAP = {
     'rls': AdjustmentModels.ROBUST_LEAST_SQUARES,
@@ -633,6 +961,11 @@ def main():
     parser.add_argument('-no_save', '--no_save_database', action='store_true', default=False,
                         help="Do not fetch / save ETM solution from / to database")
 
+    parser.add_argument('-p', '--parallel', action='store_true', default=False,
+                        help="Run in parallel using available cluster nodes. "
+                             "Requires gnss_data.cfg in the working directory. "
+                             "Incompatible with --interactive.")
+
     parser.add_argument('-verbosity', '--verbosity',
                         choices=['quiet', 'info', 'debug'], default='info',
                         help="Determine how detailed the execution messages should be. "
@@ -642,9 +975,21 @@ def main():
 
     args = parser.parse_args()
 
+    if args.parallel and args.interactive:
+        print(' >> ERROR: --parallel and --interactive are incompatible. Exiting.')
+        sys.exit(1)
+
     cnn = dbConnection.Cnn('gnss_data.cfg', write_cfg_file=True)
 
     setup_etm_logging(level=VERBOSITY_MAP[args.verbosity])
+    # Swap the StreamHandler for a tqdm-aware one so progress bar isn't overwritten.
+    # setup_etm_logging's "if not handlers" guard also prevents serial workers
+    # (same process) from re-adding a StreamHandler on their own setup_etm_logging call.
+    _etm_logger = logging.getLogger('geode.etm')
+    _etm_logger.handlers.clear()
+    _h = TqdmLoggingHandler()
+    _h.setFormatter(logging.Formatter(' -- %(message)s'))
+    _etm_logger.addHandler(_h)
 
     from_kmz = False
     if args.stnlist[0].endswith(('kmz', 'kml')):
@@ -660,123 +1005,60 @@ def main():
 
     plot_dates = process_plot_dates(args)
 
-    # make sure dir ends in /
-    if args.directory[-1] != '/':
-        args.directory += '/'
+    # Resolve to absolute path so parallel workers (which cd to /tmp/dispy/...) write to the right place
+    args.directory = os.path.abspath(args.directory) + os.sep
+    if args.filename:
+        args.filename = os.path.abspath(args.filename)
+
+    from geode import pyJobServer, pyOptions
+
+    if args.interactive:
+        matplotlib.use('TkAgg')
+
+    Config = pyOptions.ReadOptions('gnss_data.cfg')
+    Config.run_parallel = args.parallel
+
+    args_dict = vars(args).copy()
+    args_dict['_plot_dates'] = plot_dates
+    args_dict['_fit_dates'] = process_fit_dates(args)
+
+    JobServer = pyJobServer.JobServer(Config,
+                                     check_archive=False,
+                                     check_executables=False,
+                                     check_atx=False)
+
+    pbar = tqdm(desc='%-30s' % ' >> Processing ETM',
+                total=len(stnlist), ncols=160, disable=None)
+
+    JobServer.create_cluster(process_etm_station, (), callback_etm_plot, pbar,
+                             modules=('geode.dbConnection',
+                                      'geode.etm.core.etm_engine',
+                                      'geode.etm.core.etm_config',
+                                      'geode.etm.core.type_declarations',
+                                      'geode.etm.data.solution_data',
+                                      'geode.etm.core.data_classes',
+                                      'geode.etm.etm_functions.polynomial',
+                                      'geode.etm.etm_functions.periodic',
+                                      'geode.etm.etm_functions.jumps',
+                                      'geode.etm.core.logging_config',
+                                      'geode.Utils',
+                                      'geode.pyDate',
+                                      'numpy'))
 
     for stn in stnlist:
+        net  = stn['network_code'] if from_kmz else stn['NetworkCode']
+        stnm = stn['station_code'] if from_kmz else stn['StationCode']
+        tqdm.write(' >> About to process %s.%s' % (net, stnm))
+        JobServer.submit(stn, args_dict, from_kmz)
 
-        # initialize the solution options to pass to EtmConfig
-        solution_options = SolutionOptions()
+    JobServer.wait()
+    pbar.close()
 
-        if not args.filename:
-            solution_options.solution_type = SolutionType.from_code(args.solution)
-            solution_options.stack_name = args.solution
-        else:
-            filename = args.filename.replace('{net}', stn['NetworkCode']).replace('{stn}', stn['StationCode'])
-            # requested a file as the source of data
-            solution_options.solution_type = SolutionType.NGL
-            solution_options.stack_name = 'external file'
-            solution_options.format = args.format
-            solution_options.filename = filename
-            # do not save anything to the database in filename mode
-            args.no_save_database = True
+    if etm_query_results:
+        for result in etm_query_results:
+            print(result, end='')
 
-        try:
-            if from_kmz:
-                print('About to process ' + stn['network_code'] + '.' + stn['station_code'], file=sys.stderr)
-                config = EtmConfig(stn['network_code'], stn['station_code'], json_file=stn,
-                                   solution_options=solution_options)
-            else:
-                print('About to process ' + stn['NetworkCode'] + '.' + stn['StationCode'], file=sys.stderr)
-                config = EtmConfig(stn['NetworkCode'], stn['StationCode'], cnn=cnn,
-                                   solution_options=solution_options)
-
-            # select language for plots
-            config.language = args.language.lower()
-
-            config.plotting_config.plot_time_window = plot_dates
-
-            if args.remove is not None:
-                if not len(args.remove):
-                    args.remove = ['poly', 'per', 'jumps', 'stoch']
-
-                config.plotting_config.plot_remove_polynomial = 'poly' in args.remove
-                config.plotting_config.plot_remove_jumps = 'jumps' in args.remove
-                config.plotting_config.plot_remove_periodic = 'per' in args.remove
-                config.plotting_config.plot_remove_stochastic = 'stoch' in args.remove
-
-            if args.interactive:
-                matplotlib.use('TkAgg')
-                config.plotting_config.interactive = True
-            else:
-                config.plotting_config.filename = args.directory
-
-            config.plotting_config.plot_show_outliers = 'out' in args.plot_options
-            config.plotting_config.plot_residuals_mode = 'residuals' in args.plot_options
-            config.plotting_config.plot_missing_solutions = 'missing' in args.plot_options
-            config.plotting_config.plot_no_model = 'no-model' in args.plot_options
-
-            config.modeling.relaxation = np.array(args.default_relax)
-            config.modeling.data_model_window = process_fit_dates(args)
-            config.modeling.prefit_models = get_prefit_models(config, args.prefit_model)
-
-            config.modeling.check_jump_collisions = not args.no_jump_check
-            config.modeling.least_squares_strategy.adjustment_model = ADJUSTMENT_MODEL_MAP[args.least_squares_strategy]
-            config.modeling.fit_auto_detected_jumps = args.fit_auto_jumps[0] is not None
-            config.modeling.fit_auto_detected_jumps_method = args.fit_auto_jumps[0]
-            config.modeling.least_squares_strategy.iterations = args.max_iterations
-            config.modeling.least_squares_strategy.sigma_filter_limit = args.sigma_limit
-            config.modeling.least_squares_strategy.covariance_function = COVARIANCE_MAP[args.covariance[0]]
-            # check for any constraints
-            config.modeling.least_squares_strategy.constraints = get_constraints(config, args.constraints)
-            if args.covariance[0] == 'arma' and len(args.covariance) > 1:
-                config.modeling.least_squares_strategy.arma_roots = args.covariance[1]
-            if args.covariance[0] == 'arma' and len(args.covariance) > 2:
-                config.modeling.least_squares_strategy.arma_points = args.covariance[2]
-
-            if not os.path.exists(args.directory):
-                os.mkdir(args.directory)
-
-            config.validation.max_condition_number = args.max_condition_number
-            if (isinstance(args.post_seismic_back, str) and
-                    any(char in args.post_seismic_back for char in ('_', '.', '/'))):
-                time_back = process_date_str(args.post_seismic_back)
-            else:
-                time_back = args.post_seismic_back * 365
-            config.modeling.post_seismic_back_lim = time_back
-            # do not estimate s-score for events < s_score_mag_limit
-            config.modeling.earthquake_magnitude_limit = args.s_score_mag_limit
-            config.modeling.earthquakes_cherry_picked = args.force_earthquakes
-            if not from_kmz:
-                config.refresh_config(cnn)
-
-            # add any custom relaxation values for events
-            process_custom_relaxations(cnn, config, args.event_relax)
-
-            etm = EtmEngine(config, cnn=cnn)
-            etm.run_adjustment(cnn=cnn,
-                               try_save_to_db=not args.no_save_database,
-                               try_loading_db=not args.no_save_database)
-
-            if args.json is not None:
-                etm.save_etm(filename=args.directory,
-                             dump_observations='obs' in args.json,
-                             dump_design_matrix='dmx' in args.json,
-                             dump_raw_results='raw' in args.json,
-                             dump_model='mod' in args.json)
-
-            if 'no-plots' not in args.plot_options:
-                etm.plot()
-                if 'hist' in args.plot_options:
-                    etm.plot_hist()
-
-            if args.query:
-                print_query(args, etm)
-
-            print('Successfully plotted ' + stn['NetworkCode'] + '.' + stn['StationCode'], file=sys.stderr)
-        except SolutionDataException as e:
-            print(str(e), file=sys.stderr)
+    JobServer.close_cluster()
 
 
 if __name__ == '__main__':
