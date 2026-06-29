@@ -37,7 +37,7 @@ dependencies = [
     "earthscope-cli==0.8.2",
     "earthscope-sdk==0.2.0",
     "basemap==1.4.0",
-    "cryptography>=39.0.0",
+    "cryptography",
     "dirsync>=2.2.4",
     "geopy==2.4.1",
     #h5py==3.4.0
@@ -47,7 +47,7 @@ dependencies = [
     "munch==2.5.0",
     "netifaces==0.10.9",
     "networkx",
-    "paramiko>=2.11.0",
+    "paramiko",
     "psutil>=5.6.3",
     "pysftp==0.2.9",
     "requests==2.33.0",
