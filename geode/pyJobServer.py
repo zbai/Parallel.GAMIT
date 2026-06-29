@@ -266,12 +266,24 @@ class JobServer:
                     print(' -- %s: submit_node returned None (node may be unavailable)' % node.name)
                     return
 
-                self.cluster.wait()
+                # poll with timeout instead of cluster.wait() to avoid hanging on a dead node
+                deadline = time.time() + 60
+                while job.status not in (dispy.DispyJob.Finished,
+                                         dispy.DispyJob.Cancelled,
+                                         dispy.DispyJob.Abandoned):
+                    if time.time() > deadline:
+                        print(' -- %s: test job timed out, skipping node' % node.name)
+                        return
+                    time.sleep(0.5)
 
                 self.result.append(job.result)
                 self.nodes.append(node)
 
-    def __init__(self, Config, check_gamit_tables=None, check_archive=True, check_executables=True, check_atx=True,
+    def __init__(self, Config,
+                 check_gamit_tables=None,
+                 check_archive=True,
+                 check_executables=True,
+                 check_atx=True,
                  run_parallel=True, software_sync=()):
         """
         initialize the jobserver
