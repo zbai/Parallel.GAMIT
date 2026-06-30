@@ -651,7 +651,9 @@ class EtmFit:
         windowed_mjd = solution_data.time_vector_mjd[mask]
         if windowed_mjd.size > 0:
             needs_reindex = False
-            for func in [f for f in design_matrix.functions if f.p.object == 'jump' and f.fit]:
+            for func in [f for f in design_matrix.functions
+                         if f.p.object == 'jump' and f.fit
+                         and f.p.jump_type != JumpType.POSTSEISMIC_ONLY]:
                 jump_mjd = func.date.mjd
                 if jump_mjd <= windowed_mjd.min():
                     logger.warning(f'Jump at {func.date.yyyyddd()} is at or before the start of the '
