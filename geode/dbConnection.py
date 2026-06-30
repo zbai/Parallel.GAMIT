@@ -252,19 +252,19 @@ def run_db_migrations(cnn: 'Cnn'):
         cnn.commit_transac()
 
     ##################################################################
-    # antenna_residuals for storing the residual values after DD processing
+    # gamit_antenna_residuals for storing the residual values after DD processing
 
     antenna_residuals = cnn.query_float("""
         SELECT EXISTS (
             SELECT FROM information_schema.tables 
             WHERE table_schema = 'public'
-            AND table_name = 'antenna_residuals');
+            AND table_name = 'gamit_antenna_residuals');
         """, as_dict=True)
 
     if not antenna_residuals[0]['exists']:
         cnn.begin_transac()
         cnn.query("""
-            CREATE TABLE antenna_residuals (
+            CREATE TABLE gamit_antenna_residuals (
                 network_code VARCHAR(3) NOT NULL,
                 station_code VARCHAR(4) NOT NULL,
                 project      VARCHAR(20),
@@ -275,7 +275,7 @@ def run_db_migrations(cnn: 'Cnn'):
                 antenna_code VARCHAR(22) NOT NULL,
                 radome_code  VARCHAR(7) NOT NULL,
                 residuals    DOUBLE PRECISION[91],  -- elevation-dependent residuals, index 1=0deg to 91=90deg
-                CONSTRAINT antenna_residuals_pkey 
+                CONSTRAINT gamit_antenna_residuals_pkey 
                     PRIMARY KEY (network_code, station_code, project, subnet, year, doy, system),
                 FOREIGN KEY (network_code, station_code) 
                     REFERENCES stations("NetworkCode", "StationCode") 
@@ -285,9 +285,48 @@ def run_db_migrations(cnn: 'Cnn'):
                     ON DELETE CASCADE
             ) WITH (
                 autovacuum_enabled = TRUE);
-            CREATE INDEX idx_antenna_residuals_station ON antenna_residuals(network_code, station_code);
-            CREATE INDEX idx_antenna_residuals_date ON antenna_residuals(year, doy);
-            CREATE INDEX idx_antenna_residuals_antenna ON antenna_residuals(antenna_code, radome_code);
+            CREATE INDEX idx_gamit_antenna_residuals_station ON gamit_antenna_residuals(network_code, station_code);
+            CREATE INDEX idx_gamit_antenna_residuals_date ON gamit_antenna_residuals(year, doy);
+            CREATE INDEX idx_gamit_antenna_residuals_antenna ON gamit_antenna_residuals(antenna_code, radome_code);
+                """)
+        cnn.commit_transac()
+
+    ##################################################################
+    # ppp_antenna_residuals for storing the residual values after PPP processing
+
+    antenna_residuals = cnn.query_float("""
+        SELECT EXISTS (
+            SELECT FROM information_schema.tables
+            WHERE table_schema = 'public'
+            AND table_name = 'ppp_antenna_residuals');
+        """, as_dict=True)
+
+    if not antenna_residuals[0]['exists']:
+        cnn.begin_transac()
+        cnn.query("""
+            CREATE TABLE ppp_antenna_residuals (
+                network_code VARCHAR(3) NOT NULL,
+                station_code VARCHAR(4) NOT NULL,
+                project      VARCHAR(20),
+                system       CHARACTER(1),
+                year         SMALLINT NOT NULL,
+                doy          SMALLINT NOT NULL,
+                antenna_code VARCHAR(22) NOT NULL,
+                radome_code  VARCHAR(7) NOT NULL,
+                residuals    DOUBLE PRECISION[91],  -- elevation-dependent residuals, index 1=0deg to 91=90deg
+                CONSTRAINT ppp_antenna_residuals_pkey
+                    PRIMARY KEY (network_code, station_code, project, year, doy, system),
+                FOREIGN KEY (network_code, station_code)
+                    REFERENCES stations("NetworkCode", "StationCode")
+                    ON DELETE CASCADE,
+                FOREIGN KEY (network_code, station_code, year, doy)
+                    REFERENCES ppp_soln("NetworkCode", "StationCode", "Year", "DOY")
+                    ON DELETE CASCADE
+            ) WITH (
+                autovacuum_enabled = TRUE);
+            CREATE INDEX idx_ppp_antenna_residuals_station ON ppp_antenna_residuals(network_code, station_code);
+            CREATE INDEX idx_ppp_antenna_residuals_date ON ppp_antenna_residuals(year, doy);
+            CREATE INDEX idx_ppp_antenna_residuals_antenna ON ppp_antenna_residuals(antenna_code, radome_code);
                 """)
         cnn.commit_transac()
 

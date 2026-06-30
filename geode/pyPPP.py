@@ -215,6 +215,9 @@ class RunPPP(PPPSpatialCheck):
         self.summary       = ''
         self.pos           = ''
 
+        self.elevation_bins      = None
+        self.elevation_residuals = None
+
         assert isinstance(in_rinex, pyRinex.ReadRinex)
 
         # DDG: if RINEX 3 version, convert to RINEX 2 (no PPP support)
@@ -645,6 +648,65 @@ class RunPPP(PPPSpatialCheck):
             self.z -= dz[0]
             self.lat, self.lon, self.h = ecef2lla([self.x, self.y, self.z])
 
+    def parse_res_file(self):
+        """
+        Parse the PPP .res file and compute mean phase residuals (VCP column)
+        binned by 1-degree elevation intervals, using BWD (backward substitution)
+        epochs only.  Bins with no observations are set to NaN.
+
+        Populates:
+            self.elevation_bins      : numpy integer array [0, 1, ..., 90] (degrees)
+            self.elevation_residuals : numpy float array, mean VCP per 1-degree bin
+        """
+        if not os.path.isfile(self.path_res_file):
+            return
+
+        bwd_elev, bwd_res = [], []
+        fwd_elev, fwd_res = [], []
+
+        for line in file_readlines(self.path_res_file):
+            direction = line[:3]
+            if direction not in ('BWD', 'FWD'):
+                continue
+            parts = line.split()
+            if len(parts) < 9:
+                continue
+            try:
+                elev = float(parts[6])  # ELV column (7th field, 0-indexed)
+                res  = float(parts[8])  # VCP column (9th field, 0-indexed)
+            except ValueError:
+                continue
+            if direction == 'BWD':
+                bwd_elev.append(elev)
+                bwd_res.append(res)
+            else:
+                fwd_elev.append(elev)
+                fwd_res.append(res)
+
+        # prefer BWD; fall back to FWD if no backward substitution was performed
+        elevations = bwd_elev if bwd_elev else fwd_elev
+        residuals  = bwd_res  if bwd_elev else fwd_res
+
+        if not elevations:
+            return
+
+        elevations = numpy.array(elevations)
+        residuals  = numpy.array(residuals)
+
+        # round to nearest integer degree and clamp to 0..90
+        elev_bin = numpy.clip(numpy.round(elevations).astype(int), 0, 90)
+
+        bins  = numpy.arange(0, 91)
+        means = numpy.full(91, numpy.nan)
+
+        for deg in bins:
+            mask = elev_bin == deg
+            if numpy.any(mask):
+                means[deg] = numpy.nanmean(residuals[mask])
+
+        self.elevation_bins      = bins
+        self.elevation_residuals = means
+
     def __exec_ppp__(self, raise_error=True):
 
         try:
@@ -732,6 +794,7 @@ class RunPPP(PPPSpatialCheck):
             self.config_session()
 
         self.load_record()
+        self.parse_res_file()
 
     def load_record(self):
 

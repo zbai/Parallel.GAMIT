@@ -6,6 +6,8 @@ import os
 import re
 import shutil
 
+import numpy
+
 # app
 from geode import pyRinex
 from geode import pyPPP
@@ -84,6 +86,10 @@ def main():
                         help='Copy the output files (.ses, .sum, .res, .pos) to [storage_dir]. A folder with the '
                              'station name will be created in [storage_dir].')
 
+    parser.add_argument('-res', '--residuals', action='store_true', default=False,
+                        help="Save elevation-dependent phase residuals to [station]_[doy]_residuals.txt "
+                             "in the current working directory. Uses BWD epochs if available, otherwise FWD.")
+
     parser.add_argument('-nocfg', '--no_config_file', type=str, nargs=3,
                         metavar=('sp3_directory', 'sp3_types', 'brdc_directory'),
                         help='Do not attempt to open gnss_data.cfg. Append [sp3_directory], [sp3_types] '
@@ -146,7 +152,8 @@ def main():
                 for rnx in rnx_days:
                     execute_ppp(rnx, args, stnm, options, sp3types, (), brdc_path, erase,
                                 not args.no_met, args.decimate, args.fix_coordinate, args.solve_troposphere,
-                                args.copy_results, args.backward_substitution, args.elevation_mask, args.code_only)
+                                args.copy_results, args.backward_substitution, args.elevation_mask, args.code_only,
+                                args.residuals)
 
         except pyRinex.pyRinexException as e:
             print(str(e))
@@ -155,7 +162,7 @@ def main():
 
 def execute_ppp(rinexinfo, args, stnm, options, sp3types, sp3altrn, brdc_path, erase, apply_met=True, decimate=True,
                 fix_coordinate=None, solve_troposphere=105, copy_results=None, backward_substitution=False,
-                elevation_mask=5, code_only=False):
+                elevation_mask=5, code_only=False, save_residuals=False):
 
     # put the correct APR coordinates in the header.
     # stninfo = pyStationInfo.StationInfo(None, allow_empty=True)
@@ -223,6 +230,14 @@ def execute_ppp(rinexinfo, args, stnm, options, sp3types, sp3altrn, brdc_path, e
                            observations=pyPPP.OBSERV_CODE_ONLY if code_only else pyPPP.OBSERV_CODE_PHASE)
 
         ppp.exec_ppp()
+
+        if save_residuals and ppp.elevation_residuals is not None:
+            fname = '%s_%03i_residuals.txt' % (stnm, rinexinfo.date.doy)
+            numpy.savetxt(fname,
+                          numpy.column_stack((ppp.elevation_bins, ppp.elevation_residuals)),
+                          fmt=['%3i', '%14.6f'],
+                          header='elev_deg  mean_vcp_mm')
+            print('Residuals saved to %s' % fname)
 
         if not ppp.check_phase_center(ppp.proc_parameters):
             print('WARNING: phase center parameters not found for declared antenna!')
