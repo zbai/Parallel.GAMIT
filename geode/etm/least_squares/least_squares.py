@@ -644,6 +644,28 @@ class EtmFit:
         # get mask for least squares collocation and prefit models
         mask = self.config.modeling.get_observation_mask(solution_data.time_vector)
 
+        # Deactivate jumps that fall entirely outside the fit window before building the
+        # design matrix. A jump at or before the first windowed observation produces an
+        # all-ones column (collinear with the polynomial constant); a jump at or after the
+        # last produces an all-zeros column. Both cause rank deficiency.
+        windowed_mjd = solution_data.time_vector_mjd[mask]
+        if windowed_mjd.size > 0:
+            needs_reindex = False
+            for func in [f for f in design_matrix.functions if f.p.object == 'jump' and f.fit]:
+                jump_mjd = func.date.mjd
+                if jump_mjd <= windowed_mjd.min():
+                    logger.warning(f'Jump at {func.date.yyyyddd()} is at or before the start of the '
+                                   f'fit window — deactivating (effect absorbed by polynomial offset)')
+                    func.fit = False
+                    needs_reindex = True
+                elif jump_mjd >= windowed_mjd.max():
+                    logger.warning(f'Jump at {func.date.yyyyddd()} is at or after the end of the '
+                                   f'fit window — deactivating (no observations to constrain it)')
+                    func.fit = False
+                    needs_reindex = True
+            if needs_reindex:
+                design_matrix._assign_column_indices()
+
         # transform solutions to NEU
         neu = solution_data.transform_to_local()
 

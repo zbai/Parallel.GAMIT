@@ -209,7 +209,12 @@ class EtmEngine:
             # check for reference frame changes
             self._check_reference_frame_jumps()
 
-        self.jump_manager.build_jump_table(self.solution_data.time_vector[mask],
+        # Pass the full time vector so every JumpFunction.design has consistent shape.
+        # _check_reference_frame_jumps() also uses the full time vector; mixing windowed
+        # and full vectors causes shape mismatches in JumpFunction.__eq__() (xor comparison).
+        # The fit-window filtering uses date_min/date_max from JumpManager.__init__, which
+        # already accounts for the window via get_observation_mask.
+        self.jump_manager.build_jump_table(self.solution_data.time_vector,
                                            self.solution_data.transform_to_local())
 
         if config.solution.solution_type == SolutionType.DRA:
