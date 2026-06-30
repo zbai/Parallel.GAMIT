@@ -573,6 +573,27 @@ def execute_ppp(record, rinex_path, h_tolerance):
 
                         # insert record in DB
                         cnn.insert('ppp_soln', **ppp.record)
+
+                        if ppp.elevation_residuals is not None:
+                            try:
+                                cnn.insert('ppp_antenna_residuals',
+                                           network_code = NetworkCode,
+                                           station_code = StationCode,
+                                           year         = int(year),
+                                           doy          = int(doy),
+                                           antenna_code = stninfo.current_record.AntennaCode.strip(),
+                                           radome_code  = stninfo.current_record.RadomeCode.strip(),
+                                           residuals    = ppp.elevation_residuals.tolist())
+                            except Exception as e:
+                                event = pyEvents.Event(
+                                    Description = 'Failed to insert PPP antenna residuals: %s' % str(e),
+                                    NetworkCode = NetworkCode,
+                                    StationCode = StationCode,
+                                    EventType   = 'warn',
+                                    Year        = int(year),
+                                    DOY         = int(doy))
+                                cnn.insert_event(event)
+
                         # DDG: Eric's request to generate a date of PPP solution
                         event = pyEvents.Event(Description = 'A new PPP solution was created for frame ' + ppp.frame,
                                                NetworkCode = NetworkCode,
@@ -869,7 +890,7 @@ def process_ppp(cnn, Config, pyArchive, archive_path, JobServer, master_list, sd
 
     modules = ('geode.dbConnection', 'geode.pyRinex', 'geode.pyPPP', 'geode.metadata.station_info', 'geode.pyDate',
                'geode.pyProducts', 'os', 'platform', 'geode.pyArchiveStruct', 'traceback', 'geode.pyOptions',
-               'geode.pyEvents', 'geode.Utils')
+               'geode.pyEvents', 'geode.Utils', 'numpy')
 
     depfuncs = (remove_from_archive, verify_rinex_date_multiday)
 

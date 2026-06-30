@@ -307,7 +307,6 @@ def run_db_migrations(cnn: 'Cnn'):
             CREATE TABLE ppp_antenna_residuals (
                 network_code VARCHAR(3) NOT NULL,
                 station_code VARCHAR(4) NOT NULL,
-                project      VARCHAR(20),
                 system       CHARACTER(1),
                 year         SMALLINT NOT NULL,
                 doy          SMALLINT NOT NULL,
@@ -315,7 +314,7 @@ def run_db_migrations(cnn: 'Cnn'):
                 radome_code  VARCHAR(7) NOT NULL,
                 residuals    DOUBLE PRECISION[91],  -- elevation-dependent residuals, index 1=0deg to 91=90deg
                 CONSTRAINT ppp_antenna_residuals_pkey
-                    PRIMARY KEY (network_code, station_code, project, year, doy, system),
+                    PRIMARY KEY (network_code, station_code, year, doy),
                 FOREIGN KEY (network_code, station_code)
                     REFERENCES stations("NetworkCode", "StationCode")
                     ON DELETE CASCADE,
