@@ -43,6 +43,8 @@ class AdjustmentResults(BaseDataClass):
     stochastic_signal: np.ndarray = 0
     spectral_index_random_noise: float = 0
     spectral_index_stochastic_noise: float = 0
+    periodogram_frequencies: np.ndarray = field(default_factory=lambda: np.array([]))
+    periodogram_amplitudes: np.ndarray = field(default_factory=lambda: np.array([]))
     variance_factor: float = 0
     wrms: float = 0
     obs_sigmas: np.ndarray = field(default_factory=lambda: np.array([]))
@@ -57,7 +59,7 @@ class AdjustmentResults(BaseDataClass):
         # Convert lists to numpy arrays if needed
         array_fields = ['parameters', 'parameter_sigmas', 'residuals', 'empirical_covariance',
                         'covariance_function_params', 'stochastic_signal', 'obs_sigmas', 'covariance_matrix',
-                        'outlier_flags']
+                        'outlier_flags', 'periodogram_frequencies', 'periodogram_amplitudes']
         for field_name in array_fields:
             value = getattr(self, field_name)
             if isinstance(value, list):

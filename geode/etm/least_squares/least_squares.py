@@ -111,7 +111,7 @@ class AdjustmentStrategy(ABC):
         # Linear fit to the LogLog spectrum plot
         fit_psd = np.polyfit(np.log10(fvec), np.log10(pxx), 1)
 
-        return fit_psd[0]  # Slope (spectral index)
+        return fit_psd[0], fvec, pxx  # spectral index, frequency vector, amplitude vector
 
 
 class WhiteNoise(WeightBuilder):
@@ -423,8 +423,10 @@ class RobustLeastSquares(AdjustmentStrategy):
         results.obs_sigmas = np.sqrt(1 / np.diag(weights.matrix))
 
         # compute spectral index of residuals
-        si = self.compute_plomb(results.residuals[results.outlier_flags], time_vector_mjd[results.outlier_flags])
-        results.spectral_index_random_noise = si
+        si, fvec, pxx = self.compute_plomb(results.residuals[results.outlier_flags], time_vector_mjd[results.outlier_flags])
+        results.spectral_index_random_noise  = si
+        results.periodogram_frequencies      = fvec
+        results.periodogram_amplitudes       = pxx
         logger.info(f'Spectral index of residuals: {si:.4f}')
 
         # declare the origin of the fit
@@ -495,11 +497,13 @@ class LeastSquaresCollocation(AdjustmentStrategy):
         results.outlier_flags = s <= limit
 
         # compute spectral index of residuals
-        si = self.compute_plomb(results.residuals[results.outlier_flags], time_vector_mjd[results.outlier_flags])
-        results.spectral_index_random_noise = si
+        si, fvec, pxx = self.compute_plomb(results.residuals[results.outlier_flags], time_vector_mjd[results.outlier_flags])
+        results.spectral_index_random_noise  = si
+        results.periodogram_frequencies      = fvec
+        results.periodogram_amplitudes       = pxx
         logger.info(f'Spectral index of residuals: {si:.4f}')
 
-        si = self.compute_plomb(results.stochastic_signal, time_vector_cont_mjd)
+        si, _, _ = self.compute_plomb(results.stochastic_signal, time_vector_cont_mjd)
         results.spectral_index_stochastic_noise = si
         logger.info(f'Spectral index of stochastic noise: {si:.4f}')
 
