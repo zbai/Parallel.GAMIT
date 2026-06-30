@@ -373,7 +373,9 @@ class EtmEngine:
                        json.dumps(etm_dump, indent=4, sort_keys=False, cls=EtmEncoder,
                                   round_digits=6, no_round_fields=['covariance', 'parameter_sigmas',
                                                                    'parameters', 'covariance_matrix',
-                                                                   'lat', 'lon', 'params', 'sigmas']))
+                                                                   'lat', 'lon', 'params', 'sigmas',
+                                                                   'periodogram_frequencies',
+                                                                   'periodogram_amplitudes']))
 
             #binary_data = bson.encode(etm_dump, cls)
             #with open(filename + '.bson', 'wb') as f:
