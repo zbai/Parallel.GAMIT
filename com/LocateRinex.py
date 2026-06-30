@@ -232,7 +232,7 @@ def execute_ppp(rinexinfo, args, stnm, options, sp3types, sp3altrn, brdc_path, e
         ppp.exec_ppp()
 
         if save_residuals and ppp.elevation_residuals is not None:
-            fname = '%s_%03i_residuals.txt' % (stnm, rinexinfo.date.doy)
+            fname = '%s_%i_%03i_residuals.txt' % (stnm, rinexinfo.date.year, rinexinfo.date.doy)
             numpy.savetxt(fname,
                           numpy.column_stack((ppp.elevation_bins, ppp.elevation_residuals)),
                           fmt=['%3i', '%14.6f'],
