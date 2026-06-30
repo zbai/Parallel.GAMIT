@@ -305,21 +305,22 @@ def run_db_migrations(cnn: 'Cnn'):
         cnn.begin_transac()
         cnn.query("""
             CREATE TABLE ppp_antenna_residuals (
-                network_code VARCHAR(3) NOT NULL,
-                station_code VARCHAR(4) NOT NULL,
-                system       CHARACTER(1),
-                year         SMALLINT NOT NULL,
-                doy          SMALLINT NOT NULL,
-                antenna_code VARCHAR(22) NOT NULL,
-                radome_code  VARCHAR(7) NOT NULL,
-                residuals    DOUBLE PRECISION[91],  -- elevation-dependent residuals, index 1=0deg to 91=90deg
+                network_code    VARCHAR(3)  NOT NULL,
+                station_code    VARCHAR(4)  NOT NULL,
+                reference_frame VARCHAR(20) NOT NULL,
+                system          CHARACTER(1),
+                year            SMALLINT NOT NULL,
+                doy             SMALLINT NOT NULL,
+                antenna_code    VARCHAR(22) NOT NULL,
+                radome_code     VARCHAR(7)  NOT NULL,
+                residuals       DOUBLE PRECISION[91],  -- elevation-dependent residuals, index 1=0deg to 91=90deg
                 CONSTRAINT ppp_antenna_residuals_pkey
-                    PRIMARY KEY (network_code, station_code, year, doy),
+                    PRIMARY KEY (network_code, station_code, year, doy, reference_frame),
                 FOREIGN KEY (network_code, station_code)
                     REFERENCES stations("NetworkCode", "StationCode")
                     ON DELETE CASCADE,
-                FOREIGN KEY (network_code, station_code, year, doy)
-                    REFERENCES ppp_soln("NetworkCode", "StationCode", "Year", "DOY")
+                FOREIGN KEY (network_code, station_code, year, doy, reference_frame)
+                    REFERENCES ppp_soln("NetworkCode", "StationCode", "Year", "DOY", "ReferenceFrame")
                     ON DELETE CASCADE
             ) WITH (
                 autovacuum_enabled = TRUE);

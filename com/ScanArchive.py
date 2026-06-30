@@ -577,13 +577,14 @@ def execute_ppp(record, rinex_path, h_tolerance):
                         if ppp.elevation_residuals is not None:
                             try:
                                 cnn.insert('ppp_antenna_residuals',
-                                           network_code = NetworkCode,
-                                           station_code = StationCode,
-                                           year         = int(year),
-                                           doy          = int(doy),
-                                           antenna_code = stninfo.current_record.AntennaCode.strip(),
-                                           radome_code  = stninfo.current_record.RadomeCode.strip(),
-                                           residuals    = ppp.elevation_residuals.tolist())
+                                           network_code    = NetworkCode,
+                                           station_code    = StationCode,
+                                           reference_frame = ppp.record['ReferenceFrame'],
+                                           year            = int(year),
+                                           doy             = int(doy),
+                                           antenna_code    = stninfo.current_record.AntennaCode.strip(),
+                                           radome_code     = stninfo.current_record.RadomeCode.strip(),
+                                           residuals       = ppp.elevation_residuals.tolist())
                             except Exception as e:
                                 event = pyEvents.Event(
                                     Description = 'Failed to insert PPP antenna residuals: %s' % str(e),
