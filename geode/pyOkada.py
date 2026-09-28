@@ -322,22 +322,28 @@ class Score(object):
         self.c_mx = np.array([])
         self.c_my = np.array([])
         self.c_mask = np.array([])
+        self.c_score = np.array([])
 
         self.p_mx = np.array([])
         self.p_my = np.array([])
         self.p_mask = np.array([])
+        self.p_score = np.array([])
 
         far_field_scale = 25
         xmax = np.ceil(self.along_strike_l) * far_field_scale
         self.gx, self.gy = np.meshgrid(np.linspace(-xmax, xmax, density), np.linspace(-xmax, xmax, density))
 
         if len(self.strike):
-            self.c_mx, self.c_my, self.c_mask = self.compute_disp_field()
-            self.p_mx, self.p_my, self.p_mask = self.compute_disp_field(POST_SEISMIC_SCALE_FACTOR)
+            self.c_mx, self.c_my, self.c_mask, self.c_score = self.compute_disp_field()
+            self.p_mx, self.p_my, self.p_mask, self.p_score = self.compute_disp_field(POST_SEISMIC_SCALE_FACTOR)
         else:
             # if not strike information, produce a mask using the L1 S-score only
             self.c_mask = np.sqrt(np.square(self.gx) + np.square(self.gy)) < (self.dmax * 1000.)
             self.p_mask = np.sqrt(np.square(self.gx) + np.square(self.gy)) < (POST_SEISMIC_SCALE_FACTOR * (self.dmax * 1000.))
+
+            # compute the actual s-scores values and save them
+            self.c_score = a * self.mag - np.log10(np.sqrt(np.square(self.gx) + np.square(self.gy))) + b
+            self.p_score = a * self.mag - np.log10(POST_SEISMIC_SCALE_FACTOR * np.sqrt(np.square(self.gx) + np.square(self.gy))) + b
 
             self.c_mx = self.gx / 1000.
             self.c_my = self.gy / 1000.
@@ -367,15 +373,17 @@ class Score(object):
 
         ref_scale = []
         U = np.zeros_like(self.gx, dtype=bool)
+        d = np.zeros_like(self.gx)
 
         for depth in self.depth:
             # no need to save the mask for the zero depth, since it is only for the reference scale
             U = np.zeros_like(self.gx, dtype=bool)
-
+            d = np.zeros_like(self.gx)
+            i = 0
             for strike, dip, rake in zip(self.strike, self.dip, self.rake):
                 # check depth of fault edge (add 500 meters for security factor)
                 d2 = depth - (W2 * sind(dip) + 500)
-
+                i += 1
                 if d2 < 0:
                     # fault is sticking out of the ground! reduce depth
                     depth = depth - d2
@@ -396,7 +404,13 @@ class Score(object):
                 u = np.reshape(u, self.gx.shape)
 
                 # create the mask
-                U = np.logical_or((np.sqrt(np.square(n) + np.square(e) + np.square(u)) >= limit), U)
+                disp = np.sqrt(np.square(n) + np.square(e) + np.square(u))
+                U = np.logical_or((disp >= limit), U)
+                # save the displacement field (average over nodal planes, when there is more than one)
+                if i > 1:
+                    d = np.mean(np.stack((d, disp)), axis=0)
+                else:
+                    d = disp
             # print(U)
             # print(np.max(np.sqrt(np.square(self.gx[U]) + np.square(self.gy[U]))))
             # compute the deformation field scale
@@ -409,9 +423,9 @@ class Score(object):
         mx = self.gx / np.max(ref_scale) * self.dmax * scale_factor
         my = self.gy / np.max(ref_scale) * self.dmax * scale_factor
         # print(ref_scale)
-        return mx, my, U
+        return mx, my, U, (d - limit)
 
-    def score(self, lat, lon):
+    def score_values(self, lat, lon):
         # determine if lat lon within the mask, or determine score for station
         # convert lat lon to mask coordinates
         c = np.arccos(sind(self.lat) * sind(lat) + cosd(self.lat) * cosd(lat) * cosd(lon - self.lon))
@@ -426,13 +440,23 @@ class Score(object):
             # if mask is available, use mask
             _, i = self.kd_c.query(qp)
             s_score = self.c_mask.flatten()[i] + 0
+            c_value = self.c_score.flatten()[i] + 0
 
             # repeat, this time inflating the level-2 mask to get the postseismic
             _, i = self.kd_p.query(qp)
             p_score = self.p_mask.flatten()[i] + 0
+            p_value = self.p_score.flatten()[i] + 0
         else:
             s_score = a * self.mag - np.log10(np.sqrt(np.square(x) + np.square(y))) + b
             p_score = 0
+            c_value = s_score
+            p_value = p_score
+
+        return s_score, p_score, c_value, p_value
+
+    def score(self, lat, lon):
+        # backward compatibility, only output the s_score and p_score
+        s_score, p_score, _, _ = self.score_values(lat, lon)
 
         return s_score, p_score
 
